@@ -23,6 +23,7 @@ import io.crewscope.infrastructure.event.projection.AuditEventProjector;
 import io.crewscope.infrastructure.persistence.event.JdbcDomainEventStore;
 import io.crewscope.infrastructure.persistence.event.JdbcOutboxRepository;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -32,8 +33,6 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -43,7 +42,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** Atomic Audit/Outbox, exact-version and idempotency tests for M6-I02 recovery. */
 @SpringBootTest(
-        classes = JdbcOperationsRecoveryRepositoryM6I02IntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -341,8 +340,4 @@ class JdbcOperationsRecoveryRepositoryM6I02IntegrationTest
     private int count(String table) {
         return jdbc.queryForObject("SELECT COUNT(*) FROM crewscope." + table, Integer.class);
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestApplication {}
 }

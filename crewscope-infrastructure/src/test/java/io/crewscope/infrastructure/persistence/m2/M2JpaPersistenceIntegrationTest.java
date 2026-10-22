@@ -142,23 +142,8 @@ import io.crewscope.domain.workitem.WorkProjectKey;
 import io.crewscope.domain.workitem.WorkProjectScope;
 import io.crewscope.domain.workitem.WorkProjectStatus;
 import io.crewscope.domain.workspace.AgentProfileId;
-import io.crewscope.infrastructure.persistence.command.JdbcCommandReceiptStore;
-import io.crewscope.infrastructure.persistence.conversation.ConversationPersistenceMapper;
-import io.crewscope.infrastructure.persistence.conversation.JpaAgentRuntimeSessionRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.conversation.JpaConversationRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.conversation.JdbcConversationEventRepository;
-import io.crewscope.infrastructure.persistence.event.JdbcDomainEventStore;
-import io.crewscope.infrastructure.persistence.event.JdbcOutboxRepository;
-import io.crewscope.infrastructure.persistence.provider.JpaProviderRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.provider.ProviderPersistenceMapper;
-import io.crewscope.infrastructure.persistence.responsibility.JpaResponsibilityAssignmentRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.responsibility.ResponsibilityPersistenceMapper;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkItemRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkProjectRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.WorkItemEntityMapper;
-import io.crewscope.infrastructure.persistence.workitem.WorkPersistenceMapper;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
@@ -177,18 +162,14 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** Proves M2 mappings, locks, idempotency, keysets and Scope queries on PostgreSQL. */
 @SpringBootTest(
-        classes = M2JpaPersistenceIntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -2073,27 +2054,4 @@ class M2JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
     }
 
     private static final class SimulatedMessageOutboxFailure extends RuntimeException {}
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @EntityScan(basePackages = "io.crewscope.infrastructure.persistence")
-    @Import({
-        JpaConversationRepositoryAdapter.class,
-        JdbcConversationEventRepository.class,
-        JpaAgentRuntimeSessionRepositoryAdapter.class,
-        ConversationPersistenceMapper.class,
-        JdbcDomainEventStore.class,
-        JdbcOutboxRepository.class,
-        JdbcCommandReceiptStore.class,
-        SpringTransactionExecutor.class,
-        JpaProviderRepositoryAdapter.class,
-        ProviderPersistenceMapper.class,
-        JpaWorkProjectRepositoryAdapter.class,
-        WorkPersistenceMapper.class,
-        JpaWorkItemRepositoryAdapter.class,
-        WorkItemEntityMapper.class,
-        JpaResponsibilityAssignmentRepositoryAdapter.class,
-        ResponsibilityPersistenceMapper.class
-    })
-    static class TestApplication {}
 }

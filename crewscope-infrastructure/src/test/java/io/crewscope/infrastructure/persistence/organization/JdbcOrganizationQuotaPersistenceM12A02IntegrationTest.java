@@ -12,8 +12,8 @@ import io.crewscope.domain.organization.quota.OrganizationQuotaConfiguration;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
-import io.crewscope.infrastructure.persistence.taskruntime.JdbcOrganizationTaskIntakeQuotaCounterAdapter;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedPersistenceTestApplication;
 import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
 import java.time.Instant;
 import java.util.UUID;
@@ -25,10 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.IllegalTransactionStateException;
 
@@ -38,7 +35,7 @@ import org.springframework.transaction.IllegalTransactionStateException;
  * upsert/lock/CAS reservation chain with month independence and no lost updates.
  */
 @SpringBootTest(
-        classes = JdbcOrganizationQuotaPersistenceM12A02IntegrationTest.TestApplication.class,
+        classes = SharedPersistenceTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -365,15 +362,4 @@ class JdbcOrganizationQuotaPersistenceM12A02IntegrationTest
                 UUID.randomUUID(), organizationId.value(), teamId, workspaceId, projectId,
                 workItemId, snapshotId, at, principalId.value(), at, principalId.value());
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import({
-        JdbcOrganizationQuotaConfigurationRepositoryAdapter.class,
-        JdbcOrganizationTaskIntakeQuotaCounterAdapter.class,
-        JdbcOrganizationTokenBudgetLedgerAdapter.class,
-        JdbcOrganizationQuotaUsageQueryRepositoryAdapter.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }

@@ -38,6 +38,7 @@ import io.crewscope.infrastructure.persistence.audit.JdbcAuditQueryAdapter;
 import io.crewscope.infrastructure.persistence.correlation.JdbcCorrelationQueryAdapter;
 import io.crewscope.infrastructure.persistence.operations.JdbcOperationsHealthQueryAdapter;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -48,8 +49,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -59,7 +58,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** Real PostgreSQL keyset, Generation and tenant-isolation contract for M6-I01 readers. */
 @SpringBootTest(
-        classes = JdbcQueryAdaptersM6I01IntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -509,8 +508,4 @@ class JdbcQueryAdaptersM6I01IntegrationTest
             operation.run();
         });
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestApplication {}
 }

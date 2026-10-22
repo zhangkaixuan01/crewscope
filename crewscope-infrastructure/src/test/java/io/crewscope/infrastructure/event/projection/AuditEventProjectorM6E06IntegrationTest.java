@@ -12,6 +12,7 @@ import io.crewscope.domain.projection.ProjectionSnapshot;
 import io.crewscope.domain.shared.event.EventActorType;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
@@ -19,8 +20,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -31,7 +30,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 /** PostgreSQL contract for the M6-E06 safe append-only Audit projector. */
 @SpringBootTest(
-        classes = AuditEventProjectorM6E06IntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -482,8 +481,4 @@ class AuditEventProjectorM6E06IntegrationTest
     private TransactionTemplate transaction() {
         return new TransactionTemplate(transactionManager);
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestApplication {}
 }

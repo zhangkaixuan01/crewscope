@@ -21,8 +21,8 @@ import io.crewscope.infrastructure.event.projection.JdbcProjectionGenerationRegi
 import io.crewscope.infrastructure.event.projection.NotificationIntentProjector;
 import io.crewscope.infrastructure.event.projection.ProjectionEventJsonMapper;
 import io.crewscope.infrastructure.persistence.taskruntime.JdbcTaskExecutionQueueRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.taskruntime.TaskRuntimePersistenceMapper;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
@@ -57,10 +57,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -77,7 +74,7 @@ import tools.jackson.databind.ObjectMapper;
 @Tag("integration")
 @Execution(ExecutionMode.SAME_THREAD)
 @SpringBootTest(
-        classes = ProductionQueueProjectionLoadM6Q03IntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -759,12 +756,4 @@ class ProductionQueueProjectionLoadM6Q03IntegrationTest
             };
         }
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import({
-        TaskRuntimePersistenceMapper.class,
-        JdbcTaskExecutionQueueRepositoryAdapter.class
-    })
-    static class TestApplication {}
 }

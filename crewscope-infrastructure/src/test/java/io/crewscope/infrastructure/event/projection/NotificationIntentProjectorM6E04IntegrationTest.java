@@ -28,6 +28,7 @@ import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -36,8 +37,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -46,7 +45,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** PostgreSQL contract for M6-E04 fixed-template intent planning and failure Inbox closure. */
 @SpringBootTest(
-        classes = NotificationIntentProjectorM6E04IntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -662,8 +661,4 @@ class NotificationIntentProjectorM6E04IntegrationTest
             UUID grantId,
             UUID bindingId,
             UUID tenantId) {}
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestApplication {}
 }

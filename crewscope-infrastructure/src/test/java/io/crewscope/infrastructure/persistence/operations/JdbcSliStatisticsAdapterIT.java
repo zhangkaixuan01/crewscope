@@ -10,6 +10,7 @@ import io.crewscope.application.observability.sli.SliQueueingSnapshot;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -19,8 +20,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -34,7 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * prohibitively deep for a fixture and the query is the same shape as the execution leg.
  */
 @SpringBootTest(
-        classes = JdbcSliStatisticsAdapterIT.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -406,8 +405,4 @@ class JdbcSliStatisticsAdapterIT extends AbstractPostgresRedisContainerIntegrati
     private static OffsetDateTime atUtc(Instant instant) {
         return instant.atOffset(ZoneOffset.UTC);
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestApplication {}
 }

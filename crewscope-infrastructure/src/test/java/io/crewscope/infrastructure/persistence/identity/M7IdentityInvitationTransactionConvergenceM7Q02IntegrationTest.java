@@ -55,22 +55,8 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.BuiltInTeamRole;
 import io.crewscope.domain.team.InvitationTokenDigest;
 import io.crewscope.domain.team.TeamInitialization;
-import io.crewscope.infrastructure.persistence.JpaPersistenceConfiguration;
-import io.crewscope.infrastructure.persistence.command.JdbcCommandReceiptStore;
-import io.crewscope.infrastructure.persistence.event.JdbcDomainEventStore;
-import io.crewscope.infrastructure.persistence.event.JdbcOutboxRepository;
-import io.crewscope.infrastructure.persistence.team.JpaAgentProfileRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaMemberRoleRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaPrincipalRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamMemberRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamRoleRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaWorkspaceRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JdbcTeamInvitationRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.TeamInvitationPersistenceMapper;
-import io.crewscope.infrastructure.persistence.team.TeamPersistenceMapper;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -90,16 +76,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Real PostgreSQL proof for M7-Q02 identity, invitation and commit-window convergence. */
 @SpringBootTest(
-        classes = M7IdentityInvitationTransactionConvergenceM7Q02IntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -613,30 +595,4 @@ class M7IdentityInvitationTransactionConvergenceM7Q02IntegrationTest
             super("Injected M7-Q02 process failure at " + window);
         }
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @EntityScan(basePackageClasses = JpaPersistenceConfiguration.class)
-    @Import({
-        IdentityPersistenceMapper.class,
-        JdbcUserAccountRepositoryAdapter.class,
-        JdbcLoginIdentityRepositoryAdapter.class,
-        JdbcLocalCredentialStoreAdapter.class,
-        JdbcAccountOrganizationBindingRepositoryAdapter.class,
-        TeamPersistenceMapper.class,
-        JpaPrincipalRepositoryAdapter.class,
-        JpaTeamRepositoryAdapter.class,
-        JpaWorkspaceRepositoryAdapter.class,
-        JpaTeamMemberRepositoryAdapter.class,
-        JpaTeamRoleRepositoryAdapter.class,
-        JpaMemberRoleRepositoryAdapter.class,
-        JpaAgentProfileRepositoryAdapter.class,
-        TeamInvitationPersistenceMapper.class,
-        JdbcTeamInvitationRepositoryAdapter.class,
-        JdbcDomainEventStore.class,
-        JdbcOutboxRepository.class,
-        JdbcCommandReceiptStore.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }

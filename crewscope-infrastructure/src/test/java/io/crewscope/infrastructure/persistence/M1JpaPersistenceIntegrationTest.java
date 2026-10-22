@@ -130,35 +130,10 @@ import io.crewscope.domain.workspace.PersonalAgentInitialization;
 import io.crewscope.domain.workspace.Workspace;
 import io.crewscope.domain.workspace.WorkspaceScope;
 import io.crewscope.domain.workspace.WorkspaceStatus;
-import io.crewscope.infrastructure.persistence.command.JdbcCommandReceiptStore;
-import io.crewscope.infrastructure.persistence.event.JdbcDomainEventStore;
-import io.crewscope.infrastructure.persistence.event.JdbcOutboxRepository;
-import io.crewscope.infrastructure.persistence.identity.IdentityPersistenceMapper;
-import io.crewscope.infrastructure.persistence.identity.JdbcAccountOrganizationBindingRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.identity.JdbcLoginIdentityRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.identity.JdbcUserAccountRepositoryAdapter;
 import io.crewscope.infrastructure.persistence.provider.JpaProviderRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.provider.ProviderPersistenceMapper;
-import io.crewscope.infrastructure.persistence.responsibility.JpaResponsibilityAssignmentRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.responsibility.ResponsibilityPersistenceMapper;
-import io.crewscope.infrastructure.persistence.team.JpaAgentProfileRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaMemberRoleRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaPrincipalRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamMemberRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamRoleRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaWorkspaceRepositoryAdapter;
 import io.crewscope.infrastructure.persistence.team.TeamInitializationRequiredException;
-import io.crewscope.infrastructure.persistence.team.TeamPersistenceMapper;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkItemCommentRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkItemRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkItemResourceLinkRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.JdbcWorkItemTimelineRepository;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkProjectRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.WorkItemEntityMapper;
-import io.crewscope.infrastructure.persistence.workitem.WorkPersistenceMapper;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Optional;
@@ -172,16 +147,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Proves the complete M1 persistence graph against migrated PostgreSQL. */
 @SpringBootTest(
-    classes = M1JpaPersistenceIntegrationTest.TestApplication.class,
+    classes = SharedJpaTestApplication.class,
     properties = {
       "spring.flyway.schemas=crewscope",
       "spring.flyway.default-schema=crewscope",
@@ -2561,38 +2532,4 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
 
   private record Foundation(
       OrganizationId organizationId, Principal creator, TeamInitialization initialization) {}
-
-  @SpringBootConfiguration
-  @EnableAutoConfiguration
-  @EntityScan(basePackageClasses = JpaPersistenceConfiguration.class)
-  @Import({
-    TeamPersistenceMapper.class,
-    JpaTeamRepositoryAdapter.class,
-    JpaWorkspaceRepositoryAdapter.class,
-    JpaTeamMemberRepositoryAdapter.class,
-    JpaTeamRoleRepositoryAdapter.class,
-    JpaMemberRoleRepositoryAdapter.class,
-    JpaPrincipalRepositoryAdapter.class,
-    JpaAgentProfileRepositoryAdapter.class,
-    JdbcDomainEventStore.class,
-    JdbcOutboxRepository.class,
-    JdbcCommandReceiptStore.class,
-    WorkPersistenceMapper.class,
-    WorkItemEntityMapper.class,
-    JpaWorkProjectRepositoryAdapter.class,
-    JpaWorkItemRepositoryAdapter.class,
-    JpaWorkItemCommentRepositoryAdapter.class,
-    JpaWorkItemResourceLinkRepositoryAdapter.class,
-    JdbcWorkItemTimelineRepository.class,
-    ResponsibilityPersistenceMapper.class,
-    JpaResponsibilityAssignmentRepositoryAdapter.class,
-    ProviderPersistenceMapper.class,
-    JpaProviderRepositoryAdapter.class,
-    IdentityPersistenceMapper.class,
-    JdbcUserAccountRepositoryAdapter.class,
-    JdbcLoginIdentityRepositoryAdapter.class,
-    JdbcAccountOrganizationBindingRepositoryAdapter.class,
-    SpringTransactionExecutor.class
-  })
-  static class TestApplication {}
 }

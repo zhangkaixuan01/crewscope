@@ -10,6 +10,7 @@ import io.crewscope.application.organization.OrganizationMemberDirectoryQuery;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -22,10 +23,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -36,7 +34,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * paging modes walk one byte-stable ordering.
  */
 @SpringBootTest(
-        classes = OrganizationMemberDirectoryIntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -255,9 +253,4 @@ class OrganizationMemberDirectoryIntegrationTest
         seedBinding(account, organizationId, principal, "ACTIVE");
         return account;
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import(JdbcOrganizationMemberDirectoryRepositoryAdapter.class)
-    static class TestApplication {}
 }

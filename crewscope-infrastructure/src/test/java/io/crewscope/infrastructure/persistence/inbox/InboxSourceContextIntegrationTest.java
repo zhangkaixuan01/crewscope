@@ -15,6 +15,7 @@ import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -25,10 +26,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -43,7 +41,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * the projector's own integration tests while this test pins their miss path.
  */
 @SpringBootTest(
-        classes = InboxSourceContextIntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -500,9 +498,4 @@ class InboxSourceContextIntegrationTest
             work.run();
         });
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import(JdbcInboxRepositoryAdapter.class)
-    static class TestApplication {}
 }

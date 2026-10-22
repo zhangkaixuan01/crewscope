@@ -8,6 +8,7 @@ import io.crewscope.application.event.publication.EventPublication;
 import io.crewscope.application.inbox.CrewScopeInboxEventTypes;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -15,8 +16,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -30,7 +29,7 @@ import tools.jackson.databind.ObjectMapper;
  * nothing — the receipt is still written so the scan never re-delivers.
  */
 @SpringBootTest(
-        classes = InboxBudgetAlertProjectionIntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -272,8 +271,4 @@ class InboxBudgetAlertProjectionIntegrationTest
                 Integer.class, organizationId.value(),
                 InboxEventProjector.PROJECTION_NAME.value());
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestApplication {}
 }

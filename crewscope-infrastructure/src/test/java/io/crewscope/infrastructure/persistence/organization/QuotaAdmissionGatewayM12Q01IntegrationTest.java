@@ -12,8 +12,8 @@ import io.crewscope.domain.shared.error.PolicyDeniedException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
-import io.crewscope.infrastructure.persistence.taskruntime.JdbcOrganizationTaskIntakeQuotaCounterAdapter;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedPersistenceTestApplication;
 import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -31,10 +31,7 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -60,7 +57,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * </ul>
  */
 @SpringBootTest(
-        classes = QuotaAdmissionGatewayM12Q01IntegrationTest.TestApplication.class,
+        classes = SharedPersistenceTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -332,14 +329,4 @@ class QuotaAdmissionGatewayM12Q01IntegrationTest
                 UUID.randomUUID(), organizationId.value(), teamId, workspaceId, projectId,
                 workItemId, snapshotId, at, principalId.value(), at, principalId.value());
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import({
-        JdbcOrganizationQuotaConfigurationRepositoryAdapter.class,
-        JdbcOrganizationTaskIntakeQuotaCounterAdapter.class,
-        JdbcOrganizationTokenBudgetLedgerAdapter.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }

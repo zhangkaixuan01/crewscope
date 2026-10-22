@@ -13,8 +13,8 @@ import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.workitem.WorkItem;
 import io.crewscope.domain.workitem.WorkProjectId;
-import io.crewscope.infrastructure.persistence.responsibility.ResponsibilityAssignmentEntity;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -24,11 +24,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -41,7 +37,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * pass; here the claim is only that the query itself stays under 200ms at full scale.
  */
 @SpringBootTest(
-        classes = WorkQueryScaleIntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -191,10 +187,4 @@ class WorkQueryScaleIntegrationTest
                 sort + " probe row " + title + " must sit in the tail, was at " + position
                         + " of " + rows.size());
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @EntityScan(basePackageClasses = {WorkItemEntity.class, ResponsibilityAssignmentEntity.class})
-    @Import({JpaWorkItemRepositoryAdapter.class, WorkItemEntityMapper.class})
-    static class TestApplication {}
 }

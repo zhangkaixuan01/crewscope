@@ -13,23 +13,13 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.workgraph.BlockingChain;
 import io.crewscope.domain.workitem.WorkItemId;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkItemRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkProjectRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.WorkItemEntity;
-import io.crewscope.infrastructure.persistence.workitem.WorkItemEntityMapper;
-import io.crewscope.infrastructure.persistence.workitem.WorkPersistenceMapper;
-import io.crewscope.infrastructure.persistence.workitem.WorkProjectEntity;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -47,7 +37,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * closure); its budget is held by the page limit and pinned in the M11-A02 scale test.
  */
 @SpringBootTest(
-        classes = WorkGraphQueryBudgetFaultM11Q01IntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -159,20 +149,4 @@ class WorkGraphQueryBudgetFaultM11Q01IntegrationTest
         }
         return false;
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @EntityScan(basePackageClasses = {
-        WorkItemRelationEntity.class, WorkProjectEntity.class, WorkItemEntity.class
-    })
-    @Import({
-        JpaWorkItemRelationRepositoryAdapter.class,
-        JdbcWorkItemRelationGraphAdapter.class,
-        JpaWorkProjectRepositoryAdapter.class,
-        JpaWorkItemRepositoryAdapter.class,
-        WorkItemEntityMapper.class,
-        WorkPersistenceMapper.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }

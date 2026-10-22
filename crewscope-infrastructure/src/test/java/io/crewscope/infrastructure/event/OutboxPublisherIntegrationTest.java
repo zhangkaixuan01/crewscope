@@ -11,6 +11,7 @@ import io.crewscope.application.event.publication.DomainEventConsumer;
 import io.crewscope.application.event.publication.EventPublication;
 import io.crewscope.application.event.publication.EventTransport;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -31,10 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import tools.jackson.databind.JsonNode;
@@ -42,7 +40,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** Exercises Outbox claims, delivery recovery and consumer receipts against PostgreSQL. */
 @SpringBootTest(
-        classes = OutboxPublisherIntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -422,9 +420,4 @@ class OutboxPublisherIntegrationTest extends AbstractPostgresRedisContainerInteg
     private static final class SimulatedTransportFailure extends RuntimeException {}
 
     private static final class SimulatedConsumerFailure extends RuntimeException {}
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import(JdbcOutboxClaimStore.class)
-    static class TestApplication {}
 }

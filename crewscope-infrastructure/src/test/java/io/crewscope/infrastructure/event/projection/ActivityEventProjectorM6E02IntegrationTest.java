@@ -18,6 +18,7 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.infrastructure.event.IdempotentEventDispatcher;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -31,8 +32,6 @@ import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -41,7 +40,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** PostgreSQL contract for M6-E02's safe generation-aware Team Activity Projector. */
 @SpringBootTest(
-        classes = ActivityEventProjectorM6E02IntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -574,8 +573,4 @@ class ActivityEventProjectorM6E02IntegrationTest
                 UUID.class,
                 eventId);
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestApplication {}
 }

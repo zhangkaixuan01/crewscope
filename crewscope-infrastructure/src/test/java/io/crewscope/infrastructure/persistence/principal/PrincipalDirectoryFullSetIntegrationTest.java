@@ -14,6 +14,7 @@ import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -30,10 +31,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -44,7 +42,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * purpose seeing the whole membership history that an ASSIGNMENT read never does.
  */
 @SpringBootTest(
-        classes = PrincipalDirectoryFullSetIntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -422,9 +420,4 @@ class PrincipalDirectoryFullSetIntegrationTest
                         row[0], row[1], row[2], row[3], row[4],
                         row[7], row[8], row[7], row[8], row[5], row[6]}).toList());
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import(JdbcPrincipalDirectoryRepositoryAdapter.class)
-    static class TestApplication {}
 }

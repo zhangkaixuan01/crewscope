@@ -3,16 +3,15 @@ package io.crewscope.infrastructure.persistence.github;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedPersistenceTestApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Verifies the deployment-global physical repository key contract introduced by V36. */
 @SpringBootTest(
-        classes = GitHubRepositoryImportSchemaM8Q02IntegrationTest.TestApplication.class,
+        classes = SharedPersistenceTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -49,8 +48,4 @@ class GitHubRepositoryImportSchemaM8Q02IntegrationTest
         assertEquals("UNIQUE (repository_key)", definition);
         assertEquals(0, legacyConstraintCount);
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestApplication { }
 }

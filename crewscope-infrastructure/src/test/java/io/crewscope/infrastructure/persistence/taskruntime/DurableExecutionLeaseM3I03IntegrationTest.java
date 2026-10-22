@@ -38,13 +38,11 @@ import io.crewscope.domain.task.LeaseOwnership;
 import io.crewscope.domain.task.Task;
 import io.crewscope.domain.task.TaskExecution;
 import io.crewscope.domain.task.TaskExecutionStatus;
-import io.crewscope.infrastructure.persistence.event.JdbcDomainEventStore;
-import io.crewscope.infrastructure.persistence.event.JdbcOutboxRepository;
 import io.crewscope.infrastructure.runtime.DurableExecutionLeaseSweeper;
 import io.crewscope.infrastructure.runtime.DurableTaskExecutionLeaseCoordinator;
 import io.crewscope.infrastructure.runtime.ExecutionLeaseCoordinatorSpec;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -56,17 +54,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.IllegalTransactionStateException;
 
 /** PostgreSQL fault evidence for M3-I03 renewal, fencing and expiry recovery. */
 @SpringBootTest(
-        classes = DurableExecutionLeaseM3I03IntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -658,21 +652,4 @@ class DurableExecutionLeaseM3I03IntegrationTest
                     expectedLeaseVersion);
         }
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @EntityScan(basePackages = "io.crewscope.infrastructure.persistence")
-    @Import({
-        TaskRuntimePersistenceMapper.class,
-        ResolvedAgentExecutionConfigurationJsonCodec.class,
-        TaskRuntimeExtendedPersistenceMapper.class,
-        TaskRuntimeJpaSupport.class,
-        JpaTaskRuntimeRepositoryAdapter.class,
-        JdbcExecutionLeaseRepositoryAdapter.class,
-        JdbcTaskEventRepository.class,
-        JdbcDomainEventStore.class,
-        JdbcOutboxRepository.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }

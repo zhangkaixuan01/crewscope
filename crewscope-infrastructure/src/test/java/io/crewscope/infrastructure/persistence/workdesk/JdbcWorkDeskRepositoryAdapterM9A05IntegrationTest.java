@@ -15,6 +15,7 @@ import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.workitem.WorkItemStatus;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -22,8 +23,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -36,7 +35,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * the only place where the row shape and the projection's expectations meet.
  */
 @SpringBootTest(
-        classes = JdbcWorkDeskRepositoryAdapterM9A05IntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -218,8 +217,4 @@ class JdbcWorkDeskRepositoryAdapterM9A05IntegrationTest
                 NOW, NOW, NOW, principalId, NOW, principalId);
         return workItemId;
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestApplication {}
 }

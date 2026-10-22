@@ -30,6 +30,7 @@ import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.infrastructure.persistence.inbox.JdbcInboxRepositoryAdapter;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -38,8 +39,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -48,7 +47,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** PostgreSQL contract for M6-E03's Generation-aware member Inbox and disposition merge. */
 @SpringBootTest(
-        classes = InboxEventProjectorM6E03IntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -1000,8 +999,4 @@ class InboxEventProjectorM6E03IntegrationTest
 
     private record Shadow(
             ProjectionGenerationLease lease, ProjectionRebuildJobId jobId) {}
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestApplication {}
 }

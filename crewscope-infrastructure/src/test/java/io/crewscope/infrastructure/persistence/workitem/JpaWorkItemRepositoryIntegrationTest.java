@@ -29,6 +29,7 @@ import io.crewscope.domain.workitem.WorkProjectKey;
 import io.crewscope.domain.workitem.WorkProjectScope;
 import io.crewscope.domain.workitem.WorkProjectStatus;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -37,17 +38,13 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
-import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Exercises the WorkItem adapter against migrated PostgreSQL instead of an in-memory database. */
 @SpringBootTest(
-        classes = JpaWorkItemRepositoryIntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -427,10 +424,4 @@ class JpaWorkItemRepositoryIntegrationTest
             return new WorkItemScope(organizationId, teamId, workspaceId, projectId);
         }
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @EntityScan(basePackageClasses = WorkItemEntity.class)
-    @Import({JpaWorkItemRepositoryAdapter.class, WorkItemEntityMapper.class})
-    static class TestApplication {}
 }

@@ -55,16 +55,8 @@ import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkItemKey;
 import io.crewscope.domain.workitem.WorkItemStatus;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.event.JdbcOutboxClaimStore;
-import io.crewscope.infrastructure.event.OutboxPublisherConfiguration;
 import io.crewscope.infrastructure.event.PollingOutboxPublisher;
-import io.crewscope.infrastructure.event.projection.AuditEventProjector;
-import io.crewscope.infrastructure.event.projection.JdbcProjectionCheckpointStore;
-import io.crewscope.infrastructure.event.projection.ProjectionConfiguration;
-import io.crewscope.infrastructure.persistence.event.JdbcDomainEventStore;
-import io.crewscope.infrastructure.persistence.event.JdbcOutboxRepository;
-import io.crewscope.infrastructure.persistence.taskruntime.JdbcTaskEventRepository;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedRepositoryTestApplication;
 import java.util.List;
 import java.util.UUID;
 import java.util.Optional;
@@ -73,17 +65,14 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** M5-I07 PostgreSQL proof for Review recovery, concurrency and query projection rebuild. */
 @SpringBootTest(
-        classes = JdbcReviewPersistenceM5I07IntegrationTest.TestApplication.class,
+        classes = SharedRepositoryTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -737,23 +726,4 @@ class JdbcReviewPersistenceM5I07IntegrationTest
 
     /** Explicit failure used to prove the Review transaction is all-or-nothing. */
     private static final class SimulatedOutboxFailure extends RuntimeException {}
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import({
-        ReviewContextAuthorityJsonCodec.class,
-        JdbcReviewQueryRepositoryAdapter.class,
-        JdbcReviewRepositoryAdapter.class,
-        JdbcDomainEventStore.class,
-        JdbcOutboxRepository.class,
-        JdbcTaskEventRepository.class,
-        SpringTransactionExecutor.class,
-        ReviewPersistenceConfiguration.class,
-        JdbcOutboxClaimStore.class,
-        JdbcProjectionCheckpointStore.class,
-        AuditEventProjector.class,
-        ProjectionConfiguration.class,
-        OutboxPublisherConfiguration.class
-    })
-    static class TestApplication {}
 }

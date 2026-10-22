@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.application.workgraph.WorkGraphQueryService;
 import io.crewscope.application.workgraph.WorkItemRelationAdjacency;
-import io.crewscope.application.workitem.WorkItemAccessPolicy;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalScope;
 import io.crewscope.domain.identity.PrincipalType;
@@ -22,23 +21,8 @@ import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkProjectId;
-import io.crewscope.infrastructure.persistence.team.JpaMemberRoleRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamMemberRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamRoleRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.MemberRoleEntity;
-import io.crewscope.infrastructure.persistence.team.TeamEntity;
-import io.crewscope.infrastructure.persistence.team.TeamMemberEntity;
-import io.crewscope.infrastructure.persistence.team.TeamPersistenceMapper;
-import io.crewscope.infrastructure.persistence.team.TeamRoleEntity;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkItemRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkProjectRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.WorkItemEntity;
-import io.crewscope.infrastructure.persistence.workitem.WorkItemEntityMapper;
-import io.crewscope.infrastructure.persistence.workitem.WorkPersistenceMapper;
-import io.crewscope.infrastructure.persistence.workitem.WorkProjectEntity;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Optional;
@@ -47,11 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -65,7 +45,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * WorkGraphQueryControllerM11Q01Test; this class pins the policy decisions on real rows.
  */
 @SpringBootTest(
-        classes = WorkGraphQueryAuthorizationM11Q01IntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -440,33 +420,4 @@ class WorkGraphQueryAuthorizationM11Q01IntegrationTest
                                     OCCURRED_AT));
         }
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @EntityScan(basePackageClasses = {
-        WorkItemRelationEntity.class,
-        WorkProjectEntity.class,
-        WorkItemEntity.class,
-        TeamEntity.class,
-        TeamMemberEntity.class,
-        TeamRoleEntity.class,
-        MemberRoleEntity.class
-    })
-    @Import({
-        JpaWorkItemRelationRepositoryAdapter.class,
-        JdbcWorkItemRelationGraphAdapter.class,
-        JpaWorkItemRepositoryAdapter.class,
-        JpaWorkProjectRepositoryAdapter.class,
-        JpaTeamRepositoryAdapter.class,
-        JpaTeamMemberRepositoryAdapter.class,
-        JpaTeamRoleRepositoryAdapter.class,
-        JpaMemberRoleRepositoryAdapter.class,
-        TeamPersistenceMapper.class,
-        WorkItemEntityMapper.class,
-        WorkPersistenceMapper.class,
-        SpringTransactionExecutor.class,
-        WorkItemAccessPolicy.class,
-        WorkGraphQueryService.class
-    })
-    static class TestApplication {}
 }

@@ -10,14 +10,12 @@ import io.crewscope.domain.organization.OrganizationStatus;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -26,7 +24,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * empty, and a status outside the observed vocabulary fails fast instead of leaking through.
  */
 @SpringBootTest(
-        classes = OrganizationPersistenceIntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -80,9 +78,4 @@ class OrganizationPersistenceIntegrationTest
                         () -> organizationRepository.findById(id));
         assertTrue(failure.getMessage().contains("organization.status"));
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import(JdbcOrganizationRepositoryAdapter.class)
-    static class TestApplication {}
 }

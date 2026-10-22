@@ -43,6 +43,7 @@ import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.infrastructure.event.projection.InboxEventProjector;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.Instant;
 import java.time.Duration;
 import java.time.ZoneOffset;
@@ -58,8 +59,6 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -67,7 +66,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** PostgreSQL atomic-plan, optimistic transition and redelivery contract for M6-I01. */
 @SpringBootTest(
-        classes = JdbcNotificationPlanRepositoryM6I01IntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -419,8 +418,4 @@ class JdbcNotificationPlanRepositoryM6I01IntegrationTest
             return work.get();
         });
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestApplication {}
 }

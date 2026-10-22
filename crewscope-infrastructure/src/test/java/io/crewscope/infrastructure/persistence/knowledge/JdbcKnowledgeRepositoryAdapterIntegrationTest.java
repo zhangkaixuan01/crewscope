@@ -25,6 +25,7 @@ import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamScope;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedRepositoryTestApplication;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -32,10 +33,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -44,7 +42,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * and the two keyset cursors.
  */
 @SpringBootTest(
-        classes = JdbcKnowledgeRepositoryAdapterIntegrationTest.TestApplication.class,
+        classes = SharedRepositoryTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -66,11 +64,6 @@ class JdbcKnowledgeRepositoryAdapterIntegrationTest
     private final TeamId teamId = TeamId.generate();
     private final PrincipalId actor = PrincipalId.generate();
     private TeamScope scope;
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import(JdbcKnowledgeRepositoryAdapter.class)
-    static class TestApplication {}
 
     @BeforeEach
     void seedTenant() {

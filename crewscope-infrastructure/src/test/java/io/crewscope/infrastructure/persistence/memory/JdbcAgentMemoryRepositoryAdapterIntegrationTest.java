@@ -18,6 +18,7 @@ import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.workspace.AgentProfileId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedRepositoryTestApplication;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -25,10 +26,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -37,7 +35,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * sweep paths — the exact SQLSTATE-level behavior the application fake replays.
  */
 @SpringBootTest(
-        classes = JdbcAgentMemoryRepositoryAdapterIntegrationTest.TestApplication.class,
+        classes = SharedRepositoryTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -61,11 +59,6 @@ class JdbcAgentMemoryRepositoryAdapterIntegrationTest
     private final AgentProfileId profileId = AgentProfileId.generate();
     private final PrincipalId owner = PrincipalId.generate();
     private AgentMemoryOwnerKey key;
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import(JdbcAgentMemoryRepositoryAdapter.class)
-    static class TestApplication {}
 
     @BeforeEach
     void seedTenant() {

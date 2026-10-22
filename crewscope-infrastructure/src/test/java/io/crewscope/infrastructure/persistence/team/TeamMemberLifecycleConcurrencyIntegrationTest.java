@@ -44,11 +44,8 @@ import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.domain.team.TeamMemberStatus;
 import io.crewscope.domain.team.TeamRole;
 import io.crewscope.domain.team.TeamScope;
-import io.crewscope.infrastructure.persistence.command.JdbcCommandReceiptStore;
-import io.crewscope.infrastructure.persistence.event.JdbcDomainEventStore;
-import io.crewscope.infrastructure.persistence.event.JdbcOutboxRepository;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedPersistenceTestApplication;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -64,10 +61,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -77,7 +71,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * stays monotonic across interleaved writes, and one Team's revocation never leaks into another.
  */
 @SpringBootTest(
-        classes = TeamMemberLifecycleConcurrencyIntegrationTest.TestApplication.class,
+        classes = SharedPersistenceTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -572,21 +566,4 @@ class TeamMemberLifecycleConcurrencyIntegrationTest
             Team team,
             Principal owner,
             TeamMember ownerMember) {}
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import({
-        TeamPersistenceMapper.class,
-        JpaTeamRepositoryAdapter.class,
-        JpaTeamMemberRepositoryAdapter.class,
-        JpaTeamRoleRepositoryAdapter.class,
-        JpaMemberRoleRepositoryAdapter.class,
-        JpaPrincipalRepositoryAdapter.class,
-        JpaWorkspaceRepositoryAdapter.class,
-        JdbcDomainEventStore.class,
-        JdbcOutboxRepository.class,
-        JdbcCommandReceiptStore.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }

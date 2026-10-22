@@ -36,12 +36,8 @@ import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkItemStatus;
 import io.crewscope.domain.workitem.WorkProjectId;
 import io.crewscope.domain.workitem.event.WorkItemCreated;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkItemRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.WorkItemEntity;
-import io.crewscope.infrastructure.persistence.workitem.WorkItemEntityMapper;
-import io.crewscope.infrastructure.persistence.command.JdbcCommandReceiptStore;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -55,18 +51,14 @@ import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.IllegalTransactionStateException;
 import tools.jackson.databind.ObjectMapper;
 
 /** Proves aggregate, DomainEvent and Outbox atomicity against migrated PostgreSQL. */
 @SpringBootTest(
-        classes = DomainEventTransactionIntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -420,17 +412,4 @@ class DomainEventTransactionIntegrationTest
     }
 
     private static final class SimulatedOutboxFailure extends RuntimeException {}
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @EntityScan(basePackageClasses = WorkItemEntity.class)
-    @Import({
-        JpaWorkItemRepositoryAdapter.class,
-        WorkItemEntityMapper.class,
-        JdbcDomainEventStore.class,
-        JdbcOutboxRepository.class,
-        JdbcCommandReceiptStore.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }

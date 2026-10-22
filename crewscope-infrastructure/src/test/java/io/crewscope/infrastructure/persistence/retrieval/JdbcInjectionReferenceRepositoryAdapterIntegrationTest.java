@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.crewscope.application.retrieval.InjectionClaimedReferenceConflictException;
 import io.crewscope.application.retrieval.InjectionClaimedReferences;
 import io.crewscope.application.retrieval.InjectionFeedbackKind;
@@ -24,16 +23,13 @@ import io.crewscope.domain.shared.id.TeamId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.task.TaskExecutionId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedRepositoryTestApplication;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -45,7 +41,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * back ascending by attempt and stays empty for foreign tenants.
  */
 @SpringBootTest(
-        classes = JdbcInjectionReferenceRepositoryAdapterIntegrationTest.TestApplication.class,
+        classes = SharedRepositoryTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -66,18 +62,6 @@ class JdbcInjectionReferenceRepositoryAdapterIntegrationTest
 
     @Autowired
     private JdbcInjectionManifestRepositoryAdapter manifests;
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import({JdbcInjectionReferenceRepositoryAdapter.class,
-            JdbcInjectionManifestRepositoryAdapter.class})
-    static class TestApplication {
-
-        @Bean
-        ObjectMapper evidenceObjectMapper() {
-            return new ObjectMapper().findAndRegisterModules();
-        }
-    }
 
     private final OrganizationId organizationId = OrganizationId.generate();
     private final TeamId teamId = TeamId.generate();

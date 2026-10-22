@@ -41,8 +41,7 @@ import io.crewscope.infrastructure.runtime.DurableTaskClaimScheduler;
 import io.crewscope.infrastructure.runtime.SecureClaimTokenGenerator;
 import io.crewscope.infrastructure.runtime.TaskClaimSchedulerSpec;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.PostgresAuthoritativeTimeProvider;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -58,17 +57,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.IllegalTransactionStateException;
 
 /** PostgreSQL evidence for M3-I02 queue fairness, routing, quota and ownership semantics. */
 @SpringBootTest(
-        classes = DurableTaskClaimSchedulerM3I02IntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -447,23 +442,4 @@ class DurableTaskClaimSchedulerM3I02IntegrationTest
             return counts.getOrDefault(outcome, 0L);
         }
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @EntityScan(basePackages = "io.crewscope.infrastructure.persistence")
-    @Import({
-        TaskRuntimePersistenceMapper.class,
-        ResolvedAgentExecutionConfigurationJsonCodec.class,
-        TaskRuntimeExtendedPersistenceMapper.class,
-        TaskRuntimeJpaSupport.class,
-        JpaTaskRuntimeRepositoryAdapter.class,
-        JdbcExecutionLeaseRepositoryAdapter.class,
-        JdbcTaskExecutionQueueRepositoryAdapter.class,
-        JdbcClaimQuotaRepositoryAdapter.class,
-        JpaPolicySnapshotRepositoryAdapter.class,
-        JpaSafetyEnforcementOverlayRepositoryAdapter.class,
-        PostgresAuthoritativeTimeProvider.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }

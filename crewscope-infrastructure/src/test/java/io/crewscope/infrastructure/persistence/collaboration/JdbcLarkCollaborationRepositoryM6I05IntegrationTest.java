@@ -37,21 +37,19 @@ import io.crewscope.domain.shared.id.WorkspaceId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
+import io.crewscope.infrastructure.testsupport.SharedJdbcTestApplication;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Real PostgreSQL lifecycle, uniqueness and keyset contract for the M6-I05 mapping adapter. */
 @SpringBootTest(
-        classes = JdbcLarkCollaborationRepositoryM6I05IntegrationTest.TestApplication.class,
+        classes = SharedJdbcTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -336,11 +334,6 @@ class JdbcLarkCollaborationRepositoryM6I05IntegrationTest
         return "[\"" + LarkCollaborationCapabilities.MEMBER_LOOKUP + "\",\""
                 + LarkCollaborationCapabilities.FIXED_TEMPLATE_NOTIFY + "\"]";
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import(JdbcLarkCollaborationRepositoryAdapter.class)
-    static class TestApplication {}
 
     private record Scope(
             OrganizationId organizationId,

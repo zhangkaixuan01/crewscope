@@ -37,7 +37,7 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedPersistenceTestApplication;
 import java.io.PrintWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
@@ -60,17 +60,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** PostgreSQL contract for the M7 non-secret identity adapters and REQUIRED transaction boundary. */
 @SpringBootTest(
-        classes = M7I01IdentityPersistenceIntegrationTest.TestApplication.class,
+        classes = SharedPersistenceTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -502,17 +499,4 @@ class M7I01IdentityPersistenceIntegrationTest
             return delegate.isWrapperFor(iface);
         }
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import({
-        IdentityPersistenceMapper.class,
-        JdbcUserAccountRepositoryAdapter.class,
-        JdbcLoginIdentityRepositoryAdapter.class,
-        JdbcLocalCredentialMetadataRepositoryAdapter.class,
-        JdbcAccountOrganizationBindingRepositoryAdapter.class,
-        JdbcCurrentAccountSnapshotReader.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }

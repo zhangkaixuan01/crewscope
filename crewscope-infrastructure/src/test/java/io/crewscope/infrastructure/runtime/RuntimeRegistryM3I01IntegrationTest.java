@@ -22,10 +22,8 @@ import io.crewscope.domain.shared.id.OrganizationId;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.TimeProvider;
 import io.crewscope.domain.shared.time.UtcTimestamp;
-import io.crewscope.infrastructure.persistence.taskruntime.JpaTaskRuntimeRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.taskruntime.TaskRuntimePersistenceMapper;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.Set;
@@ -39,16 +37,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /** PostgreSQL evidence for stable Runtime/Worker identity, reconciliation and Heartbeat facts. */
 @SpringBootTest(
-        classes = RuntimeRegistryM3I01IntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -266,14 +260,4 @@ class RuntimeRegistryM3I01IntegrationTest
         return jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM crewscope." + table, Integer.class);
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @EntityScan(basePackages = "io.crewscope.infrastructure.persistence")
-    @Import({
-        TaskRuntimePersistenceMapper.class,
-        JpaTaskRuntimeRepositoryAdapter.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }

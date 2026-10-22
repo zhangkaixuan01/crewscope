@@ -34,26 +34,8 @@ import io.crewscope.domain.workgraph.WorkItemRelationCycleException;
 import io.crewscope.domain.workgraph.WorkItemRelationType;
 import io.crewscope.domain.workitem.WorkItemId;
 import io.crewscope.domain.workitem.WorkProjectId;
-import io.crewscope.infrastructure.persistence.command.JdbcCommandReceiptStore;
-import io.crewscope.infrastructure.persistence.event.JdbcDomainEventStore;
-import io.crewscope.infrastructure.persistence.event.JdbcOutboxRepository;
-import io.crewscope.infrastructure.persistence.team.JpaMemberRoleRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamMemberRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.JpaTeamRoleRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.team.MemberRoleEntity;
-import io.crewscope.infrastructure.persistence.team.TeamEntity;
-import io.crewscope.infrastructure.persistence.team.TeamMemberEntity;
-import io.crewscope.infrastructure.persistence.team.TeamPersistenceMapper;
-import io.crewscope.infrastructure.persistence.team.TeamRoleEntity;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkItemRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.JpaWorkProjectRepositoryAdapter;
-import io.crewscope.infrastructure.persistence.workitem.WorkItemEntity;
-import io.crewscope.infrastructure.persistence.workitem.WorkItemEntityMapper;
-import io.crewscope.infrastructure.persistence.workitem.WorkPersistenceMapper;
-import io.crewscope.infrastructure.persistence.workitem.WorkProjectEntity;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedJpaTestApplication;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -71,11 +53,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -85,7 +63,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * ascending project-lock order keeps the cross-project variant deadlock-free (ADR-033).
  */
 @SpringBootTest(
-        classes = WorkItemRelationCycleConcurrencyM11D01IntegrationTest.TestApplication.class,
+        classes = SharedJpaTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -594,34 +572,4 @@ class WorkItemRelationCycleConcurrencyM11D01IntegrationTest
             return id;
         }
     }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @EntityScan(basePackageClasses = {
-        WorkItemRelationEntity.class,
-        WorkProjectEntity.class,
-        WorkItemEntity.class,
-        TeamEntity.class,
-        TeamMemberEntity.class,
-        TeamRoleEntity.class,
-        MemberRoleEntity.class
-    })
-    @Import({
-        JpaWorkItemRelationRepositoryAdapter.class,
-        JdbcWorkItemRelationGraphAdapter.class,
-        JpaWorkItemRepositoryAdapter.class,
-        JpaWorkProjectRepositoryAdapter.class,
-        JpaTeamRepositoryAdapter.class,
-        JpaTeamMemberRepositoryAdapter.class,
-        JpaTeamRoleRepositoryAdapter.class,
-        JpaMemberRoleRepositoryAdapter.class,
-        TeamPersistenceMapper.class,
-        WorkItemEntityMapper.class,
-        WorkPersistenceMapper.class,
-        JdbcDomainEventStore.class,
-        JdbcOutboxRepository.class,
-        JdbcCommandReceiptStore.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }

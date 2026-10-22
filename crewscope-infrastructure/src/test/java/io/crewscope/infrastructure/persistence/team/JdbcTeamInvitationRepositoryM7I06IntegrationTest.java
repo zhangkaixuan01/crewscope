@@ -35,7 +35,7 @@ import io.crewscope.domain.team.TeamMemberId;
 import io.crewscope.infrastructure.security.invitation.HmacSha256InvitationTokenDigester;
 import io.crewscope.infrastructure.security.invitation.SecureInvitationTokenGenerator;
 import io.crewscope.infrastructure.testcontainers.AbstractPostgresRedisContainerIntegrationTest;
-import io.crewscope.infrastructure.transaction.SpringTransactionExecutor;
+import io.crewscope.infrastructure.testsupport.SharedPersistenceTestApplication;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -55,16 +55,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /** PostgreSQL proof for M7-I06 digest-only issuance, row claims, paging and durable expiry. */
 @SpringBootTest(
-        classes = JdbcTeamInvitationRepositoryM7I06IntegrationTest.TestApplication.class,
+        classes = SharedPersistenceTestApplication.class,
         properties = {
             "spring.flyway.schemas=crewscope",
             "spring.flyway.default-schema=crewscope",
@@ -416,13 +413,4 @@ class JdbcTeamInvitationRepositoryM7I06IntegrationTest
 
     private record Fixture(
             OrganizationId organizationId, Team team, Principal inviter) {}
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    @Import({
-        TeamInvitationPersistenceMapper.class,
-        JdbcTeamInvitationRepositoryAdapter.class,
-        SpringTransactionExecutor.class
-    })
-    static class TestApplication {}
 }
