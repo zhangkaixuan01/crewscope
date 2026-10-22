@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import io.crewscope.server.teambeta.AbstractTeamBetaPostgresRedisContainerIntegrationTest;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -81,8 +82,15 @@ class OidcProtocolAttackM12I01IntegrationTest
 
     private static final EmbeddedOidcIdp IDP = EmbeddedOidcIdp.start();
 
+    /** Private database for this class: a physical clone of the migration chain's tip. */
+    private static final SchemaTemplates.Lease LEASE =
+            SchemaTemplates.forContainer(POSTGRES).lease(SchemaTemplates.TIP);
+
     @DynamicPropertySource
     static void oidcDeploymentProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", LEASE::jdbcUrl);
+        registry.add("spring.datasource.username", LEASE::username);
+        registry.add("spring.datasource.password", LEASE::password);
         registry.add("crewscope.security.mode", () -> "oidc");
         registry.add("crewscope.security.oidc.organization-id", () -> ORGANIZATION_ID);
         registry.add("crewscope.artifact.filesystem.root", () -> artifactRoot.toString());
@@ -540,7 +548,10 @@ class OidcProtocolAttackM12I01IntegrationTest
     /** Keeps @Configuration classes hosted inside test sources off the component scan. */
     static final class ExcludeTestClasspathConfigurations extends TypeExcludeFilter {
         private static final Pattern TEST_CLASSPATH_HOST =
-                Pattern.compile("^io\\.crewscope\\..*(?:TestServer|Test)(?:\\$.*)?$");
+                Pattern.compile("^io\\.crewscope\\.(?:infrastructure\\.testsupport\\..*"
+                        + "|persistence\\.taskruntime\\.TaskRuntimePackageConfiguration"
+                        + "|persistence\\.review\\.ReviewPackageConfiguration"
+                        + "|.*(?:TestServer|Test)(?:\\$.*)?)$");
 
         @Override
         public boolean match(MetadataReader reader, MetadataReaderFactory factory) {

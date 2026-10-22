@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.crewscope.infrastructure.persistence.workitem.A06QueryScaleFixtures;
+import io.crewscope.infrastructure.testcontainers.SchemaTemplates;
 import io.crewscope.server.teambeta.AbstractTeamBetaPostgresRedisContainerIntegrationTest;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -108,8 +109,15 @@ class WorkQueryScaleHttpIntegrationTest extends AbstractTeamBetaPostgresRedisCon
     private static final String TEST_TASK_TOKEN_KEY = "u1WSa5SkDSf8N10uJ2sJE72U/u+ZDGrjaffROM17X5U=";
     private static final String TEST_INVITATION_KEY = "asKlHnh1ld0Le3fJyzEj1VDm2poi7ZMyuzisUyIpg6k=";
 
+    /** Private database for this class: a physical clone of the migration chain's tip. */
+    private static final SchemaTemplates.Lease LEASE =
+            SchemaTemplates.forContainer(POSTGRES).lease(SchemaTemplates.TIP);
+
     @DynamicPropertySource
     static void testDeploymentProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", LEASE::jdbcUrl);
+        registry.add("spring.datasource.username", LEASE::username);
+        registry.add("spring.datasource.password", LEASE::password);
         // team-beta defaults the artifact tree to /var/crewscope/artifacts, which the test
         // sandbox must not touch; the container database and redis come from the base class.
         registry.add("crewscope.artifact.filesystem.root", () -> artifactRoot.toString());
@@ -324,7 +332,10 @@ class WorkQueryScaleHttpIntegrationTest extends AbstractTeamBetaPostgresRedisCon
      */
     static final class ExcludeTestClasspathConfigurations extends TypeExcludeFilter {
         private static final Pattern TEST_CLASSPATH_HOST =
-                Pattern.compile("^io\\.crewscope\\..*(?:TestServer|Test)(?:\\$.*)?$");
+                Pattern.compile("^io\\.crewscope\\.(?:infrastructure\\.testsupport\\..*"
+                        + "|persistence\\.taskruntime\\.TaskRuntimePackageConfiguration"
+                        + "|persistence\\.review\\.ReviewPackageConfiguration"
+                        + "|.*(?:TestServer|Test)(?:\\$.*)?)$");
 
         @Override
         public boolean match(MetadataReader reader, MetadataReaderFactory factory) {
