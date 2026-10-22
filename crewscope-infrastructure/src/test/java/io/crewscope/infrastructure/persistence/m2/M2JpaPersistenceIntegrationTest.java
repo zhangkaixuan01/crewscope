@@ -391,6 +391,7 @@ class M2JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
                 committedParticipant.joinedByPrincipalId(),
                 committedParticipant.joinedAt(),
                 committedParticipant.leftAt(),
+                0L,
                 1,
                 committedParticipant
                         .audit()
@@ -1522,7 +1523,7 @@ class M2JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
                         org.mockito.ArgumentMatchers.eq(fixture.organizationId()),
                         org.mockito.ArgumentMatchers.eq(fixture.teamId()),
                         org.mockito.ArgumentMatchers.eq(conversation.id())))
-                .thenReturn(new ConversationDetails(conversation, List.of()));
+                .thenReturn(new ConversationDetails(conversation, List.of(), 0L));
         Team team = Team.create(
                 fixture.teamId(),
                 fixture.organizationId(),
@@ -1777,6 +1778,7 @@ class M2JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
                 fixture.ownerPrincipalId(),
                 BASE_TIME,
                 Optional.empty(),
+                0L,
                 0,
                 AuditMetadata.createdBy(fixture.ownerPrincipalId(), BASE_TIME));
     }
@@ -1795,6 +1797,7 @@ class M2JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
                 fixture.ownerPrincipalId(),
                 BASE_TIME,
                 Optional.empty(),
+                0L,
                 0,
                 AuditMetadata.createdBy(fixture.ownerPrincipalId(), BASE_TIME));
     }

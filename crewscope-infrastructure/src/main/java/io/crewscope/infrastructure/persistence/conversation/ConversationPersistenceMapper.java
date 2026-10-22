@@ -101,6 +101,7 @@ public class ConversationPersistenceMapper {
         row.joinedByPrincipalId = value.joinedByPrincipalId().value();
         row.joinedAt = value.joinedAt().value();
         row.leftAt = value.leftAt().map(UtcTimestamp::value).orElse(null);
+        row.lastReadSequence = value.lastReadSequence();
         row.version = value.version();
         row.createdAt = value.audit().createdAt().value();
         row.createdByPrincipalId = principal(value.audit().createdBy(), "participant.createdBy");
@@ -121,6 +122,7 @@ public class ConversationPersistenceMapper {
                 new PrincipalId(row.joinedByPrincipalId),
                 UtcTimestamp.from(row.joinedAt),
                 Optional.ofNullable(row.leftAt).map(UtcTimestamp::from),
+                row.lastReadSequence,
                 row.version,
                 audit(row.createdByPrincipalId, row.createdAt, row.updatedByPrincipalId, row.updatedAt));
     }

@@ -49,7 +49,7 @@ class ConversationWorkItemQueryServiceTest {
             fixture.organizationId,
             fixture.team.team().id(),
             fixture.conversation.conversation().id()))
-        .thenReturn(new ConversationDetails(fixture.conversation.conversation(), List.of()));
+        .thenReturn(new ConversationDetails(fixture.conversation.conversation(), List.of(), 0L));
     when(fixture.linkRepository.findLinksByConversation(
             fixture.organizationId, fixture.conversation.conversation().id()))
         .thenReturn(List.of(fixture.link));

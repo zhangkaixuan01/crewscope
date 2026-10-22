@@ -6,11 +6,15 @@ import java.util.Objects;
 
 /** Transactionally consistent Conversation and identity-enriched participant snapshot. */
 public record ConversationDetails(
-    Conversation conversation, List<ConversationParticipantView> participants) {
+    Conversation conversation, List<ConversationParticipantView> participants,
+    long viewerUnreadCount) {
 
   public ConversationDetails {
     conversation = Objects.requireNonNull(conversation, "conversation");
     participants = List.copyOf(Objects.requireNonNull(participants, "participants"));
+    if (viewerUnreadCount < 0) {
+      throw new IllegalArgumentException("viewerUnreadCount must not be negative");
+    }
     Conversation requiredConversation = conversation;
     if (participants.stream()
         .anyMatch(

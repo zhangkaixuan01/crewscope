@@ -73,6 +73,88 @@ class ConversationApplicationServiceTest {
   private static final UtcTimestamp NOW = UtcTimestamp.parse("2026-08-10T08:00:00Z");
 
   @Test
+  void readReceiptsAdvanceThroughTheTipStayIdempotentAndProjectZeroUnread() {
+    Fixture fixture = new Fixture();
+    PersonalConversationInitialization own = fixture.conversation(ConversationVisibility.PRIVATE);
+    fixture.service.postUserMessage(
+        fixture.commandContext("receipt-setup-1"),
+        fixture.initialization.team().id(),
+        own.conversation().id(),
+        PostConversationMessageCommand.fromMarkdown("First"));
+    fixture.service.postUserMessage(
+        fixture.commandContext("receipt-setup-2"),
+        fixture.initialization.team().id(),
+        own.conversation().id(),
+        PostConversationMessageCommand.fromMarkdown("Second"));
+    int eventsBefore = fixture.store.events.size();
+    ConversationParticipant stored =
+        fixture.store.participants.get(own.ownerParticipant().id());
+
+    var first =
+        fixture.service.submitReadReceipt(
+            fixture.commandContext("receipt-1"),
+            fixture.initialization.team().id(),
+            own.conversation().id());
+
+    ConversationParticipant advanced = first.result().orElseThrow();
+    assertEquals(2L, advanced.lastReadSequence());
+    assertEquals(stored.version() + 1, advanced.version());
+    assertEquals("CONVERSATION_READ_RECEIPT_RECEIVED",
+        fixture.store.events.get(eventsBefore).eventType().value());
+    assertTrue(fixture.service.submitReadReceipt(
+        fixture.commandContext("receipt-1"),
+        fixture.initialization.team().id(),
+        own.conversation().id()).replayed());
+
+    // A distinct key that no longer moves the cursor is accepted without a new event.
+    var settled =
+        fixture.service.submitReadReceipt(
+            fixture.commandContext("receipt-2"),
+            fixture.initialization.team().id(),
+            own.conversation().id());
+    assertEquals(2L, settled.result().orElseThrow().lastReadSequence());
+    assertEquals(eventsBefore + 1, fixture.store.events.size());
+
+    ConversationDetails details =
+        fixture.service.get(
+            fixture.access(fixture.owner),
+            fixture.organizationId,
+            fixture.initialization.team().id(),
+            own.conversation().id());
+    assertEquals(0L, details.viewerUnreadCount());
+  }
+
+  @Test
+  void readReceiptsOnMessagelessConversationsAndFromOutsidersStayHarmlessOrMissing() {
+    Fixture fixture = new Fixture();
+    PersonalConversationInitialization own = fixture.conversation(ConversationVisibility.PRIVATE);
+
+    // No messages yet: the receipt is accepted but emits nothing and keeps version 0.
+    var settled =
+        fixture.service.submitReadReceipt(
+            fixture.commandContext("receipt-empty-1"),
+            fixture.initialization.team().id(),
+            own.conversation().id());
+    assertEquals(0L, settled.result().orElseThrow().lastReadSequence());
+    assertEquals(0, fixture.store.events.size());
+    assertEquals(0L, settled.result().orElseThrow().version());
+
+    // A readable but non-participating member still cannot fake a cursor: the
+    // participation is reported missing rather than revealed.
+    PersonalConversationInitialization teamVisible =
+        fixture.conversation(ConversationVisibility.TEAM);
+    Principal outsider = fixture.activeUser("Outsider");
+    fixture.addMember(outsider);
+    assertThrows(
+        AggregateNotFoundException.class,
+        () ->
+            fixture.service.submitReadReceipt(
+                fixture.commandContext(outsider, "receipt-outsider-1"),
+                fixture.initialization.team().id(),
+                teamVisible.conversation().id()));
+  }
+
+  @Test
   void createsOwnerAndAgentParticipantsFromCurrentServerFacts() {
     Fixture fixture = new Fixture();
 
@@ -125,7 +207,7 @@ class ConversationApplicationServiceTest {
         new ConversationPage(
             List.of(own.conversation(), hidden.conversation()), Optional.empty());
 
-    ConversationPage page =
+    ConversationSummaryPage page =
         fixture.service.list(
             fixture.access(fixture.owner),
             fixture.organizationId,
@@ -134,8 +216,43 @@ class ConversationApplicationServiceTest {
             Optional.empty(),
             20);
 
-    assertEquals(List.of(own.conversation()), page.conversations());
+    assertEquals(List.of(own.conversation()), page.conversations().stream()
+        .map(ConversationSummary::conversation).toList());
+    // A conversation without messages carries no unread, even before any receipt.
+    assertEquals(0L, page.conversations().get(0).unreadCount());
     assertEquals(fixture.owner.id(), fixture.store.lastConversationQuery.viewerPrincipalId());
+  }
+
+  @Test
+  void projectsViewerUnreadFromTheTipMinusTheReadCursor() {
+    Fixture fixture = new Fixture();
+    PersonalConversationInitialization own = fixture.conversation(ConversationVisibility.PRIVATE);
+    fixture.service.postUserMessage(
+        fixture.commandContext("unread-setup-1"),
+        fixture.initialization.team().id(),
+        own.conversation().id(),
+        PostConversationMessageCommand.fromMarkdown("First"));
+    fixture.service.postUserMessage(
+        fixture.commandContext("unread-setup-2"),
+        fixture.initialization.team().id(),
+        own.conversation().id(),
+        PostConversationMessageCommand.fromMarkdown("Second"));
+    fixture.store.queryPage =
+        new ConversationPage(
+            List.of(fixture.store.conversations.get(own.conversation().id())),
+            Optional.empty());
+
+    ConversationSummaryPage page =
+        fixture.service.list(
+            fixture.access(fixture.owner),
+            fixture.organizationId,
+            fixture.initialization.team().id(),
+            Optional.empty(),
+            Optional.empty(),
+            20);
+
+    // max(0, tip - cursor) with no receipt yet: both messages count as unread.
+    assertEquals(2L, page.conversations().get(0).unreadCount());
   }
 
   @Test
@@ -538,6 +655,14 @@ class ConversationApplicationServiceTest {
                             store.participants.values().stream()
                                 .filter(value -> value.conversationId().equals(args[1]))
                                 .toList();
+                        case "findByPrincipalAndConversations" -> {
+                          @SuppressWarnings("unchecked")
+                          List<ConversationId> ids = (List<ConversationId>) args[2];
+                          yield store.participants.values().stream()
+                              .filter(value -> value.principalId().equals(args[1]))
+                              .filter(value -> ids.contains(value.conversationId()))
+                              .toList();
+                        }
                         default -> null;
                       }),
               proxy(

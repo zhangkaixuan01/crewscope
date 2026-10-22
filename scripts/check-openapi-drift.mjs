@@ -46,9 +46,10 @@ const operationCount = Number(openApi.match(/openApiOperationCount = (\d+)/)?.[1
 // + 1 knowledge switch route (M13b-A03: GET team knowledge config)
 // + 1 entry index-refresh route (M13b-A04: POST entry index-refresh)
 // + 1 entry rollback route (M13b-A05: POST entry rollback)
-// + 1 budget read route (M13b-A06: GET team observability budget).
-if (operationCount !== 311) {
-  console.error(`OpenAPI operation baseline changed: expected 311, found ${operationCount}`)
+// + 1 budget read route (M13b-A06: GET team observability budget)
+// + 1 read-receipt route (M13b-A07: POST conversation read-receipts).
+if (operationCount !== 312) {
+  console.error(`OpenAPI operation baseline changed: expected 312, found ${operationCount}`)
   process.exit(1)
 }
 if (openApi.includes('Mapping}}')) {

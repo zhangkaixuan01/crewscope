@@ -26,10 +26,12 @@ import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.error.OptimisticLockConflictException;
 import io.crewscope.domain.shared.id.AggregateId;
 import io.crewscope.domain.shared.id.OrganizationId;
+import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.workitem.WorkItemId;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -203,6 +205,7 @@ public class JpaConversationRepositoryAdapter
                         UPDATE ConversationParticipantEntity value
                         SET value.status = :status,
                             value.leftAt = :leftAt,
+                            value.lastReadSequence = :lastReadSequence,
                             value.updatedAt = :updatedAt,
                             value.updatedByPrincipalId = :updatedBy,
                             value.version = :version
@@ -215,6 +218,7 @@ public class JpaConversationRepositoryAdapter
                         """)
                 .setParameter("status", row.status)
                 .setParameter("leftAt", row.leftAt)
+                .setParameter("lastReadSequence", row.lastReadSequence)
                 .setParameter("updatedAt", row.updatedAt)
                 .setParameter("updatedBy", row.updatedByPrincipalId)
                 .setParameter("version", row.version)
@@ -268,6 +272,39 @@ public class JpaConversationRepositoryAdapter
                         ConversationParticipantEntity.class)
                 .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
                 .setParameter("conversationId", Objects.requireNonNull(conversationId).value())
+                .getResultList()
+                .stream()
+                .map(mapper::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ConversationParticipant> findByPrincipalAndConversations(
+            OrganizationId organizationId,
+            PrincipalId principalId,
+            Collection<ConversationId> conversationIds) {
+        Objects.requireNonNull(principalId, "principalId");
+        Collection<ConversationId> required =
+                Objects.requireNonNull(conversationIds, "conversationIds");
+        if (required.isEmpty()) {
+            return List.of();
+        }
+        return entityManager
+                .createQuery(
+                        """
+                        SELECT value FROM ConversationParticipantEntity value
+                        WHERE value.organizationId = :organizationId
+                          AND value.principalId = :principalId
+                          AND value.conversationId IN :conversationIds
+                        ORDER BY value.joinedAt, value.id
+                        """,
+                        ConversationParticipantEntity.class)
+                .setParameter("organizationId", Objects.requireNonNull(organizationId).value())
+                .setParameter("principalId", principalId.value())
+                .setParameter(
+                        "conversationIds",
+                        required.stream().map(ConversationId::value).toList())
                 .getResultList()
                 .stream()
                 .map(mapper::toDomain)

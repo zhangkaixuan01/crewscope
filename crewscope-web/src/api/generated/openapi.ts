@@ -3,7 +3,7 @@
 // openApiOperations retains every controller operation; paths follows OpenAPI's
 // one-operation-per-path+method shape and therefore merges media-type overloads.
 // Regenerate with: node scripts/generate-openapi-types.mjs
-// Controller source SHA-256: 1c177d2160942531d15af7c0ecf1408aa7933cf766480aeeb0ba9bea05deb18c
+// Controller source SHA-256: 02d353a61df642eaee246809b75eedb6741e4c40daab9088e480657f00d2137a
 
 export interface OpenApiOperation {
   readonly operationId: string
@@ -920,6 +920,14 @@ export const openApiDocument = {
     "/api/v1/organizations/{organizationId}/teams/{teamId}/conversations/{conversationId}/participants/{participantId}": {
       "delete": {
         "operationId": "ConversationController_removeParticipant",
+        "tags": [
+          "ConversationController"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organizationId}/teams/{teamId}/conversations/{conversationId}/read-receipts": {
+      "post": {
+        "operationId": "ConversationController_submitReadReceipt",
         "tags": [
           "ConversationController"
         ]
@@ -3130,6 +3138,12 @@ export const openApiOperations = [
     "controller": "ConversationController"
   },
   {
+    "method": "post",
+    "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/conversations/{conversationId}/read-receipts",
+    "operationId": "ConversationController_submitReadReceipt",
+    "controller": "ConversationController"
+  },
+  {
     "method": "get",
     "path": "/api/v1/organizations/{organizationId}/teams/{teamId}/conversations/{conversationId}/task-intents/{taskIntentId}",
     "operationId": "TaskIntentController_get",
@@ -4294,4 +4308,4 @@ export const openApiOperations = [
     "controller": "SystemInfoController"
   }
 ] as const
-export const openApiOperationCount = 311 as const
+export const openApiOperationCount = 312 as const

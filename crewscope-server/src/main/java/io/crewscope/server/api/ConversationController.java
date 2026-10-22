@@ -6,8 +6,8 @@ import io.crewscope.application.conversation.AddConversationParticipantCommand;
 import io.crewscope.application.conversation.ConversationApplicationService;
 import io.crewscope.application.conversation.ConversationDetails;
 import io.crewscope.application.conversation.ConversationMessageCursor;
-import io.crewscope.application.conversation.ConversationPage;
 import io.crewscope.application.conversation.ConversationParticipantView;
+import io.crewscope.application.conversation.ConversationSummaryPage;
 import io.crewscope.application.conversation.CreateConversationCommand;
 import io.crewscope.application.conversation.MessagePage;
 import io.crewscope.application.conversation.PostConversationMessageCommand;
@@ -253,6 +253,26 @@ public final class ConversationController {
                 PostConversationMessageCommand.fromMarkdown(request.content())));
   }
 
+  /** Read receipts are body-less: opening a conversation reads up to its message tip. */
+  @PostMapping("/{conversationId}/read-receipts")
+  public Mono<ResponseEntity<CommandReceiptResponse>> submitReadReceipt(
+      @PathVariable String organizationId,
+      @PathVariable String teamId,
+      @PathVariable String conversationId,
+      @RequestHeader(name = ApiHeaders.IDEMPOTENCY_KEY, required = false) String key,
+      Authentication authentication,
+      ServerWebExchange exchange) {
+    OrganizationId organization = organizationId(organizationId);
+    TeamId team = teamId(teamId);
+    ConversationId conversation = conversationId(conversationId);
+    return command(
+        authentication,
+        organization,
+        ApiHeaders.requireIdempotencyKey(key),
+        exchange,
+        context -> service.submitReadReceipt(context, team, conversation));
+  }
+
   private <T> Mono<ResponseEntity<CommandReceiptResponse>> command(
       Authentication authentication,
       OrganizationId organizationId,
@@ -347,9 +367,11 @@ public final class ConversationController {
       List<ConversationResponse> items, String nextCursor) {
 
     static ConversationPageResponse from(
-        ConversationPage page, ConversationCursorCodec cursorCodec) {
+        ConversationSummaryPage page, ConversationCursorCodec cursorCodec) {
       return new ConversationPageResponse(
-          page.conversations().stream().map(ConversationResponse::from).toList(),
+          page.conversations().stream()
+              .map(summary -> ConversationResponse.from(summary.conversation(), summary.unreadCount()))
+              .toList(),
           page.nextCursor().map(cursorCodec::encode).orElse(null));
     }
   }
@@ -359,7 +381,7 @@ public final class ConversationController {
 
     static ConversationDetailsResponse from(ConversationDetails details) {
       return new ConversationDetailsResponse(
-          ConversationResponse.from(details.conversation()),
+          ConversationResponse.from(details.conversation(), details.viewerUnreadCount()),
           details.participants().stream()
               .map(ConversationParticipantResponse::from)
               .toList());
@@ -378,11 +400,12 @@ public final class ConversationController {
       String visibility,
       String status,
       Long lastMessageSequence,
+      long unreadCount,
       long version,
       String createdAt,
       String updatedAt) {
 
-    static ConversationResponse from(Conversation conversation) {
+    static ConversationResponse from(Conversation conversation, long unreadCount) {
       return new ConversationResponse(
           conversation.id().toString(),
           conversation.scope().organizationId().toString(),
@@ -395,6 +418,7 @@ public final class ConversationController {
           conversation.visibility().name(),
           conversation.status().name(),
           conversation.lastMessageSequence().map(value -> value.value()).orElse(null),
+          unreadCount,
           conversation.version(),
           conversation.audit().createdAt().toString(),
           conversation.audit().updatedAt().toString());

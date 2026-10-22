@@ -1,6 +1,7 @@
 package io.crewscope.domain.conversation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -130,6 +131,7 @@ class ConversationParticipantTest {
                         owner.joinedByPrincipalId(),
                         owner.joinedAt(),
                         Optional.of(ConversationDomainFixture.LATER),
+                        0L,
                         1,
                         owner.audit().modifiedBy(
                                 fixture.owner.id(), ConversationDomainFixture.LATER)));
@@ -230,6 +232,7 @@ class ConversationParticipantTest {
                         owner.joinedByPrincipalId(),
                         owner.joinedAt(),
                         owner.leftAt(),
+                        0L,
                         owner.version(),
                         owner.audit()));
         DomainValidationException invalidRole = assertThrows(
@@ -246,6 +249,7 @@ class ConversationParticipantTest {
                         owner.joinedByPrincipalId(),
                         owner.joinedAt(),
                         owner.leftAt(),
+                        0L,
                         owner.version(),
                         owner.audit()));
 
@@ -281,6 +285,7 @@ class ConversationParticipantTest {
                 participant.joinedByPrincipalId(),
                 participant.joinedAt(),
                 Optional.of(ConversationDomainFixture.LATER),
+                0L,
                 1,
                 leftAudit);
 
@@ -299,6 +304,7 @@ class ConversationParticipantTest {
                         participant.joinedByPrincipalId(),
                         participant.joinedAt(),
                         Optional.empty(),
+                        0L,
                         1,
                         leftAudit));
         assertThrows(
@@ -315,6 +321,7 @@ class ConversationParticipantTest {
                         participant.joinedAt(),
                         Optional.of(io.crewscope.domain.shared.time.UtcTimestamp.parse(
                                 "2026-08-08T11:59:00Z")),
+                        0L,
                         1,
                         leftAudit));
     }
@@ -337,11 +344,71 @@ class ConversationParticipantTest {
                         owner.joinedByPrincipalId(),
                         owner.joinedAt(),
                         owner.leftAt(),
+                        0L,
                         owner.version(),
                         AuditMetadata.createdBy(
                                 PrincipalId.generate(), ConversationDomainFixture.CREATED_AT)));
 
         assertEquals(
                 "conversationParticipant.audit", failure.error().details().get("field"));
+    }
+
+    @Test
+    void readReceiptsAdvanceTheCursorMonotonicallyAndNeverMoveItBackwards() {
+        ConversationDomainFixture fixture = ConversationDomainFixture.create();
+        Principal colleague = ConversationDomainFixture.activeUser(
+                fixture.organizationId, "Colleague");
+        TeamMember member = fixture.activeMember(colleague);
+        ConversationParticipant participant = ConversationParticipant.joinMember(
+                fixture.conversation(),
+                member,
+                colleague,
+                fixture.owner,
+                ConversationDomainFixture.LATER);
+        UtcTimestamp receivedAt = UtcTimestamp.parse("2026-08-08T12:02:00Z");
+
+        assertEquals(0, participant.lastReadSequence());
+        ConversationParticipant advanced = participant.markRead(
+                colleague, new MessageSequence(5), receivedAt);
+
+        assertEquals(5, advanced.lastReadSequence());
+        assertEquals(1, advanced.version());
+        assertEquals(receivedAt, advanced.audit().updatedAt());
+        assertEquals(colleague.id(), advanced.audit().updatedBy().orElseThrow());
+
+        // Same-value and older receipts are no-ops: the cursor never regresses and the
+        // stored version does not churn for replays carrying distinct idempotency keys.
+        assertSame(advanced, advanced.markRead(colleague, new MessageSequence(5), receivedAt));
+        assertSame(advanced, advanced.markRead(colleague, new MessageSequence(3), receivedAt));
+        assertEquals(5, advanced.lastReadSequence());
+        assertEquals(1, advanced.version());
+    }
+
+    @Test
+    void readReceiptsPreserveLifecycleFactsAndRejectParticipantsWhoLeft() {
+        ConversationDomainFixture fixture = ConversationDomainFixture.create();
+        Principal colleague = ConversationDomainFixture.activeUser(
+                fixture.organizationId, "Colleague");
+        TeamMember member = fixture.activeMember(colleague);
+        ConversationParticipant participant = ConversationParticipant.joinMember(
+                fixture.conversation(),
+                member,
+                colleague,
+                fixture.owner,
+                ConversationDomainFixture.LATER);
+        UtcTimestamp receivedAt = UtcTimestamp.parse("2026-08-08T12:02:00Z");
+        UtcTimestamp leftAt = UtcTimestamp.parse("2026-08-08T12:03:00Z");
+
+        ConversationParticipant advanced = participant.markRead(
+                colleague, new MessageSequence(2), receivedAt);
+        ConversationParticipant left = advanced.leave(fixture.owner, leftAt);
+
+        // Leaving retains the historical read boundary for the unread projection.
+        assertEquals(2, left.lastReadSequence());
+        DomainValidationException failure = assertThrows(
+                DomainValidationException.class,
+                () -> left.markRead(colleague, new MessageSequence(4), receivedAt));
+        assertEquals(
+                "conversationParticipant.status", failure.error().details().get("field"));
     }
 }

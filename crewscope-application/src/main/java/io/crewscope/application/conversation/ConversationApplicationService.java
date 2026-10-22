@@ -27,15 +27,18 @@ import io.crewscope.domain.conversation.ConversationId;
 import io.crewscope.domain.conversation.ConversationMessageAppend;
 import io.crewscope.domain.conversation.ConversationParticipant;
 import io.crewscope.domain.conversation.ConversationParticipantId;
+import io.crewscope.domain.conversation.ConversationParticipantRole;
 import io.crewscope.domain.conversation.ConversationParticipantStatus;
 import io.crewscope.domain.conversation.ConversationStatus;
 import io.crewscope.domain.conversation.ConversationVisibilityPolicy;
 import io.crewscope.domain.conversation.Message;
 import io.crewscope.domain.conversation.MessageId;
+import io.crewscope.domain.conversation.MessageSequence;
 import io.crewscope.domain.conversation.PersonalConversationInitialization;
 import io.crewscope.domain.conversation.event.ConversationCreated;
 import io.crewscope.domain.conversation.event.ConversationMessagePosted;
 import io.crewscope.domain.conversation.event.ConversationParticipantChanged;
+import io.crewscope.domain.conversation.event.ConversationReadReceiptReceived;
 import io.crewscope.domain.identity.Principal;
 import io.crewscope.domain.identity.PrincipalType;
 import io.crewscope.domain.shared.DomainEvent;
@@ -82,6 +85,7 @@ public final class ConversationApplicationService {
   private static final String ADD_PARTICIPANT = "ADD_CONVERSATION_PARTICIPANT";
   private static final String REMOVE_PARTICIPANT = "REMOVE_CONVERSATION_PARTICIPANT";
   private static final String POST_USER_MESSAGE = "POST_CONVERSATION_USER_MESSAGE";
+  private static final String SUBMIT_READ_RECEIPT = "SUBMIT_CONVERSATION_READ_RECEIPT";
 
   private final ConversationRepository conversationRepository;
   private final ConversationParticipantRepository participantRepository;
@@ -164,7 +168,7 @@ public final class ConversationApplicationService {
   }
 
   /** Lists only Conversations discoverable by the current active Team member. */
-  public ConversationPage list(
+  public ConversationSummaryPage list(
       TeamAccessContext context,
       OrganizationId organizationId,
       TeamId teamId,
@@ -193,7 +197,26 @@ public final class ConversationApplicationService {
                       conversation ->
                           access(conversation, member, trusted.actor()).discoverable())
                   .toList();
-          return new ConversationPage(visible, page.nextCursor());
+          Map<ConversationId, ConversationParticipant> participation =
+              participantRepository
+                  .findByPrincipalAndConversations(
+                      organizationId,
+                      trusted.actor().id(),
+                      visible.stream().map(Conversation::id).toList())
+                  .stream()
+                  .collect(Collectors.toMap(ConversationParticipant::conversationId, view -> view));
+          List<ConversationSummary> summaries =
+              visible.stream()
+                  .map(
+                      conversation ->
+                          new ConversationSummary(
+                              conversation,
+                              unreadCount(
+                                  conversation,
+                                  Optional.ofNullable(
+                                      participation.get(conversation.id())))))
+                  .toList();
+          return new ConversationSummaryPage(summaries, page.nextCursor());
         });
   }
 
@@ -207,8 +230,14 @@ public final class ConversationApplicationService {
         () -> {
           AccessSnapshot snapshot =
               requireReadable(context, organizationId, teamId, conversationId);
+          Optional<ConversationParticipant> viewerRow =
+              snapshot.participants().stream()
+                  .filter(value -> value.principalId().equals(context.actor().id()))
+                  .findFirst();
           return new ConversationDetails(
-              snapshot.conversation(), participantViews(snapshot));
+              snapshot.conversation(),
+              participantViews(snapshot),
+              unreadCount(snapshot.conversation(), viewerRow));
         });
   }
 
@@ -431,6 +460,33 @@ public final class ConversationApplicationService {
                 requiredTeamId,
                 requiredConversationId,
                 required));
+  }
+
+  /**
+   * Marks the caller's participation as read through the Conversation's current last message
+   * sequence (M13b-A07). The receipt only ever advances the stored cursor, so replays and
+   * concurrent receipts converge on the maximum without version churn.
+   */
+  public CommandExecution<ConversationParticipant> submitReadReceipt(
+      TeamCommandContext context, TeamId teamId, ConversationId conversationId) {
+    TeamCommandContext trusted = requireCommandContext(context);
+    TeamId requiredTeamId = Objects.requireNonNull(teamId, "teamId");
+    ConversationId requiredConversationId =
+        Objects.requireNonNull(conversationId, "conversationId");
+    CommandRequestHash requestHash =
+        CommandRequestHash.sha256(
+            SUBMIT_READ_RECEIPT,
+            trusted.access().actor().id().toString(),
+            requiredTeamId.toString(),
+            requiredConversationId.toString(),
+            trusted.causationId().map(UUID::toString).orElse(""));
+    return execute(
+        trusted,
+        SUBMIT_READ_RECEIPT,
+        requestHash,
+        commandId ->
+            submitReadReceiptInTransaction(
+                trusted, commandId, requiredTeamId, requiredConversationId));
   }
 
   /**
@@ -670,6 +726,82 @@ public final class ConversationApplicationService {
         committedConversation.version(),
         ConversationMessagePosted.from(committedMessage),
         occurredAt);
+  }
+
+  private CommandExecution<ConversationParticipant> submitReadReceiptInTransaction(
+      TeamCommandContext context,
+      UUID commandId,
+      TeamId teamId,
+      ConversationId conversationId) {
+    Principal actor = context.access().actor();
+    OrganizationId organizationId = actor.scope().organizationId();
+    Team team = requireTeam(organizationId, teamId);
+    TeamMember member = requireActiveMember(actor, team);
+    // Locking the Conversation serializes receipts against message appends, so every
+    // receipt reads a stable last sequence under the cursor's own monotonic guard.
+    Conversation conversation =
+        requireLockedConversation(organizationId, teamId, conversationId);
+    List<ConversationParticipant> participants =
+        participantRepository.findByConversation(organizationId, conversationId);
+    Optional<ConversationParticipant> participation =
+        participants.stream()
+            .filter(value -> value.principalId().equals(actor.id()))
+            .findFirst();
+    ConversationAccessDecision decision =
+        visibilityPolicy.forMember(conversation, member, actor, participation);
+    if (!decision.readable()) {
+      throw new AggregateNotFoundException("Conversation", conversationId);
+    }
+    ConversationParticipant current =
+        participation.orElseThrow(
+            () -> new AggregateNotFoundException("ConversationParticipant", conversationId));
+    if (!current.isActive()) {
+      throw new DomainValidationException(
+          "conversationParticipant.status",
+          "only an active participant may submit read receipts");
+    }
+    UtcTimestamp occurredAt = timeProvider.now();
+    Optional<MessageSequence> latest = conversation.lastMessageSequence();
+    ConversationParticipant advanced =
+        latest.map(sequence -> current.markRead(actor, sequence, occurredAt)).orElse(current);
+    if (advanced == current) {
+      // Nothing moved (no messages yet, or the cursor already covers the tip): the
+      // command is accepted without an event so replayed receipts stay side-effect free.
+      CommandReceipt receipt =
+          new CommandReceipt(commandId, UUID.randomUUID(), current.version(),
+              context.correlationId());
+      receiptStore.complete(
+          organizationId, context.idempotencyKey(), receipt, occurredAt);
+      return CommandExecution.completed(current, receipt);
+    }
+    ConversationParticipant committed = participantRepository.update(advanced);
+    return completed(
+        context,
+        commandId,
+        committed,
+        EventType.from("CONVERSATION_READ_RECEIPT_RECEIVED"),
+        CONVERSATION_AGGREGATE,
+        committed.conversationId(),
+        committed.version(),
+        ConversationReadReceiptReceived.from(committed),
+        occurredAt);
+  }
+
+  /**
+   * Viewer-scoped unread projection (M13b-A07 contract): {@code max(0, lastMessageSequence -
+   * lastReadSequence)}; Agent viewers never accrue unread, and a Conversation without
+   * messages reads as zero.
+   */
+  private static long unreadCount(
+      Conversation conversation, Optional<ConversationParticipant> viewerRow) {
+    return viewerRow
+        .filter(value -> value.role() != ConversationParticipantRole.AGENT)
+        .flatMap(
+            value ->
+                conversation
+                    .lastMessageSequence()
+                    .map(last -> Math.max(0, last.value() - value.lastReadSequence())))
+        .orElse(0L);
   }
 
   private io.crewscope.domain.conversation.Message commitAgentMessageInTransaction(

@@ -11,8 +11,9 @@ import io.crewscope.application.conversation.ConversationApplicationService;
 import io.crewscope.application.conversation.ConversationDetails;
 import io.crewscope.application.conversation.ConversationListCursor;
 import io.crewscope.application.conversation.ConversationMessageCursor;
-import io.crewscope.application.conversation.ConversationPage;
 import io.crewscope.application.conversation.ConversationParticipantView;
+import io.crewscope.application.conversation.ConversationSummary;
+import io.crewscope.application.conversation.ConversationSummaryPage;
 import io.crewscope.application.conversation.MessagePage;
 import io.crewscope.application.team.TeamAccessContext;
 import io.crewscope.domain.conversation.ConversationId;
@@ -124,7 +125,10 @@ class ConversationControllerTest {
             eq(Optional.empty()),
             eq(Optional.of(cursor)),
             eq(20)))
-        .thenReturn(new ConversationPage(List.of(conversation.conversation()), Optional.of(cursor)));
+        .thenReturn(
+            new ConversationSummaryPage(
+                List.of(new ConversationSummary(conversation.conversation(), 2L)),
+                Optional.of(cursor)));
     when(service.get(any(), any(), any(), eq(conversation.conversation().id())))
         .thenReturn(
             new ConversationDetails(
@@ -135,7 +139,8 @@ class ConversationControllerTest {
                     new ConversationParticipantView(
                         conversation.agentParticipant(),
                         initialization.ownerPersonalAgent().agentPrincipal(),
-                        Optional.of(owner)))));
+                        Optional.of(owner))),
+                1L));
 
     client
         .get()
@@ -148,6 +153,8 @@ class ConversationControllerTest {
         .expectBody()
         .jsonPath("$.items[0].title")
         .isEqualTo("Release review")
+        .jsonPath("$.items[0].unreadCount")
+        .isEqualTo(2)
         .jsonPath("$.nextCursor")
         .isEqualTo(token);
 
@@ -175,7 +182,9 @@ class ConversationControllerTest {
         .jsonPath("$.participants[1].ownerDisplayName")
         .isEqualTo("Owner")
         .jsonPath("$.conversation.personalAgentPrincipalId")
-        .isEqualTo(initialization.ownerPersonalAgent().agentPrincipal().id().toString());
+        .isEqualTo(initialization.ownerPersonalAgent().agentPrincipal().id().toString())
+        .jsonPath("$.conversation.unreadCount")
+        .isEqualTo(1);
   }
 
   @Test
@@ -276,6 +285,51 @@ class ConversationControllerTest {
         .isAccepted()
         .expectHeader()
         .valueEquals(ApiHeaders.IDEMPOTENCY_REPLAYED, "true");
+  }
+
+  @Test
+  void submitsBodyLessReadReceiptsAndMarksAnIdempotentReplay() {
+    CommandReceipt receipt = receipt(1);
+    when(service.submitReadReceipt(
+            any(), eq(initialization.team().id()), eq(conversation.conversation().id())))
+        .thenReturn(CommandExecution.completed(conversation.ownerParticipant(), receipt))
+        .thenReturn(CommandExecution.replayed(receipt));
+    String uri = root() + "/" + conversation.conversation().id() + "/read-receipts";
+
+    client
+        .post()
+        .uri(uri)
+        .header(ApiHeaders.IDEMPOTENCY_KEY, "read-receipt-http-1")
+        .exchange()
+        .expectStatus()
+        .isAccepted()
+        .expectHeader()
+        .valueEquals("Cache-Control", "no-store")
+        .expectHeader()
+        .doesNotExist(ApiHeaders.IDEMPOTENCY_REPLAYED)
+        .expectBody()
+        .jsonPath("$.commandId")
+        .isEqualTo(receipt.commandId().toString());
+
+    client
+        .post()
+        .uri(uri)
+        .header(ApiHeaders.IDEMPOTENCY_KEY, "read-receipt-http-1")
+        .exchange()
+        .expectStatus()
+        .isAccepted()
+        .expectHeader()
+        .valueEquals(ApiHeaders.IDEMPOTENCY_REPLAYED, "true");
+  }
+
+  @Test
+  void rejectsReadReceiptsWithoutAnIdempotencyKey() {
+    client
+        .post()
+        .uri(root() + "/" + conversation.conversation().id() + "/read-receipts")
+        .exchange()
+        .expectStatus()
+        .isBadRequest();
   }
 
   @Test

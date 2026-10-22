@@ -24,6 +24,7 @@ public final class ConversationParticipant {
     private final PrincipalId joinedByPrincipalId;
     private final UtcTimestamp joinedAt;
     private final Optional<UtcTimestamp> leftAt;
+    private final long lastReadSequence;
     private final long version;
     private final AuditMetadata audit;
 
@@ -38,6 +39,7 @@ public final class ConversationParticipant {
             PrincipalId joinedByPrincipalId,
             UtcTimestamp joinedAt,
             Optional<UtcTimestamp> leftAt,
+            long lastReadSequence,
             long version,
             AuditMetadata audit) {
         this.id = Objects.requireNonNull(id, "id");
@@ -52,6 +54,7 @@ public final class ConversationParticipant {
                 joinedByPrincipalId, "joinedByPrincipalId");
         this.joinedAt = Objects.requireNonNull(joinedAt, "joinedAt");
         this.leftAt = requireLeftAt(this.status, this.joinedAt, leftAt, audit);
+        this.lastReadSequence = requireLastReadSequence(lastReadSequence);
         this.version = requireVersion(version);
         this.audit = Objects.requireNonNull(audit, "audit");
         requireCreationAudit(this.joinedByPrincipalId, this.joinedAt, this.audit);
@@ -164,6 +167,7 @@ public final class ConversationParticipant {
         return copy(
                 ConversationParticipantStatus.LEFT,
                 Optional.of(requiredTime),
+                lastReadSequence,
                 version + 1,
                 audit.modifiedBy(actorId, requiredTime));
     }
@@ -199,6 +203,37 @@ public final class ConversationParticipant {
         return copy(
                 ConversationParticipantStatus.ACTIVE,
                 Optional.empty(),
+                lastReadSequence,
+                version + 1,
+                audit.modifiedBy(actorId, requiredTime));
+    }
+
+    /**
+     * Advances this participant's read cursor to {@code sequence}.
+     *
+     * <p>Read receipts only ever move the cursor forward (M13b-A07 contract): a replayed or
+     * older receipt is a no-op that returns this instance unchanged, which also keeps repeat
+     * submissions with distinct idempotency keys from churning the stored version. The
+     * unread projection reads the cursor as {@code max(0, lastMessageSequence - cursor)}.
+     */
+    public ConversationParticipant markRead(
+            Principal actor, MessageSequence sequence, UtcTimestamp occurredAt) {
+        if (status != ConversationParticipantStatus.ACTIVE) {
+            throw new DomainValidationException(
+                    "conversationParticipant.status",
+                    "only an active participant may submit read receipts");
+        }
+        MessageSequence requiredSequence = Objects.requireNonNull(sequence, "sequence");
+        if (requiredSequence.value() <= lastReadSequence) {
+            return this;
+        }
+        PrincipalId actorId = ConversationActorPolicy.requireActiveInScope(
+                actor, scope, "conversationParticipant.updatedByPrincipalId");
+        UtcTimestamp requiredTime = Objects.requireNonNull(occurredAt, "occurredAt");
+        return copy(
+                ConversationParticipantStatus.ACTIVE,
+                Optional.empty(),
+                requiredSequence.value(),
                 version + 1,
                 audit.modifiedBy(actorId, requiredTime));
     }
@@ -215,6 +250,7 @@ public final class ConversationParticipant {
             PrincipalId joinedByPrincipalId,
             UtcTimestamp joinedAt,
             Optional<UtcTimestamp> leftAt,
+            long lastReadSequence,
             long version,
             AuditMetadata audit) {
         return new ConversationParticipant(
@@ -228,6 +264,7 @@ public final class ConversationParticipant {
                 joinedByPrincipalId,
                 joinedAt,
                 leftAt,
+                lastReadSequence,
                 version,
                 audit);
     }
@@ -276,6 +313,11 @@ public final class ConversationParticipant {
         return leftAt;
     }
 
+    /** Committed read cursor; 0 means no receipt yet, so everything is unread. */
+    public long lastReadSequence() {
+        return lastReadSequence;
+    }
+
     public long version() {
         return version;
     }
@@ -304,12 +346,14 @@ public final class ConversationParticipant {
                 requiredTime,
                 Optional.empty(),
                 0,
+                0,
                 AuditMetadata.createdBy(joinedByPrincipalId, requiredTime));
     }
 
     private ConversationParticipant copy(
             ConversationParticipantStatus targetStatus,
             Optional<UtcTimestamp> targetLeftAt,
+            long targetLastReadSequence,
             long targetVersion,
             AuditMetadata targetAudit) {
         return new ConversationParticipant(
@@ -323,6 +367,7 @@ public final class ConversationParticipant {
                 joinedByPrincipalId,
                 joinedAt,
                 targetLeftAt,
+                targetLastReadSequence,
                 targetVersion,
                 targetAudit);
     }
@@ -410,6 +455,14 @@ public final class ConversationParticipant {
             }
         });
         return requiredLeftAt;
+    }
+
+    private static long requireLastReadSequence(long value) {
+        if (value < 0) {
+            throw new DomainValidationException(
+                    "conversationParticipant.lastReadSequence", "must not be negative");
+        }
+        return value;
     }
 
     private static long requireVersion(long value) {

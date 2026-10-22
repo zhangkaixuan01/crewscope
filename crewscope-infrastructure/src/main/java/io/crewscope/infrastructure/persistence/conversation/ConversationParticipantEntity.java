@@ -25,6 +25,7 @@ class ConversationParticipantEntity {
     @Column(name = "joined_by_principal_id", nullable = false) UUID joinedByPrincipalId;
     @Column(name = "joined_at", nullable = false) Instant joinedAt;
     @Column(name = "left_at") Instant leftAt;
+    @Column(name = "last_read_sequence", nullable = false) long lastReadSequence;
     @Version @Column(nullable = false) long version;
     @Column(name = "created_at", nullable = false) Instant createdAt;
     @Column(name = "created_by_principal_id", nullable = false) UUID createdByPrincipalId;
