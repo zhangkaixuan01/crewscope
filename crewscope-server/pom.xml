@@ -127,6 +127,14 @@
             <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Team-beta tests lease schema-template databases via the infrastructure tests
+             jar; SchemaTemplates#forContainer takes JdbcDatabaseContainer, so this
+             coordinate is direct test bytecode usage. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-jdbc</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- Redis-outage drills call GenericContainer#getDockerClient directly; the returned
              DockerClient type is test-only bytecode usage, so the coordinate stays explicit. -->
         <dependency>
