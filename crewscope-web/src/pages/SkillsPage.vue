@@ -287,7 +287,7 @@ function openDistilledSkill(skillId: string): void {
     <StatePanel v-if="scopeMissing" id="skills-scope-reason" state="empty" title="请选择 Team" description="Skill 目录始终属于明确的 Organization 与 Team。" />
     <StatePanel v-else-if="deepLinkMiss" compact state="empty" :title="`未在目录中找到 Skill ${deepLinkMiss}`" description="它可能属于其他团队、已被移除，或超出本次翻页范围。" />
 
-    <div v-if="scopeStore.state.phase === 'ready' && scope" class="skills-workspace">
+    <div v-if="scopeStore.state.phase === 'ready' && scope" class="skills-workspace" :class="{ 'has-detail': Boolean(selectedSkillId) }">
       <SkillList
         :phase="store.state.skills.phase"
         :items="store.state.skills.value ?? []"
@@ -375,6 +375,7 @@ function openDistilledSkill(skillId: string): void {
 </template>
 
 <style scoped>
-.skills-workspace { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr); gap: var(--cs-space-16); align-items: start; }
-@media (max-width: 767px) { .skills-workspace { grid-template-columns: 1fr; } }
+/* M13b-F09（S4）：未选中不再保留 44% 空栏——默认单栏列表，选中后右侧 340px 详情，≤900 下移。 */
+.skills-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cs-space-16); align-items: start; }.skills-workspace.has-detail { grid-template-columns: minmax(0, 1fr) 340px; }
+@media (max-width: 900px) { .skills-workspace { grid-template-columns: 1fr; }.skills-workspace.has-detail { grid-template-columns: 1fr; } }
 </style>

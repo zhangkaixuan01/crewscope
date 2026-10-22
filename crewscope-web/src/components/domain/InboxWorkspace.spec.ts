@@ -38,9 +38,9 @@ describe('InboxWorkspace', () => {
 
     await wrapper.get('button[aria-label="查看 我的负责 详情"]').trigger('click')
     expect(wrapper.emitted('select')?.[0]).toEqual([item().inboxItemId])
-    await wrapper.findAll<HTMLSelectElement>('.inbox-toolbar select')[0]!.setValue('CLOSED')
+    await wrapper.findAll<HTMLSelectElement>('.scan-toolbar select')[0]!.setValue('CLOSED')
     expect(wrapper.emitted('changeSourceStatus')?.[0]).toEqual(['CLOSED'])
-    await wrapper.findAll<HTMLSelectElement>('.inbox-toolbar select')[1]!.setValue('READ')
+    await wrapper.findAll<HTMLSelectElement>('.scan-toolbar select')[1]!.setValue('READ')
     expect(wrapper.emitted('changeDispositionStatus')?.[0]).toEqual(['READ'])
   })
 

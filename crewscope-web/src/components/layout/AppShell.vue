@@ -389,7 +389,9 @@ async function signOut(): Promise<void> {
  * flex-shrink:0，767 档一旦 workspace 的内容需求（conversation 的 min-height 链）超过
  * 剩余空间，header 会被压短 ~37px，actions 按钮行溢出 header 底缘、叠进 workspace 顶部
  * 的 mobile-back——触控目标被遮掉一半（M9b-Q01 六视口矩阵顺带揭出的潜伏缺陷）。 */
-.context-header { display: flex; min-height: 82px; flex-shrink: 0; align-items: center; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-16) var(--cs-space-32); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }
+/* M13b-F09（L15）：面包屑退出一级页面后，eyebrow+h1 两行 51px 就是全部内容——垂直 padding
+ * 收到 4px，min-height 82→64，全站每页首屏多出 18px 给真实内容（契约 §7 首条数据 ≤200px）。 */
+.context-header { display: flex; min-height: 64px; flex-shrink: 0; align-items: center; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-4) var(--cs-space-32); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }
 .context-header p { margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }
 .context-header h1 { margin-bottom: 0; font-size: var(--cs-text-lg); font-weight: var(--cs-weight-semibold); letter-spacing: -.02em; }
 .context-header__actions { display: flex; align-items: center; gap: var(--cs-space-8); }
@@ -430,7 +432,7 @@ async function signOut(): Promise<void> {
    * 换不换行取决于 webfont 加载竞速——header 高度在 132/180 间抖动，mobile-back 的落位
    * 跟着抖（M9b-Q01 axe 定位 target-size 时的伴生发现）。固定 2+1 两行布局，高度确定。 */
   .context-header__actions :deep(.base-button) { flex: 1 1 calc(50% - var(--cs-space-8)); }
-  .mobile-mode { position: fixed; inset: auto 0 0; z-index: var(--cs-z-sticky); display: grid; height: 60px; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
+  .mobile-mode { position: fixed; inset: auto 0 0; z-index: var(--cs-z-sticky); display: grid; height: 60px; max-width: 100vw; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
   .mobile-mode a { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
   .mobile-mode a.active { color: var(--cs-text-brand); }
   .network-banner { min-height: 40px; padding-inline: var(--cs-space-12); font-size: var(--cs-text-xs); }

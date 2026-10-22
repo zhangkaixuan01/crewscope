@@ -1000,7 +1000,7 @@ function retry(): void {
       <template v-if="canManageProjects" #action><BaseButton size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton></template>
     </StatePanel>
 
-    <div v-else class="work-page page-shell">
+    <div v-else class="work-page page-shell page-shell--full">
       <!-- M11-F02: the third view. The graph owns the whole column — no filters (the aggregate is
            the blocking DAG; filtering it would hide a blocker behind the filter), no bulk bar, no
            task panel. Its shell carries the tri-state switcher back to the collection views. -->
@@ -1015,8 +1015,6 @@ function retry(): void {
 
       <template v-else>
       <WorkItemsToolbar
-        :team-name="team?.name"
-        :project-key="project.key"
         :result-count="filteredItems.length"
         :view="collectionView"
         :status="statusFilter"

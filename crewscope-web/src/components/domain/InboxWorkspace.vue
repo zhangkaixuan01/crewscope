@@ -10,7 +10,6 @@ import {
   CircleAlert,
   Clock3,
   Eye,
-  Inbox,
   RefreshCw,
   ShieldCheck,
   X,
@@ -41,6 +40,7 @@ import {
   type InboxSourceStatus,
 } from '../../domains/teamops/types'
 import BaseButton from '../base/BaseButton.vue'
+import ScanToolbar from '../base/ScanToolbar.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import { RouterLink } from 'vue-router'
@@ -247,16 +247,13 @@ const inboxViews = ['ALL', ...inboxItemTypes] as const
 
 <template>
   <section class="inbox-workspace" aria-label="我的 Inbox">
-    <section class="inbox-overview panel">
-      <span class="inbox-overview__icon"><Inbox :size="23" aria-hidden="true" /></span>
-      <div>
-        <p>Member-owned queue</p>
-        <h2 v-if="counts">{{ counts.total }} 项待处理事实</h2>
-        <h2 v-else-if="countsPhase === 'loading'">正在同步待处理事实</h2>
-        <h2 v-else>计数暂不可用</h2>
-        <small v-if="counts">{{ counts.unread }} 项未读，处置状态由当前成员独立维护。</small>
-        <small v-else>{{ countsError?.message ?? '等待服务端返回当前成员的权威计数。' }}</small>
-      </div>
+    <section class="summary-strip panel" aria-label="待处理事实概览">
+      <h2 v-if="counts">{{ counts.total }} 项待处理事实</h2>
+      <h2 v-else-if="countsPhase === 'loading'">正在同步待处理事实</h2>
+      <h2 v-else>计数暂不可用</h2>
+      <p class="summary-strip__note">
+        {{ counts ? `${counts.unread} 项未读，处置状态由当前成员独立维护` : countsError?.message ?? '等待服务端返回当前成员的权威计数' }}
+      </p>
       <StatusBadge :tone="countsUnavailable ? 'danger' : counts?.unread ? 'warning' : counts ? 'success' : 'neutral'" dot>
         {{ countsUnavailable ? '计数同步失败' : countsPhase === 'loading' ? '同步中' : `${counts?.unread ?? 0} 未读` }}
       </StatusBadge>
@@ -272,18 +269,22 @@ const inboxViews = ['ALL', ...inboxItemTypes] as const
         @click="emit('changeType', type)"
       >
         <span>{{ typePresentation[type].label }}</span>
-        <small>{{ typePresentation[type].description }}</small>
+        <small class="sr-only">{{ typePresentation[type].description }}</small>
         <i v-if="counts">{{ type === 'ALL' ? counts.total : count(type).total }}<b v-if="(type === 'ALL' ? counts.unread : count(type).unread)">{{ type === 'ALL' ? counts.unread : count(type).unread }}</b></i>
         <i v-else aria-label="计数不可用">—</i>
       </button>
     </nav>
 
-    <section class="inbox-toolbar panel" aria-label="Inbox 筛选">
-      <label>来源状态<BaseSelect :model-value="sourceStatus" @update:model-value="emit('changeSourceStatus', $event as InboxSourceStatus)"><option v-for="status in inboxSourceStatuses" :key="status" :value="status">{{ status === 'OPEN' ? '仍需处理' : '来源已关闭' }}</option></BaseSelect></label>
-      <label>我的处置<BaseSelect :model-value="dispositionStatus" @update:model-value="emit('changeDispositionStatus', $event as InboxDispositionStatus | 'ALL')"><option value="ALL">全部处置</option><option v-for="status in inboxDispositionStatuses" :key="status" :value="status">{{ dispositionLabel(status) }}</option></BaseSelect></label>
-      <span>{{ items.length }} 项已加载<span v-if="selectedCount">，已选 {{ selectedCount }}</span></span>
-      <BaseButton variant="ghost" size="small" :aria-label="`按打开时间${inboxSortLabel}`" @click="inboxSort.toggleSort('openedAt')">{{ inboxSortLabel }}</BaseButton>
-    </section>
+    <ScanToolbar aria-label="Inbox 筛选">
+      <template #count>{{ items.length }} 项已加载<span v-if="selectedCount">，已选 {{ selectedCount }}</span></template>
+      <template #filters>
+        <label>来源状态<BaseSelect :model-value="sourceStatus" @update:model-value="emit('changeSourceStatus', $event as InboxSourceStatus)"><option v-for="status in inboxSourceStatuses" :key="status" :value="status">{{ status === 'OPEN' ? '仍需处理' : '来源已关闭' }}</option></BaseSelect></label>
+        <label>我的处置<BaseSelect :model-value="dispositionStatus" @update:model-value="emit('changeDispositionStatus', $event as InboxDispositionStatus | 'ALL')"><option value="ALL">全部处置</option><option v-for="status in inboxDispositionStatuses" :key="status" :value="status">{{ dispositionLabel(status) }}</option></BaseSelect></label>
+      </template>
+      <template #side>
+        <BaseButton variant="ghost" size="small" :aria-label="`按打开时间${inboxSortLabel}`" @click="inboxSort.toggleSort('openedAt')">{{ inboxSortLabel }}</BaseButton>
+      </template>
+    </ScanToolbar>
     <div v-if="selectedCount" class="selection-actions" role="toolbar" aria-label="批量处置">
       <span>已选 {{ selectedCount }} 项（跨页保留）</span>
       <BaseButton variant="secondary" size="small" :disabled="!online" @click="requestBatchDisposition(selectedIdList(), 'READ')">批量标记已读</BaseButton>
@@ -398,16 +399,17 @@ const inboxViews = ['ALL', ...inboxItemTypes] as const
 </template>
 
 <style scoped>
-.inbox-workspace { display: grid; max-width: 1240px; gap: var(--cs-space-12); margin: 0 auto; }.inbox-overview { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-16) var(--cs-space-20); }/* 语义类直选：这里曾是 `.inbox-overview > span`，同列的 StatusBadge 根元素也是 span，
-   被 44px 图标格规则误压（767 档「计数同步失败」溢出 4px 的根源，M9b-Q01 六视口矩阵抓到）。 */
-.inbox-overview__icon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 13px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.inbox-overview p, .inbox-detail > header p { margin: 0; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .1em; text-transform: uppercase; }.inbox-overview h2 { margin: var(--cs-space-2) 0; font-size: var(--cs-text-lg); }.inbox-overview small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.inbox-views { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--cs-space-8); }.inbox-views button { position: relative; display: grid; min-width: 0; min-height: 82px; align-content: center; gap: var(--cs-space-4); padding: var(--cs-space-12) var(--cs-space-40) var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.inbox-views button:hover, .inbox-views button:focus-visible { border-color: var(--cs-border-accent-strong); }.inbox-views button.active { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); box-shadow: inset 0 0 0 1px var(--cs-ring-brand); color: var(--cs-text-brand-strong); }.inbox-views span { font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.inbox-views small { overflow: hidden; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-tight); text-overflow: ellipsis; white-space: nowrap; }.inbox-views i { position: absolute; top: 11px; right: 10px; display: grid; min-width: 22px; height: 22px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); font: var(--cs-weight-semibold) var(--cs-text-xs) var(--cs-font-mono); font-style: normal; }.inbox-views i b { position: absolute; top: -6px; right: -6px; display: grid; min-width: 15px; height: 15px; place-items: center; padding: 0 var(--cs-space-4); border-radius: 8px; background: var(--cs-warning); color: var(--cs-text-on-semantic); font-size: var(--cs-text-xs); }
-.inbox-toolbar { display: grid; grid-template-columns: minmax(170px, 220px) minmax(170px, 220px) 1fr; align-items: end; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-12); }.inbox-toolbar label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.inbox-toolbar :deep(select) { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }.inbox-toolbar > span { justify-self: end; padding-bottom: var(--cs-space-8); color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }
+/* M13b-F09（契约 §7）：strip/五类视图/工具栏是同一组扫读条，gap 收到元素级 8px——
+ * 首条数据距 context header 的 200px 预算在 12px panel gap 下装不下（实测 207）。 */
+.inbox-workspace { display: grid; grid-template-columns: minmax(0, 1fr); max-width: var(--cs-content-max); gap: var(--cs-space-8); margin: 0 auto; }.inbox-detail > header p { margin: 0; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .1em; text-transform: uppercase; }
+/* M13b-F09（契约 §7）：五类视图从 82px 竖排卡收敛为单行 pill——首条数据距 context header ≤200px
+ * 的预算放不下第二层大卡；类别说明退到 sr-only，计数内联到标签右侧，密度与工具栏控件对齐。 */
+.inbox-views { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }.inbox-views button { display: inline-flex; min-height: var(--cs-density-control-height); align-items: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 999px; background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }.inbox-views button:hover, .inbox-views button:focus-visible { border-color: var(--cs-border-accent-strong); }.inbox-views button.active { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); box-shadow: inset 0 0 0 1px var(--cs-ring-brand); color: var(--cs-text-brand-strong); }.inbox-views span { font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); white-space: nowrap; }.inbox-views i { position: relative; display: inline-grid; min-width: 22px; height: 22px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); font: var(--cs-weight-semibold) var(--cs-text-xs) var(--cs-font-mono); font-style: normal; }.inbox-views i b { position: absolute; top: -6px; right: -6px; display: grid; min-width: 15px; height: 15px; place-items: center; padding: 0 var(--cs-space-4); border-radius: 8px; background: var(--cs-warning); color: var(--cs-text-on-semantic); font-size: var(--cs-text-xs); }
 .selection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: var(--cs-radius-md); background: var(--cs-surface-accent); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }
 .batch-report { padding: var(--cs-space-12) var(--cs-space-16); }.batch-report > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-12); }.batch-report > header > div { display: grid; gap: var(--cs-space-2); }.batch-report > header strong { font-size: var(--cs-text-sm); }.batch-report > header span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.batch-report > header button { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 7px; background: var(--cs-surface-subtle); cursor: pointer; }.batch-report > ul { display: grid; gap: var(--cs-space-4); margin: var(--cs-space-8) 0 0; padding: 0; list-style: none; }.batch-report > ul > li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); }.batch-report > ul > li .mono { color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }.batch-report > ul > li small { flex-basis: 100%; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.batch-report > footer { display: flex; justify-content: flex-end; margin-top: var(--cs-space-8); }
 .inbox-content { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--cs-space-12); }.inbox-content.has-detail { grid-template-columns: minmax(0, 1fr) 355px; }.inbox-list { overflow: hidden; }.inbox-list > ol { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }.inbox-list > ol > li { border-bottom: 1px solid var(--cs-border); }.inbox-list > ol > li:last-child { border-bottom: 0; }.inbox-list > ol > li.selected { background: var(--cs-surface-accent); }.inbox-list > ol > li.unread { box-shadow: inset 3px 0 var(--cs-warning); }.inbox-list article { padding: var(--cs-space-16) var(--cs-space-16); }.inbox-list article > header, .inbox-list article > footer, .inbox-detail__actions > header { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.inbox-list article > header > div { display: flex; align-items: center; gap: var(--cs-space-8); }.inbox-list article > header svg { color: var(--cs-text-brand); }.inbox-list article > header strong { font-size: var(--cs-text-sm); }.inbox-list article > header time { color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }.inbox-list article > p { margin: var(--cs-space-8) 0 var(--cs-space-8); color: var(--cs-text-secondary); font: var(--cs-text-xs) var(--cs-font-mono); }.inbox-card__facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); }.inbox-card__facts > span { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.overdue { color: var(--cs-danger) !important; font-weight: var(--cs-weight-semibold); }.inbox-list article > footer { margin-top: var(--cs-space-12); }.inbox-list article > footer > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.inbox-list article > footer button { display: inline-flex; min-height: 30px; align-items: center; gap: var(--cs-space-4); padding: 0 var(--cs-space-8); border-radius: 7px; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.inbox-list article > footer button:hover, .inbox-list article > footer button:focus-visible { background: var(--cs-surface-accent-strong); }.inbox-list > footer { display: flex; justify-content: center; padding: var(--cs-space-12); border-top: 1px solid var(--cs-border); }
 .inbox-detail { position: sticky; top: 12px; overflow: hidden; }.inbox-detail > header { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.inbox-detail > header h2 { margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-md); }.inbox-detail > header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.inbox-detail__hero { padding: var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.inbox-detail__hero > div { display: flex; gap: var(--cs-space-8); }.inbox-detail__hero h3 { margin: var(--cs-space-12) 0 var(--cs-space-4); font-size: var(--cs-text-md); }.inbox-detail__hero p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.inbox-detail > dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--cs-space-12); margin: 0; padding: var(--cs-space-8) var(--cs-space-16); }.inbox-detail > dl > div { padding: var(--cs-space-8) 0; border-bottom: 1px solid var(--cs-border); }.inbox-detail dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.inbox-detail dd { overflow-wrap: anywhere; margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-xs); }.inbox-detail__source { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border-top: 1px solid var(--cs-border); }.inbox-detail__source > svg { color: var(--cs-text-brand); }.inbox-detail__source strong, .inbox-detail__source span { display: block; }.inbox-detail__source strong { font-size: var(--cs-text-xs); }.inbox-detail__source span { overflow: hidden; margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.inbox-detail__actions { padding: var(--cs-space-16) var(--cs-space-16); border-top: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.inbox-detail__actions > header > div { display: flex; align-items: center; gap: var(--cs-space-4); }.inbox-detail__actions > header strong { font-size: var(--cs-text-sm); }.inbox-detail__actions > header span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.inbox-detail__actions > p { margin: var(--cs-space-8) 0 var(--cs-space-12); color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.inbox-detail__actions > div { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }
-@media (max-width: 980px) { .inbox-views { grid-template-columns: repeat(3, minmax(0, 1fr)); }.inbox-content.has-detail { grid-template-columns: minmax(0, 1fr) 330px; } }
-@media (max-width: 760px) { .inbox-overview { grid-template-columns: 38px 1fr; padding: var(--cs-space-12); }.inbox-overview__icon { width: 38px; height: 38px; }.inbox-overview > :last-child { grid-column: 1 / -1; justify-self: start; }.inbox-views { display: flex; overflow-x: auto; padding-bottom: var(--cs-space-2); scroll-snap-type: x proximity; }.inbox-views button { flex: 0 0 160px; scroll-snap-align: start; }.inbox-toolbar { grid-template-columns: 1fr 1fr; }.inbox-toolbar > span { grid-column: 1 / -1; justify-self: start; padding: 0; }.inbox-content.has-detail { grid-template-columns: 1fr; }.inbox-detail { position: static; grid-row: 1; }.inbox-list article { padding: var(--cs-space-12); } }
-@media (max-width: 460px) { .inbox-toolbar { grid-template-columns: 1fr; }.inbox-toolbar > span { grid-column: auto; }.inbox-detail > dl { grid-template-columns: 1fr; }.inbox-detail__source { grid-template-columns: 18px minmax(0, 1fr); }.inbox-detail__source > button { grid-column: 1 / -1; width: 100%; }.inbox-detail__actions > div { display: grid; }.inbox-detail__actions > div > * { width: 100%; } }
+@media (max-width: 980px) { .inbox-content.has-detail { grid-template-columns: minmax(0, 1fr) 330px; } }
+@media (max-width: 760px) { .inbox-views { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--cs-space-2); scroll-snap-type: x proximity; }.inbox-views button { flex: 0 0 auto; scroll-snap-align: start; }.inbox-content.has-detail { grid-template-columns: 1fr; }.inbox-detail { position: static; grid-row: 1; }.inbox-list article { padding: var(--cs-space-12); } }
+@media (max-width: 460px) { .inbox-detail > dl { grid-template-columns: 1fr; }.inbox-detail__source { grid-template-columns: 18px minmax(0, 1fr); }.inbox-detail__source > button { grid-column: 1 / -1; width: 100%; }.inbox-detail__actions > div { display: grid; }.inbox-detail__actions > div > * { width: 100%; } }
 </style>

@@ -24,7 +24,7 @@ const items = computed<BreadcrumbItem[]>(() => {
 </script>
 
 <template>
-  <nav v-if="items.length > 0" class="app-breadcrumb" aria-label="面包屑">
+  <nav v-if="items.length > 2" class="app-breadcrumb" aria-label="面包屑">
     <ol>
       <li v-for="(item, index) in items" :key="`${item.label}-${index}`">
         <RouterLink v-if="item.to && index < items.length - 1" :to="item.to">{{ item.label }}</RouterLink>
@@ -44,12 +44,16 @@ const items = computed<BreadcrumbItem[]>(() => {
 .app-breadcrumb [aria-current='page'] { color: var(--cs-text-secondary); font-weight: var(--cs-weight-semibold); }
 .separator { color: var(--cs-border-strong); }
 /*
- * 窄屏不显示面包屑。它在这里既是冗余也是一处修不好的命中区缺陷：
- * 默认形态是 `CrewScope / <当前页标题>`，第二项与紧跟其下的 <h1> 逐字重复，唯一的链接
- * （回「今日」）与汉堡菜单里的同一条重复；而 24px 高的它撑不大也扩不开——撑到 44px 会把
- * 每一页的页头顶下去 20px，用伪元素扩张则会盖住正上方 21px 处顶栏的图标按钮（实测 56 处
- * 全部报「扩张区被 button.icon-button 占住」）。
- * 一个够不到、又只是重复了下一行的元素，在最缺纵向空间的屏幕上占着 32px，去掉是净收益。
+ * M13b-F09（L15）：层级 >2 才渲染面包屑。默认两项式 `CrewScope / <当前页标题>` 的第二项
+ * 与紧随其下的 <h1> 逐字重复，一级页面渲染它只占 24px 高 + 8px margin 却不提供任何新信息，
+ * 所以组件在 items ≤2 时整个不出现在 DOM 里——context header 因此能从 82px 收到 64px。
+ * 只有真实三级路径（section > 条目 > 版本之类，经 props.items 显式传入）才值得渲染，
+ * 那时末项用条目名，不再与 h1 同文。
+ */
+/*
+ * 窄屏不显示面包屑。唯一链接（回「今日」）与汉堡菜单里的同一条重复；24px 高的它撑不大
+ * 也扩不开——撑到 44px 会把每一页的页头顶下去 20px，用伪元素扩张则会盖住正上方 21px 处
+ * 顶栏的图标按钮（实测 56 处全部报「扩张区被 button.icon-button 占住」）。
  */
 @media (max-width: 767px) { .app-breadcrumb { display: none; } }
 </style>

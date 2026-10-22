@@ -26,8 +26,10 @@ import type { TeamOpsErrorState } from '../../domains/teamops/errors'
 import { principalDisplayName, type PrincipalNameDirectory } from '../../domains/scope/memberDirectory'
 import type { PrincipalScope } from '../../domains/principal/types'
 import BaseButton from '../base/BaseButton.vue'
+import BaseMenu from '../base/BaseMenu.vue'
 import BaseTable from '../base/BaseTable.vue'
 import PrincipalPicker from './PrincipalPicker.vue'
+import ScanToolbar from '../base/ScanToolbar.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import RelativeTime from '../base/RelativeTime.vue'
@@ -177,43 +179,52 @@ function label(value: string | null | undefined, labels: Record<string, string>)
 </script>
 
 <template>
-  <section class="audit-explorer" aria-labelledby="audit-title">
-    <section class="audit-hero panel">
-      <span><ShieldCheck :size="23" aria-hidden="true" /></span>
-      <div><p>Team governance</p><h2 id="audit-title">团队审计中心</h2><small>按公开审计事实追踪人员、Agent、对象与 Provider 操作。</small></div>
-      <StatusBadge tone="neutral">{{ items.length }} 条已加载</StatusBadge>
+  <section class="audit-explorer" aria-label="团队审计中心">
+    <section class="summary-strip panel" aria-label="审计概览">
+      <h2>团队审计中心</h2>
+      <p class="summary-strip__note">按公开审计事实追踪人员、Agent、对象与 Provider 操作</p>
+      <p class="summary-strip__meta">{{ items.length }} 条已加载</p>
     </section>
 
-    <form class="audit-filter panel" aria-label="审计筛选" @submit.prevent="submit">
-      <div class="audit-filter__primary">
-        <label>开始时间<input v-model="form.from" type="datetime-local"></label>
-        <label>结束时间<input v-model="form.to" type="datetime-local"></label>
-        <label>Category<BaseSelect v-model="form.category"><option value="">全部类别</option><option v-for="item in auditEventCategories" :key="item" :value="item">{{ item }}</option></BaseSelect></label>
-        <label>Outcome<BaseSelect v-model="form.outcome"><option value="">全部结果</option><option v-for="item in auditOutcomes" :key="item" :value="item">{{ item }}</option></BaseSelect></label>
-      </div>
-      <button class="advanced-toggle touch-target" type="button" :aria-expanded="advanced" @click="advanced = !advanced"><Filter :size="13" />{{ advanced ? '收起高级筛选' : '展开高级筛选' }}</button>
-      <div v-if="advanced" class="audit-filter__advanced">
-        <template v-if="principalScope">
-          <PrincipalPicker :scope="principalScope" :model-value="form.initiator || null" purpose="AUDIT" label="Initiator" help-text="按姓名搜索成员与历史身份（含已离职）；无需填写任何标识符。" @update:model-value="value => form.initiator = value ?? ''" />
-          <PrincipalPicker :scope="principalScope" :model-value="form.actor || null" purpose="AUDIT" label="Actor" help-text="按姓名搜索成员与历史身份（含已离职）；无需填写任何标识符。" @update:model-value="value => form.actor = value ?? ''" />
-          <PrincipalPicker :scope="principalScope" :model-value="form.agent || null" purpose="AUDIT" kind="AGENT" label="Agent Principal" help-text="按名称搜索 Agent；无需填写任何标识符。" @update:model-value="value => form.agent = value ?? ''" />
+    <form class="audit-filter" aria-label="审计筛选" @submit.prevent="submit">
+      <ScanToolbar>
+        <template #filters>
+          <div class="audit-filter__primary">
+            <label>Category<BaseSelect v-model="form.category"><option value="">全部类别</option><option v-for="item in auditEventCategories" :key="item" :value="item">{{ item }}</option></BaseSelect></label>
+            <label>Outcome<BaseSelect v-model="form.outcome"><option value="">全部结果</option><option v-for="item in auditOutcomes" :key="item" :value="item">{{ item }}</option></BaseSelect></label>
+          </div>
+          <BaseMenu :open="advanced" initial-focus="none" placement="bottom-start" label="高级筛选" trigger-class="advanced-toggle touch-target" menu-class="audit-filter__menu" @update:open="advanced = $event">
+            <template #trigger><Filter :size="13" />高级筛选</template>
+            <div class="audit-filter__advanced">
+              <label>开始时间<input v-model="form.from" type="datetime-local"></label>
+              <label>结束时间<input v-model="form.to" type="datetime-local"></label>
+              <template v-if="principalScope">
+                <PrincipalPicker :scope="principalScope" :model-value="form.initiator || null" purpose="AUDIT" label="Initiator" help-text="按姓名搜索成员与历史身份（含已离职）；无需填写任何标识符。" @update:model-value="value => form.initiator = value ?? ''" />
+                <PrincipalPicker :scope="principalScope" :model-value="form.actor || null" purpose="AUDIT" label="Actor" help-text="按姓名搜索成员与历史身份（含已离职）；无需填写任何标识符。" @update:model-value="value => form.actor = value ?? ''" />
+                <PrincipalPicker :scope="principalScope" :model-value="form.agent || null" purpose="AUDIT" kind="AGENT" label="Agent Principal" help-text="按名称搜索 Agent；无需填写任何标识符。" @update:model-value="value => form.agent = value ?? ''" />
+              </template>
+              <label>Subject Type<input v-model.trim="form.subjectType" autocomplete="off" placeholder="例如 WORK_ITEM"></label>
+              <label>Subject UUID<input v-model.trim="form.subjectId" autocomplete="off"></label>
+              <label>Provider Binding UUID<input v-model.trim="form.providerBinding" autocomplete="off"></label>
+              <label>Correlation UUID<input v-model.trim="form.correlation" autocomplete="off"></label>
+            </div>
+          </BaseMenu>
         </template>
-        <label>Subject Type<input v-model.trim="form.subjectType" autocomplete="off" placeholder="例如 WORK_ITEM"></label>
-        <label>Subject UUID<input v-model.trim="form.subjectId" autocomplete="off"></label>
-        <label>Provider Binding UUID<input v-model.trim="form.providerBinding" autocomplete="off"></label>
-        <label>Correlation UUID<input v-model.trim="form.correlation" autocomplete="off"></label>
-      </div>
+        <template #side>
+          <div class="export-control">
+            <label>导出上限<input v-model.number="maximumRows" type="number" min="1" max="10000" step="1"></label>
+            <BaseButton variant="secondary" size="small" :loading="exportPhase === 'loading'" :disabled="Boolean(exportDisabledReason) || maximumRows < 1 || maximumRows > 10000" @click="emit('export', maximumRows)"><Download :size="13" />导出 CSV</BaseButton>
+          </div>
+          <BaseButton variant="ghost" size="small" @click="reset">重置</BaseButton>
+          <BaseButton size="small" type="submit"><Filter :size="13" />应用筛选</BaseButton>
+        </template>
+      </ScanToolbar>
       <p v-if="validation" class="filter-error" role="alert">{{ validation }}</p>
-      <footer>
-        <div class="export-control">
-          <label>导出上限<input v-model.number="maximumRows" type="number" min="1" max="10000" step="1"></label>
-          <BaseButton variant="secondary" size="small" :loading="exportPhase === 'loading'" :disabled="Boolean(exportDisabledReason) || maximumRows < 1 || maximumRows > 10000" @click="emit('export', maximumRows)"><Download :size="13" />导出 CSV</BaseButton>
-          <span v-if="exportDisabledReason">{{ exportDisabledReason }}<button v-if="draftDiffers" type="submit" class="inline-apply">应用筛选</button></span>
-          <span v-else-if="exportPhase === 'ready'" class="success" role="status">已导出{{ exportSummary ? ` ${exportSummary.count} 条` : '' }}并下载{{ exportSummary?.possiblyIncomplete ? '；达到行数上限，结果可能不完整' : '' }}</span>
-          <span v-else-if="exportPhase === 'error'" class="failure" role="alert">{{ exportError?.kind === 'forbidden' ? '服务端拒绝导出权限' : exportError?.message }}</span>
-        </div>
-        <div><BaseButton variant="ghost" size="small" @click="reset">重置</BaseButton><BaseButton size="small" type="submit"><Filter :size="13" />应用筛选</BaseButton></div>
-      </footer>
+      <p class="filter-status">
+        <span v-if="exportDisabledReason">{{ exportDisabledReason }}<button v-if="draftDiffers" type="submit" class="inline-apply">应用筛选</button></span>
+        <span v-else-if="exportPhase === 'ready'" class="success" role="status">已导出{{ exportSummary ? ` ${exportSummary.count} 条` : '' }}并下载{{ exportSummary?.possiblyIncomplete ? '；达到行数上限，结果可能不完整' : '' }}</span>
+        <span v-else-if="exportPhase === 'error'" class="failure" role="alert">{{ exportError?.kind === 'forbidden' ? '服务端拒绝导出权限' : exportError?.message }}</span>
+      </p>
       <p class="applied-summary">已应用条件：{{ appliedSummary }}</p>
     </form>
 
@@ -281,14 +292,15 @@ function label(value: string | null | undefined, labels: Record<string, string>)
 </template>
 
 <style scoped>
-.audit-explorer { display: grid; max-width: 1280px; gap: var(--cs-space-12); margin: 0 auto; }.audit-hero { display: grid; grid-template-columns: 44px minmax(0,1fr) auto; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-16) var(--cs-space-20); }.audit-hero > span { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 13px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.audit-hero p,.audit-detail header p,.correlation-panel header p { margin: 0; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .1em; text-transform: uppercase; }.audit-hero h2 { margin: var(--cs-space-2) 0; font-size: var(--cs-text-lg); }.audit-hero small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.audit-filter { padding: var(--cs-space-12); }.audit-filter label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.audit-filter input,.audit-filter :deep(select) { min-width: 0; min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }.audit-filter__primary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: var(--cs-space-8); }.advanced-toggle { display: inline-flex; min-height: 30px; align-items: center; gap: var(--cs-space-4); margin-top: var(--cs-space-8); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.audit-filter__advanced { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: var(--cs-space-8); padding-top: var(--cs-space-8); border-top: 1px solid var(--cs-border); }.filter-error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }.audit-filter > footer { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--cs-space-12); margin-top: var(--cs-space-12); padding-top: var(--cs-space-12); border-top: 1px solid var(--cs-border); }.audit-filter > footer > div,.export-control { display: flex; align-items: flex-end; gap: var(--cs-space-8); }.export-control label { width: 100px; }.export-control > span { align-self: center; max-width: 220px; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.export-control .success { color: var(--cs-success); }.export-control .failure { color: var(--cs-danger); }.inline-apply { margin-left: var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-decoration: underline; cursor: pointer; }.applied-summary { margin: var(--cs-space-8) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.audit-explorer { display: grid; max-width: var(--cs-content-max); gap: var(--cs-space-12); margin: 0 auto; }.audit-detail header p,.correlation-panel header p { margin: 0; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .1em; text-transform: uppercase; }
+.audit-filter label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.audit-filter input { min-width: 0; min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }/* 工具栏内联筛选：label 横排，高特异性压过 .audit-filter label 的竖排默认（弹层内保持竖排）。 */
+.audit-filter__primary { display: flex; align-items: center; gap: var(--cs-space-16); }.audit-filter__primary > label { display: inline-flex; align-items: center; gap: var(--cs-space-8); }.advanced-toggle { display: inline-flex; min-height: 30px; align-items: center; gap: var(--cs-space-4); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.audit-filter__menu { min-width: min(560px, calc(100vw - 48px)); }.audit-filter__advanced { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-8); padding: var(--cs-space-4); }.audit-filter__advanced :deep(input), .audit-filter__advanced input { width: 100%; }.filter-error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }.filter-status { min-height: 20px; margin: var(--cs-space-8) 0 0; }.filter-status > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.filter-status .success { color: var(--cs-success); }.filter-status .failure { color: var(--cs-danger); }.export-control { display: flex; align-items: center; gap: var(--cs-space-8); }.export-control label { display: inline-flex; align-items: center; gap: var(--cs-space-8); white-space: nowrap; }.export-control input { width: 76px; }.inline-apply { margin-left: var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-decoration: underline; cursor: pointer; }.applied-summary { margin: var(--cs-space-8) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .audit-content { display: grid; grid-template-columns: minmax(0,1fr); align-items: start; gap: var(--cs-space-12); }.audit-content.has-aside { grid-template-columns: minmax(0,1fr) 370px; }.audit-list { overflow: hidden; }.audit-list th { padding: var(--cs-space-8) var(--cs-space-12); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: left; text-transform: uppercase; }.audit-list td { padding: var(--cs-space-12) var(--cs-space-12); border-bottom: 1px solid var(--cs-border); vertical-align: middle; font-size: var(--cs-text-xs); }.audit-list tr.selected { background: var(--cs-surface-accent); }/* The RelativeTime root is also a direct-child span, but it is the cell's whole content — the
    primary-row block treatment (and its 4px spacing) is for name rows with a small sibling only. */
 .audit-list td > strong,.audit-list td > span:not(.relative-time),.audit-list td > small { display: block; }.audit-list td > strong,.audit-list td > span:not(.relative-time) { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-xs); }.audit-list td > small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.audit-list td:first-child :deep(.status-badge) { margin-top: var(--cs-space-4); }.audit-list td button { min-height: 30px; padding: 0 var(--cs-space-8); border-radius: 7px; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.audit-list td button:hover,.audit-list td button:focus-visible { background: var(--cs-surface-accent-strong); }.audit-list > footer,.correlation-panel > footer { display: flex; justify-content: center; padding: var(--cs-space-12); }
 .audit-detail,.correlation-panel { position: sticky; top: 12px; overflow: hidden; }.audit-detail > header,.correlation-panel > header { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.audit-detail header h2,.correlation-panel header h2 { margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-md); }.audit-detail header button,.correlation-panel header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.audit-detail__hero { padding: var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.audit-detail__hero :deep(.status-badge) { margin-right: var(--cs-space-4); }.audit-detail__hero h3 { margin: var(--cs-space-8) 0 var(--cs-space-2); font-size: var(--cs-text-base); }.audit-detail__hero > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.audit-detail > dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--cs-space-12); margin: 0; padding: var(--cs-space-8) var(--cs-space-16); }.audit-detail > dl > div { padding: var(--cs-space-8) 0; border-bottom: 1px solid var(--cs-border); }.audit-detail dt,.audit-summary dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.audit-detail dd,.audit-summary dd { overflow-wrap: anywhere; margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-xs); }.audit-detail dd small { display: block; margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.safe-reference,.correlation-callout { display: grid; grid-template-columns: 18px minmax(0,1fr) auto; gap: var(--cs-space-8); align-items: start; padding: var(--cs-space-12) var(--cs-space-16); border-top: 1px solid var(--cs-border); }.safe-reference > svg,.correlation-callout > svg { color: var(--cs-text-brand); }.safe-reference strong,.safe-reference span,.correlation-callout strong,.correlation-callout span { display: block; }.safe-reference strong,.correlation-callout strong { font-size: var(--cs-text-xs); }.safe-reference span,.correlation-callout span { overflow-wrap: anywhere; margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.audit-summary { padding: var(--cs-space-12) var(--cs-space-16); border-top: 1px solid var(--cs-border); }.audit-summary h3,.correlation-objects h3 { margin: 0 0 var(--cs-space-8); font-size: var(--cs-text-sm); }.audit-summary > p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.audit-summary dl { display: grid; gap: var(--cs-space-8); margin: 0; }
 .correlation-id { margin: 0; padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.correlation-panel > ol { display: grid; gap: 0; margin: 0; padding: 0 var(--cs-space-16); list-style: none; }.correlation-panel > ol li { display: grid; grid-template-columns: 1fr auto; gap: var(--cs-space-4) var(--cs-space-8); padding: var(--cs-space-12) 0; border-bottom: 1px solid var(--cs-border); }.correlation-panel > ol li > span { color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.correlation-panel > ol li > strong { grid-column: 1; font-size: var(--cs-text-xs); }.correlation-panel > ol li > small { grid-column: 1; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.correlation-panel > ol li :deep(.status-badge) { grid-column: 2; grid-row: 1 / 4; align-self: center; }.correlation-objects { padding: var(--cs-space-12) var(--cs-space-16); background: var(--cs-surface-subtle); }.correlation-objects button { display: flex; width: 100%; min-height: 43px; align-items: center; justify-content: space-between; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-8); border-top: 1px solid var(--cs-border); text-align: left; cursor: pointer; }.correlation-objects button:hover,.correlation-objects button:focus-visible { background: var(--cs-surface-accent-strong); }.correlation-objects strong,.correlation-objects small { display: block; }.correlation-objects strong { font-size: var(--cs-text-xs); }.correlation-objects small { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-@media (max-width: 1020px) { .audit-filter__advanced { grid-template-columns: repeat(3,minmax(0,1fr)); }.audit-content.has-aside { grid-template-columns: minmax(0,1fr) 330px; } }
-@media (max-width: 780px) { .audit-filter__primary,.audit-filter__advanced { grid-template-columns: 1fr 1fr; }.audit-filter > footer { align-items: stretch; flex-direction: column; }.audit-filter > footer > div { justify-content: flex-end; }.export-control { flex-wrap: wrap; }.audit-content.has-aside { grid-template-columns: 1fr; }.audit-detail,.correlation-panel { position: static; grid-row: 1; }.audit-list thead { position: absolute; overflow: hidden; width: 1px; height: 1px; clip: rect(0 0 0 0); }.audit-list tbody,.audit-list tr,.audit-list td { display: block; }.audit-list tr { padding: var(--cs-space-8) var(--cs-space-12); border-bottom: 1px solid var(--cs-border); }.audit-list td { display: grid; grid-template-columns: 105px minmax(0,1fr); padding: var(--cs-space-4) 0; border: 0; }.audit-list td::before { grid-row: 1 / 4; content: attr(data-label); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.audit-list td button { justify-self: start; padding-left: 0; }.audit-list td button:hover { padding-left: var(--cs-space-8); } }
-@media (max-width: 480px) { .audit-hero { grid-template-columns: 38px 1fr; padding: var(--cs-space-12); }.audit-hero > span { width: 38px; height: 38px; }.audit-hero > :last-child { grid-column: 1 / -1; justify-self: start; }.audit-filter__primary,.audit-filter__advanced { grid-template-columns: 1fr; }.audit-filter > footer > div { display: grid; justify-content: stretch; }.export-control label { width: auto; }.audit-detail > dl { grid-template-columns: 1fr; }.safe-reference,.correlation-callout { grid-template-columns: 18px minmax(0,1fr); }.safe-reference > button,.correlation-callout > button { grid-column: 1 / -1; width: 100%; } }
+@media (max-width: 1020px) { .audit-content.has-aside { grid-template-columns: minmax(0,1fr) 330px; } }
+@media (max-width: 780px) { .audit-content.has-aside { grid-template-columns: 1fr; }.audit-detail,.correlation-panel { position: static; grid-row: 1; }.audit-list thead { position: absolute; overflow: hidden; width: 1px; height: 1px; clip: rect(0 0 0 0); }.audit-list tbody,.audit-list tr,.audit-list td { display: block; }.audit-list tr { padding: var(--cs-space-8) var(--cs-space-12); border-bottom: 1px solid var(--cs-border); }.audit-list td { display: grid; grid-template-columns: 105px minmax(0,1fr); padding: var(--cs-space-4) 0; border: 0; }.audit-list td::before { grid-row: 1 / 4; content: attr(data-label); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.audit-list td button { justify-self: start; padding-left: 0; }.audit-list td button:hover { padding-left: var(--cs-space-8); } }
+@media (max-width: 480px) { .audit-filter__advanced { grid-template-columns: 1fr; }.audit-detail > dl { grid-template-columns: 1fr; }.safe-reference,.correlation-callout { grid-template-columns: 18px minmax(0,1fr); }.safe-reference > button,.correlation-callout > button { grid-column: 1 / -1; width: 100%; } }
 </style>

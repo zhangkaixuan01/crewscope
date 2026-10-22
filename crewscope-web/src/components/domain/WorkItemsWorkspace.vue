@@ -58,6 +58,9 @@ defineProps<{
 
 <template>
   <section class="work-content" :class="`work-content--${view}`">
+    <!-- M13b-F09：S4 hero 退出后页面只剩 shell 的 h1，卡片标题 h3 直接跟在它后面跳级
+         （axe heading-order）。列表容器补一个 sr-only h2 垫平层级，不占单行扫读预算。 -->
+    <h2 class="sr-only">{{ view === 'board' ? '工作项看板' : '工作项列表' }}</h2>
     <StatePanel v-if="phase === 'loading'" state="loading" />
     <StatePanel v-else-if="phase === 'error'" state="error" :description="errorMessage ?? undefined" @retry="onRetry" />
     <StatePanel v-else-if="phase === 'empty' && hasAppliedFilters" state="empty" title="没有符合筛选条件的工作项" description="调整类型或优先级筛选即可恢复结果。"><template #action><BaseButton variant="secondary" @click="onClearFilters"><Filter :size="15" />清除筛选</BaseButton></template></StatePanel>

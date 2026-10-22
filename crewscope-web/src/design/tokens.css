@@ -264,6 +264,15 @@
   --cs-bp-md: 768px;
   --cs-bp-lg: 1100px;
   --cs-bp-xl: 1400px;
+  /*
+   * M13b-F09 布局系统（S5/S2）：内容宽度只有两档——扫描型页正文 --cs-content-max，
+   * 阅读型页正文 --cs-reading-max，≥1600 显示器上不再横向跳动；扫描工具栏的行高由
+   * --cs-scan-toolbar-height 封顶（结果数/筛选/排序/主行动一行放下）。表格与看板页
+   * 允许显式 full-bleed，不进这两档。
+   */
+  --cs-content-max: 1360px;
+  --cs-reading-max: 980px;
+  --cs-scan-toolbar-height: 56px;
   --cs-density-control-height: 38px;
   --cs-density-panel-gap: var(--cs-space-16);
   --cs-density-workspace-padding: var(--cs-space-20);

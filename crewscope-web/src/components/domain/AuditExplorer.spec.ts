@@ -25,8 +25,8 @@ describe('AuditExplorer', () => {
   it('requires paired Subject filters and valid UUID identifiers', async () => {
     const wrapper = mount(AuditExplorer, { props: props(), global: { stubs: routerLinkStub } })
     await wrapper.get('.advanced-toggle').trigger('click')
-    // Without a principalScope the pickers stay unrendered, so Subject Type is the first input.
-    const subjectType = wrapper.findAll<HTMLInputElement>('.audit-filter__advanced input')[0]!
+    // 时间区间也在高级筛选 popover 里了；Subject Type 靠 placeholder 定位，不依赖弹层内控件顺序。
+    const subjectType = wrapper.get<HTMLInputElement>('.audit-filter__advanced input[placeholder="例如 WORK_ITEM"]')
     await subjectType.setValue('WORK_ITEM')
     await wrapper.get('form').trigger('submit')
 

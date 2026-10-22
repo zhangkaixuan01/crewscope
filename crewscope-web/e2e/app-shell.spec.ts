@@ -1383,9 +1383,13 @@ test('Conversation restores its Team deep link and shares the selected scope wit
   await expect(personalAgentName).toHaveCount(1)
   await expect(personalAgentOwnership).toHaveCount(1)
   await expect(personalAgentKind).toHaveCount(1)
-  // The participant rail is intentionally collapsed below the tablet breakpoint; preserve the
-  // identity facts in DOM without making a hidden desktop rail block narrow-screen navigation.
+  // M13b-F09（R51）：≤1440 视口的参与者面板默认让位给消息列。desktop 项目恰是 1440×960，
+  // 让位形态是 44px 标签条（容器在、名单内容让位），「展开参与者」把面板钉回本会话；
+  // ≤900 的窄视口面板整体 display:none，身份事实留在 DOM（上方 count 断言）。
   if (testInfo.project.name === 'desktop-chromium') {
+    await expect(participants).toBeVisible()
+    expect((await participants.boundingBox())!.width).toBeLessThanOrEqual(48)
+    await page.getByRole('region', { name: '对话详情' }).getByLabel('折叠参与者面板').click()
     await expect(personalAgentName).toBeVisible()
     await expect(personalAgentOwnership).toBeVisible()
     await expect(personalAgentKind).toBeVisible()
@@ -1750,6 +1754,10 @@ test('Conversation reviews the latest TaskIntent and confirms with an empty requ
   ))
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
 
+  // M13b-F09（R51）：任务意图卡收进 conversation-structure 折叠块——summary 行（「任务意图
+  // 待确认」）常驻扫读，卡内 heading 与展开入口都在折叠面里，先展开再走原契约。
+  await expect(page.getByText('任务意图 待确认')).toBeVisible()
+  await page.getByText('任务意图 待确认').click()
   await expect(page.getByRole('heading', { name: '结构化任务提案' })).toBeVisible()
   // The pre-message card arrives folded (R19): the full criteria and the confirm action live behind the expand entry.
   await page.getByRole('button', { name: '展开提案' }).click()
@@ -2207,10 +2215,8 @@ test('Work restores filters and groups matching items on the Board', async ({ pa
   await expect(page).toHaveURL(/view=list/)
   await page.reload()
   await expect(page.getByLabel('工作项列表')).toBeVisible()
-  // 手机上筛选行折叠在开关后面（R16）；两个视口都要读到 select 的值，先展开再断言。
-  const filterToggle = page.getByRole('button', { name: /展开筛选/ })
-  if (await filterToggle.isVisible()) await filterToggle.click()
-  await expect(page.locator('.filters').getByLabel('类型')).toHaveValue('FEATURE')
+  // M13b-F09 后筛选常驻 ScanToolbar（R16 的折叠开关由窄屏 wrap 替代），两个视口都能直接读。
+  await expect(page.getByLabel('工作项筛选与排序').getByRole('combobox', { name: '类型', exact: true })).toHaveValue('FEATURE')
 })
 
 test('Work clears the applied type and priority filters in one route update', async ({ page }) => {
@@ -2220,11 +2226,9 @@ test('Work clears the applied type and priority filters in one route update', as
   await page.getByRole('button', { name: '清除筛选' }).click()
 
   await expect(page.getByLabel('工作项列表')).toBeVisible()
-  // 手机上筛选行折叠在开关后面（R16）；两个视口都要读到 select 的值，先展开再断言。
-  const filterToggle = page.getByRole('button', { name: /展开筛选/ })
-  if (await filterToggle.isVisible()) await filterToggle.click()
-  await expect(page.locator('.filters').getByLabel('类型')).toHaveValue('all')
-  await expect(page.locator('.filters').getByLabel('优先级')).toHaveValue('all')
+  // M13b-F09 后筛选常驻 ScanToolbar（R16 的折叠开关由窄屏 wrap 替代），两个视口都能直接读。
+  await expect(page.getByLabel('工作项筛选与排序').getByRole('combobox', { name: '类型', exact: true })).toHaveValue('all')
+  await expect(page.getByLabel('工作项筛选与排序').getByRole('combobox', { name: '优先级', exact: true })).toHaveValue('all')
   const query = new URL(page.url()).searchParams
   expect(query.get('type')).toBe('all')
   expect(query.get('priority')).toBe('all')

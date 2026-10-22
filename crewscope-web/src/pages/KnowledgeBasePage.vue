@@ -203,7 +203,7 @@ function openDistilledEntry(entryId: string): void {
 
     <StatePanel v-if="scopeMissing" id="knowledge-scope-reason" state="empty" title="请选择 Team" description="知识库始终属于明确的 Organization 与 Team。" />
 
-    <div v-if="scopeStore.state.phase === 'ready' && scope" class="knowledge-workspace">
+    <div v-if="scopeStore.state.phase === 'ready' && scope" class="knowledge-workspace" :class="{ 'has-detail': Boolean(selectedEntryId) }">
       <KnowledgeEntryList
         :phase="store.state.entries.phase"
         :items="store.state.entries.value ?? []"
@@ -289,8 +289,9 @@ function openDistilledEntry(entryId: string): void {
 </template>
 
 <style scoped>
-.knowledge-workspace { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr); gap: var(--cs-space-16); align-items: start; }
-@media (max-width: 767px) {
+/* M13b-F09（S4）：未选中不再保留 44% 空栏——默认单栏列表，选中后右侧 340px 详情，≤900 下移。 */
+.knowledge-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cs-space-16); align-items: start; }.knowledge-workspace.has-detail { grid-template-columns: minmax(0, 1fr) 340px; }
+@media (max-width: 900px) {
   .knowledge-workspace { grid-template-columns: 1fr; }
 }
 </style>

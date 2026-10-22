@@ -2,10 +2,82 @@
   min-height: 100vh;
 }
 
-/* 面板之间的间距是密度的主要抓手：舒适 16px、紧凑 12px。 */
+/*
+ * 面板之间的间距是密度的主要抓手：舒适 16px、紧凑 12px。
+ * M13b-F09（S5）：page-shell 同时是内容宽度的唯一权威——默认封顶 --cs-content-max（1360），
+ * ≥1600 显示器上各页不再在 980/1240/1280/全宽四种宽度间横向跳动；1440 视口的内容区
+ * （1156px）小于该值，所以这层封顶在主流桌面与全部现有基线上不改变任何渲染。
+ * 阅读型页用 --page-shell--reading（980）；表格与看板页显式 --page-shell--full 退出封顶。
+ */
 .page-shell {
   display: grid;
   gap: var(--cs-density-panel-gap);
+  max-width: var(--cs-content-max);
+  margin-inline: auto;
+}
+
+.page-shell--reading {
+  max-width: var(--cs-reading-max);
+}
+
+.page-shell--full {
+  max-width: none;
+}
+
+/*
+ * M13b-F09（S1）：列表页 hero 收敛为单行 summary strip——数字与一句状态放标题行，整页
+ * 首屏不再叠 76–104px 的整卡 hero（契约 §7：首条数据距 context header ≤200px）。
+ * 主行（h2）+ 单行省略的说明（__note）+ 右侧徽标/摘要共用同一行，高度封顶
+ * --cs-scan-toolbar-height；窄屏下说明自然换行由 min-height 弹性容纳。
+ */
+.summary-strip {
+  display: flex;
+  /* grid/flex 布局里的 item 默认 min-width:auto（=内容固有宽，nowrap 文本不可断）。
+     settings 双栏的内容区（1440 视口下 946px）比 h2+note+meta 的固有宽更窄时，
+     不打开收缩口就会把整列撑出横向滚动（实测 5px）。note 自带 min-width:0+ellipsis，
+     在这里承接收缩。 */
+  min-width: 0;
+  min-height: var(--cs-scan-toolbar-height);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cs-space-16);
+  padding: var(--cs-space-8) var(--cs-space-20);
+}
+
+.summary-strip h2 {
+  margin: 0;
+  flex: 0 0 auto;
+  font-size: var(--cs-text-md);
+}
+
+.summary-strip__note {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  color: var(--cs-text-muted);
+  font-size: var(--cs-text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-strip__meta {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--cs-text-muted);
+  font-size: var(--cs-text-xs);
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .summary-strip {
+    flex-wrap: wrap;
+    padding: var(--cs-space-8) var(--cs-space-16);
+  }
+
+  .summary-strip__note {
+    white-space: normal;
+  }
 }
 
 .panel {

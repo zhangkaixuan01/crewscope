@@ -70,21 +70,23 @@ test.describe('work item list capabilities', () => {
     // 排序与筛选随查询发给服务端：作用域是整个项目，而不是已加载的行。
     await expect(page.locator('.sort-control')).toContainText('排序与筛选作用于整个项目，共 2 项')
 
-    await page.getByRole('button', { name: /^按优先级排序/ }).click()
+    // M13b-F09：排序从平铺按钮收敛为菜单，方向写进选项文本。
+    await page.locator('.sort-control select').selectOption('priority')
 
     await expect(page).toHaveURL(/sort=priority/)
     // 方向是每个排序在服务端合同里的固定属性，不再是浏览器的选择，URL 也就不再携带它。
     await expect(page).not.toHaveURL(/direction=/)
     await expect(listRows(page)).toHaveText([/紧急事项/, /低优先级事项/])
 
-    // 再次点击同一键是诚实的无操作：排序不换向、行序不变。
-    await page.getByRole('button', { name: /按优先级排序（当前高→低）/ }).click()
+    // 再次选同一键是诚实的无操作：change 不触发，排序不换向、行序不变。
+    await page.locator('.sort-control select').selectOption('priority')
     await expect(page).toHaveURL(/sort=priority/)
     await expect(listRows(page)).toHaveText([/紧急事项/, /低优先级事项/])
-    // 每个键的方向都写在控件上，包括没有激活的那些。
-    await expect(page.getByRole('button', { name: '按截止时间排序（近→远）' })).toBeVisible()
+    // 每个键的方向都写在选项文本里，包括没有激活的那些。
+    await expect(page.locator('.sort-control select')).toContainText('截止时间（近→远）')
 
-    await expect(page.locator('.sort-control').getByRole('button', { name: '负责人' })).toBeDisabled()
+    // 负责人以禁用选项出现（chromium 下 option 的 disabled 断言走属性，不走 toBeDisabled）。
+    await expect(page.locator('.sort-control option', { hasText: '负责人' })).toHaveAttribute('disabled', '')
     expect(await new AxeBuilder({ page }).analyze()).toEqual(expect.objectContaining({ violations: [] }))
   })
 
@@ -168,11 +170,9 @@ test.describe('work item list capabilities', () => {
     await page.getByRole('checkbox', { name: '选择 CRW-20 整理发布说明' }).check()
     await expect(page.locator('[aria-label="批量操作"]')).toContainText('已选 3 项（跨页保留）')
 
-    // 被筛选掉的选择不会被悄悄丢掉，也不会被算进批量：两句话分开说。手机上筛选折叠在
-    // 开关后面（R16），先展开再选；桌面没有这个开关。
-    const filterToggle = page.getByRole('button', { name: /展开筛选/ })
-    if (await filterToggle.isVisible()) await filterToggle.click()
-    await page.locator('.filters select').nth(2).selectOption('HIGH')
+    // 被筛选掉的选择不会被悄悄丢掉，也不会被算进批量：两句话分开说。M13b-F09 后
+    // 筛选常驻 ScanToolbar（R16 的折叠开关由窄屏 wrap 替代），两个视口都能直接选。
+    await page.getByLabel('工作项筛选与排序').getByRole('combobox', { name: '优先级', exact: true }).selectOption('HIGH')
     await expect(page.locator('[aria-label="批量操作"]')).toContainText('其中 1 项不在当前结果中，批量操作只作用于当前结果的 2 项')
   })
 

@@ -84,17 +84,20 @@ test('names the audit subject through the picker, including former team identiti
   await page.goto(`/audit?team=${ids.team}&from=2026-09-01T08:00&to=2026-09-26T08:00`)
   await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
 
-  await page.getByRole('button', { name: '展开高级筛选' }).click()
+  // M13b-F09：高级筛选收进 BaseMenu 弹层（trigger「高级筛选」，initial-focus none 不抢输入焦点）。
+  await page.getByRole('button', { name: '高级筛选' }).click()
   const initiator = page.getByLabel('Initiator')
   await initiator.fill('陈')
   await page.getByRole('option', { name: /陈旧账/ }).click()
   // The AUDIT directory rode the request; no identifier was typed anywhere.
   expect(world.principalQueries.every(query => query.includes('purpose=AUDIT'))).toBe(true)
   await expect(page.getByLabel('更换Initiator')).toBeVisible()
+  // Narrow 视口下弹层会盖住工具栏按钮——提交前先收起弹层，表单草稿保留。
+  await page.keyboard.press('Escape')
 
-  // Two "应用筛选" buttons exist once the draft drifts (footer primary + inline entry); the
-  // footer primary is the scoped one to commit the whole form.
-  await page.locator('.audit-filter > footer > div > button[type="submit"]').click()
+  // Two "应用筛选" buttons exist once the draft drifts (toolbar primary + inline entry); the
+  // toolbar primary is the scoped one to commit the whole form.
+  await page.locator('.scan-toolbar__side button[type="submit"]').click()
   await expect(page).toHaveURL(new RegExp(`initiator=${ids.former}`))
   await expect.poll(() => world.auditQueries.some(query => query.includes(`initiatorIds=${ids.former}`))).toBe(true)
 })
@@ -111,7 +114,7 @@ test('blocks export while the draft drifted and restores it through the apply en
   await expect(exportButton).toBeDisabled()
   await expect(page.getByText('筛选已修改但未应用')).toBeVisible()
 
-  await page.locator('.export-control .inline-apply').click()
+  await page.locator('.filter-status .inline-apply').click()
   await expect(page).toHaveURL(/category=SECURITY/)
   await expect(exportButton).toBeEnabled()
   await expect(page.getByText('筛选已修改但未应用')).toBeHidden()

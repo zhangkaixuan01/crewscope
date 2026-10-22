@@ -99,7 +99,13 @@ h3 {
 }
 
 .sr-only {
+  /*
+   * M13b-F09：absolute 不带偏移会停在「静态位置」——消费者把 sr-only 放进 nowrap/wrap
+   * 行时，这个假想位置可能落在视口外（实测 390 视口被 6 个 1px 盒撑到 575px）。
+   * 锚定到包含块左上角后位置与视觉语义无关（盒 1px 且被裁剪），但对所有消费者一次根治。
+   */
   position: absolute;
+  inset: 0 auto auto 0;
   width: 1px;
   height: 1px;
   padding: 0;

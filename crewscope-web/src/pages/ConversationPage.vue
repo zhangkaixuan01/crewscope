@@ -9,11 +9,12 @@ import {
   ChevronRight,
   Copy,
   LockKeyhole,
+  Maximize2,
   MessageSquarePlus,
   Plus,
   UsersRound,
 } from '@lucide/vue'
-import { computed, inject, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { queryValue } from '../utils/queryParams'
 import { AUTH_PRINCIPAL } from '../app/auth'
@@ -96,12 +97,80 @@ const drafts = reactive(new Map<string, string>())
 // A sealed epoch (sign-out or account switch in any tab) empties the in-memory drafts too.
 const unsubscribeEpoch = subscribeF05Epoch(epoch => { if (epoch === null) drafts.clear() })
 onUnmounted(unsubscribeEpoch)
-const leftPane = useResizablePane('cs.pref.conversation.left-pane.v1', 24, { min: 16, max: 36, side: 'left' })
-const rightPane = useResizablePane('cs.pref.conversation.right-pane.v1', 22, { min: 16, max: 34, side: 'right' })
+/*
+ * M13b-F09（R51）：偏好版本 v1→v2——侧栏默认从 24%/22% 收窄到 20%/18%，把宽度还给消息列。
+ * 旧 v1 的个人比例随版本升级一并作废（usePreference 版本不匹配即回退 fallback），用户重新
+ * 拖动过的比例会以 v2 存回。
+ */
+const leftPane = useResizablePane('cs.pref.conversation.left-pane.v2', 20, { min: 16, max: 36, side: 'left' })
+const rightPane = useResizablePane('cs.pref.conversation.right-pane.v2', 18, { min: 16, max: 34, side: 'right' })
 const leftPaneRatio = leftPane.ratio
 const leftPaneCollapsed = leftPane.collapsed
 const rightPaneRatio = rightPane.ratio
-const rightPaneCollapsed = rightPane.collapsed
+/*
+ * ≤1440 视口下参与者面板默认让位（R51）：它是静态名单，挤占消息列不值得。用户点过一次
+ * 「展开参与者」后本会话内不再自动折叠（pinned），偏好里显式保存的展开态同样优先。
+ */
+const narrowViewport = ref(false)
+const rightPanePinnedOpen = ref(false)
+const rightPaneCollapsed = computed(() => {
+  if (rightPane.collapsed.value) return true // 用户显式折叠（偏好持久）
+  if (rightPanePinnedOpen.value) return false // 本会话点过「展开参与者」
+  return narrowViewport.value // ≤1440 默认让位给消息列
+})
+onMounted(() => {
+  // 测试 DOM 没有 matchMedia（useConversationReadingPosition 同款防御）。
+  if (typeof window.matchMedia !== 'function') return
+  const media = window.matchMedia('(max-width: 1440px)')
+  narrowViewport.value = media.matches
+  const listener = (event: MediaQueryListEvent) => { narrowViewport.value = event.matches }
+  media.addEventListener('change', listener)
+  onUnmounted(() => media.removeEventListener('change', listener))
+})
+function pinRightPaneOpen(): void { rightPanePinnedOpen.value = true }
+/*
+ * 参与者面板的「展开/折叠」语义随自动折叠态分叉：自动折叠态下的「展开」只钉住本会话
+ * （不写偏好）；显式折叠后的窄视口展开顺手 pin，避免偏好翻转后被自动态再压回去。
+ */
+function handleRightPaneToggle(): void {
+  if (narrowViewport.value) {
+    if (!rightPane.collapsed.value && !rightPanePinnedOpen.value) {
+      pinRightPaneOpen()
+      return
+    }
+    pinRightPaneOpen()
+  }
+  rightPane.toggle()
+}
+/* 右栏 resizer 的 Enter/Space 与面板按钮同一分叉语义；方向键与 Home 仍走原逻辑。 */
+function handleRightResizerKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    handleRightPaneToggle()
+    return
+  }
+  rightPane.handleKeydown(event)
+}
+/*
+ * 专注模式（R51）：⌘⇧F / Ctrl⇧F 进入或退出，Esc 只负责退出——Esc 在对话框与抽屉内
+ * 仍归它们自己（先判 closest），专注模式不抢那类关闭。aria-pressed 的切换钮在消息区头部。
+ */
+const focusMode = ref(false)
+function handleFocusModeKeys(event: KeyboardEvent): void {
+  if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.code === 'KeyF') {
+    event.preventDefault()
+    focusMode.value = !focusMode.value
+    return
+  }
+  if (event.key === 'Escape' && focusMode.value) {
+    const target = event.target
+    if (target instanceof Element && target.closest('dialog, [role="dialog"], [role="drawer"]')) return
+    event.preventDefault()
+    focusMode.value = false
+  }
+}
+onMounted(() => document.addEventListener('keydown', handleFocusModeKeys))
+onUnmounted(() => document.removeEventListener('keydown', handleFocusModeKeys))
 const persistedMessages = computed(() => messageStore.state.items)
 const virtualList = useVirtualList(persistedMessages, { keyOf: message => message.id, estimate: 108, overscan: 8, rowGap: 16 })
 const visibleMessages = virtualList.visibleItems
@@ -153,10 +222,13 @@ const pageTitle = computed(() => {
   if (selected.value) return selected.value.title
   return focus.value ? `团队对话 · ${focus.value}` : '团队对话'
 })
-const workspaceClass = computed(() => ({ 'has-selection': Boolean(conversationStore.state.selectedConversationId) }))
+const workspaceClass = computed(() => ({
+  'has-selection': Boolean(conversationStore.state.selectedConversationId),
+  'conversation-workspace--focus': focusMode.value,
+}))
 const workspaceStyle = computed(() => ({
   '--conversation-left-pane': leftPane.collapsed.value ? '44px' : `${leftPane.ratio.value}%`,
-  '--conversation-right-pane': rightPane.collapsed.value ? '44px' : `${rightPane.ratio.value}%`,
+  '--conversation-right-pane': rightPaneCollapsed.value ? '44px' : `${rightPane.ratio.value}%`,
 }))
 const currentDraft = computed({
   get: () => {
@@ -924,7 +996,14 @@ async function redirectIfForbidden(): Promise<void> {
             </div>
             <div class="detail-header-actions">
               <StatusBadge tone="success">活跃</StatusBadge>
-              <button class="pane-collapse touch-target" type="button" aria-label="折叠参与者面板" @click="rightPane.toggle">{{ rightPaneCollapsed ? '展开参与者' : '折叠参与者' }}</button>
+              <button
+                class="focus-mode-toggle touch-target"
+                type="button"
+                :aria-pressed="focusMode"
+                :aria-label="focusMode ? '退出专注模式（Esc）' : '进入专注模式（⌘⇧F）'"
+                @click="focusMode = !focusMode"
+              ><Maximize2 :size="14" aria-hidden="true" /></button>
+              <button class="pane-collapse touch-target" type="button" aria-label="折叠参与者面板" @click="handleRightPaneToggle">{{ rightPaneCollapsed ? '展开参与者' : '折叠参与者' }}</button>
             </div>
           </header>
           <div
@@ -967,8 +1046,10 @@ async function redirectIfForbidden(): Promise<void> {
                 :description="taskIntentStore.state.errorMessage ?? undefined"
                 @retry="currentMessageScope() && taskIntentStore.state.taskIntentId && taskIntentStore.load(currentMessageScope()!, taskIntentStore.state.taskIntentId, true)"
               />
-              <details v-if="taskIntentStore.state.intent && principal" class="conversation-structure" open>
-                <summary>任务意图 <span>可折叠</span></summary>
+              <!-- M13b-F09（R51）：结构块默认折叠为单行摘要；待确认（READY）的提案在摘要行
+                   保留「待确认」状态词，M9b-Q01 的例外突出语义从「默认展开」降为「单行可见」。 -->
+              <details v-if="taskIntentStore.state.intent && principal" class="conversation-structure">
+                <summary>任务意图 <span>{{ taskIntentStore.state.intent.status === 'READY' ? '待确认' : '可折叠' }}</span></summary>
                 <TaskIntentCard
                   :intent="taskIntentStore.state.intent"
                   :current-principal-id="principal.id"
@@ -1153,7 +1234,7 @@ async function redirectIfForbidden(): Promise<void> {
         aria-valuemin="16"
         aria-valuemax="34"
         @pointerdown="workspace && rightPane.startResize($event, workspace)"
-        @keydown="rightPane.handleKeydown"
+        @keydown="handleRightResizerKeydown"
       />
 
       <ConversationParticipantsPanel
@@ -1164,7 +1245,7 @@ async function redirectIfForbidden(): Promise<void> {
         :participant-name="participantName"
         :participant-role="participantRole"
         :participant-kind="participantKind"
-        @toggle="rightPane.toggle"
+        @toggle="handleRightPaneToggle"
       />
     </div>
 
@@ -1200,15 +1281,27 @@ async function redirectIfForbidden(): Promise<void> {
 .conversation-list time { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.conversation-item > svg { color: var(--cs-text-muted); }.load-more-item { margin-top: var(--cs-space-8); }
 .conversation-detail { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }.conversation-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-24) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.conversation-detail__header h2 { margin: var(--cs-space-8) 0 var(--cs-space-4); border-radius: 4px; font-size: var(--cs-text-lg); }.conversation-detail__header h2:focus-visible { outline: 3px solid var(--cs-ring-brand); outline-offset: 3px; }.conversation-detail__header p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .conversation-kind { display: inline-flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }
-.message-stage { position: relative; min-height: 0; overflow: hidden; background: linear-gradient(180deg, var(--cs-surface-subtle) 0%, var(--cs-surface-accent) 100%); }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; overflow-anchor: none; padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-24); }.older-messages { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-12); min-height: 32px; margin-bottom: var(--cs-space-8); }.older-messages > span { color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-list { display: grid; gap: var(--cs-space-16); max-width: 740px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: var(--cs-space-8); justify-self: start; max-width: min(82%, 620px); }.message-row.own { grid-template-columns: minmax(0, 1fr) 30px; justify-self: end; }.message-row.own .message-avatar { grid-column: 2; }.message-row.own article { grid-column: 1; grid-row: 1; border-color: var(--cs-border-accent); background: var(--cs-surface-accent-strong); }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.message-row.own .message-avatar { background: var(--cs-brand-600); color: var(--cs-text-on-dark); }.message-row article { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 5px 13px 13px; background: var(--cs-surface); font-size: var(--cs-text-sm); box-shadow: var(--cs-shadow-raised); }.message-row.own article { border-radius: 13px 5px 13px 13px; }.message-row article > header { display: flex; align-items: center; gap: var(--cs-space-8); margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row article > header strong { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.message-row article > header span { margin-left: auto; }.message-copy { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: calc(var(--cs-space-8) * -1); border: 0; border-radius: 9px; background: transparent; color: var(--cs-text-muted); cursor: pointer; }.message-copy:hover, .message-copy:focus-visible { background: var(--cs-surface-subtle); color: var(--cs-text-brand); }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row.system article > header { justify-content: center; margin-bottom: var(--cs-space-2); }.message-row.pending article { opacity: .72; }.message-row.failed article { border-color: var(--cs-danger-border); background: var(--cs-danger-soft); opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-8); color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: var(--cs-space-8); margin: var(--cs-space-64) auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid var(--cs-agent-border); border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: var(--cs-text-base); }.message-empty p { color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
+.message-stage { position: relative; min-height: 0; overflow: hidden; background: linear-gradient(180deg, var(--cs-surface-subtle) 0%, var(--cs-surface-accent) 100%); }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; overflow-anchor: none; padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-24); }.older-messages { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-12); min-height: 32px; margin-bottom: var(--cs-space-8); }.older-messages > span { color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-list { display: grid; gap: var(--cs-space-16); max-width: 900px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: var(--cs-space-8); justify-self: start; max-width: min(88%, 760px); }.message-row.own { grid-template-columns: minmax(0, 1fr) 30px; justify-self: end; }.message-row.own .message-avatar { grid-column: 2; }.message-row.own article { grid-column: 1; grid-row: 1; border-color: var(--cs-border-accent); background: var(--cs-surface-accent-strong); }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.message-row.own .message-avatar { background: var(--cs-brand-600); color: var(--cs-text-on-dark); }.message-row article { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 5px 13px 13px; background: var(--cs-surface); font-size: var(--cs-text-sm); box-shadow: var(--cs-shadow-raised); }.message-row.own article { border-radius: 13px 5px 13px 13px; }.message-row article > header { display: flex; align-items: center; gap: var(--cs-space-8); margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row article > header strong { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.message-row article > header span { margin-left: auto; }.message-copy { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: calc(var(--cs-space-8) * -1); border: 0; border-radius: 9px; background: transparent; color: var(--cs-text-muted); cursor: pointer; }.message-copy:hover, .message-copy:focus-visible { background: var(--cs-surface-subtle); color: var(--cs-text-brand); }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row.system article > header { justify-content: center; margin-bottom: var(--cs-space-2); }.message-row.pending article { opacity: .72; }.message-row.failed article { border-color: var(--cs-danger-border); background: var(--cs-danger-soft); opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-8); color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: var(--cs-space-8); margin: var(--cs-space-64) auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid var(--cs-agent-border); border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: var(--cs-text-base); }.message-empty p { color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
 .message-row.streaming article { border-color: var(--cs-agent-border); background: var(--cs-agent-soft); transition: opacity var(--cs-motion-base) var(--cs-ease-out), transform var(--cs-motion-base) var(--cs-ease-out); }.message-row.streaming.reconnecting article { border-style: dashed; }.stream-placeholder { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .conversation-welcome { display: grid; max-width: 470px; place-items: center; align-self: center; justify-self: center; padding: var(--cs-space-64) var(--cs-space-24); text-align: center; }.conversation-welcome > span { margin-bottom: var(--cs-space-20); }.conversation-welcome h2 { margin-bottom: var(--cs-space-8); font: var(--cs-text-xl) var(--cs-font-display); }.conversation-welcome > p:not(.eyebrow) { margin-bottom: var(--cs-space-20); color: var(--cs-text-secondary); font-size: var(--cs-text-base); line-height: var(--cs-leading-relaxed); }
 .participant-panel header { padding: var(--cs-space-20); border-bottom: 1px solid var(--cs-border); }.participant-panel ul { padding: var(--cs-space-8); margin: 0; list-style: none; }.participant-panel li { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12); border-bottom: 1px solid var(--cs-border); }.participant-panel li:last-child { border: 0; }.participant-panel li > span:first-child { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.participant-panel li > span.agent { background: var(--cs-agent-soft); color: var(--cs-agent); }.participant-panel li strong, .participant-panel li small { display: block; }.participant-panel li strong { font-size: var(--cs-text-sm); }.participant-panel li small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.participant-placeholder { display: grid; place-items: center; gap: var(--cs-space-12); padding: var(--cs-space-48) var(--cs-space-32); color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); text-align: center; }
 .mobile-back { display: none; }
 @media (max-width: 767px) { .conversation-workspace { display: block; min-height: 0; }.conversation-list-panel, .conversation-detail { min-height: 0; height: 100%; }.conversation-list-panel { display: flex; }.conversation-detail { display: none; }.conversation-workspace.has-selection .conversation-list-panel { display: none; }.conversation-workspace.has-selection .conversation-detail { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }.mobile-back { display: flex; align-items: center; gap: var(--cs-space-8); width: 100%; min-height: 42px; padding: 0 var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }.conversation-detail__header { padding: var(--cs-space-16) var(--cs-space-16); }.message-history { padding: var(--cs-space-12) var(--cs-space-12) var(--cs-space-20); }.message-row { max-width: 90%; } }
 
-/* Conversation mode keeps the center timeline fluid while side panes can be adjusted or folded. */
-.conversation-workspace { grid-template-columns: var(--conversation-left-pane, 24%) 8px minmax(0, 1fr) 8px var(--conversation-right-pane, 22%); }
+/* Conversation mode keeps the center timeline fluid while side panes can be adjusted or folded.
+ * M13b-F09（R51）：CSS fallback 与 v2 偏好默认同步为 20%/18%。 */
+.conversation-workspace { grid-template-columns: var(--conversation-left-pane, 20%) 8px minmax(0, 1fr) 8px var(--conversation-right-pane, 18%); }
+/* 专注模式（R51）：左右栏与两个 resizer 整体退场，消息列独占全宽；限定 ≥768 是因为
+ * ≤767 的移动互斥布局本来就没有双栏，focus 规则在那里只会误伤列表面板。 */
+@media (min-width: 768px) {
+  .conversation-workspace--focus { grid-template-columns: minmax(0, 1fr); }
+  .conversation-workspace--focus .conversation-list-panel,
+  .conversation-workspace--focus .participant-panel,
+  .conversation-workspace--focus .pane-resizer { display: none; }
+}
+.focus-mode-toggle { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); cursor: pointer; }
+.focus-mode-toggle[aria-pressed='true'] { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); color: var(--cs-text-brand); }
+.focus-mode-toggle:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: 2px; }
 .conversation-list-panel.collapsed > :not(header), .participant-panel.collapsed > :not(header) { display: none; }
 .conversation-list-panel.collapsed .conversation-list-header, .participant-panel.collapsed > header { padding-inline: var(--cs-space-8); }
 .conversation-list-panel.collapsed .conversation-list-header > div:first-child, .participant-panel.collapsed > header > :not(.pane-collapse) { display: none; }
@@ -1227,7 +1320,7 @@ async function redirectIfForbidden(): Promise<void> {
 /* Spacers are grid items, so the row gap also separates a spacer from the edge rows; the padding
  * maths in useVirtualList already subtracts it — here they only occupy pure height. */
 .virtual-spacer { pointer-events: none; }
-.conversation-structure { max-width: 740px; margin: 0 auto var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-glass); }
+.conversation-structure { max-width: 900px; margin: 0 auto var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-glass); }
 .conversation-structure summary { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-8) var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }
 .conversation-structure summary span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }
 .conversation-structure > :deep(*) { margin-inline: var(--cs-space-8); }

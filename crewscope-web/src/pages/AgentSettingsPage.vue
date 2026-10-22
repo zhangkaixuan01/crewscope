@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { secureId } from '../api/secureId'
-import { ArrowRight, Bot, Boxes, Building2, Cpu, Plus, ShieldCheck, Sparkles, UserRound } from '@lucide/vue'
+import { ArrowRight, Bot, Boxes, Building2, Cpu, Plus, ShieldCheck, UserRound } from '@lucide/vue'
 import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
@@ -347,21 +347,10 @@ function bindingLabel(binding: BindingView): string {
       @retry="loadAgentsAndConfigurations(true)"
     />
     <div v-else class="agent-page page-shell">
-      <section class="agent-overview panel" aria-labelledby="agent-overview-title">
-        <div class="overview-copy">
-          <span class="overview-icon"><Sparkles :size="23" aria-hidden="true" /></span>
-          <div>
-            <p class="eyebrow">Agent roster</p>
-            <h2 id="agent-overview-title">{{ agents.length }} 个可协作 Agent</h2>
-            <p>Personal Agent 承接对话，Specialist 执行专业任务，团队 Agent 使用稳定的 Team 身份和配置。</p>
-          </div>
-        </div>
-        <dl class="agent-totals" aria-label="Agent 分类汇总">
-          <div><dt>默认 Personal</dt><dd>{{ personalAgents.length }}</dd></div>
-          <div><dt>我的 Specialist</dt><dd>{{ specialistAgents.length }}</dd></div>
-          <div><dt>团队 Agent</dt><dd>{{ teamAgents.length }}</dd></div>
-          <div><dt>平台托管</dt><dd>{{ platformManagedAgents.length }}</dd></div>
-        </dl>
+      <section class="summary-strip panel" aria-labelledby="agent-overview-title">
+        <h2 id="agent-overview-title">{{ agents.length }} 个可协作 Agent</h2>
+        <p class="summary-strip__note">Personal Agent 承接对话，Specialist 执行专业任务，团队 Agent 使用稳定的 Team 身份和配置</p>
+        <p class="summary-strip__meta" aria-label="Agent 分类汇总">默认 Personal {{ personalAgents.length }} · 我的 Specialist {{ specialistAgents.length }} · 团队 {{ teamAgents.length }} · 平台托管 {{ platformManagedAgents.length }}</p>
       </section>
 
       <section class="agent-entry-grid" aria-label="Agent 类型入口">
@@ -464,9 +453,6 @@ function bindingLabel(binding: BindingView): string {
 </template>
 
 <style scoped>
-.agent-overview { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-24); padding: var(--cs-space-24); background: linear-gradient(135deg, var(--cs-surface), var(--cs-surface-accent)); }
-.overview-copy { display: flex; align-items: center; gap: var(--cs-space-16); }.overview-icon { display: grid; width: 50px; height: 50px; flex: 0 0 auto; place-items: center; border-radius: 15px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.overview-copy h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-lg); }.overview-copy p:last-child { max-width: 670px; margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
-.agent-totals { display: grid; grid-template-columns: repeat(3, minmax(94px, 1fr)); gap: var(--cs-space-8); margin: 0; }.agent-totals div { min-width: 94px; padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-glass); }.agent-totals dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.agent-totals dd { margin-top: var(--cs-space-4); color: var(--cs-text); font: var(--cs-weight-semibold) var(--cs-text-lg) var(--cs-font-display); }
 .agent-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-12); }.agent-entry { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: start; gap: var(--cs-space-12); padding: var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.agent-entry--team { border-color: var(--cs-agent-border); background: linear-gradient(135deg, var(--cs-surface), var(--cs-agent-soft)); }.agent-entry__icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.agent-entry--team .agent-entry__icon { background: var(--cs-agent-soft); color: var(--cs-agent); }.agent-entry h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-md); }.agent-entry div > p:last-child { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.agent-entry > strong { color: var(--cs-text-secondary); font-size: var(--cs-text-base); }.agent-entry footer { display: flex; grid-column: 2 / -1; align-items: center; justify-content: space-between; gap: var(--cs-space-8); }.agent-entry footer > a { color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.agent-entry footer > a:hover, .agent-entry footer > a:focus-visible { text-decoration: underline; }.entry-create { display: none; }
 .selection-warning { margin: 0; padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-warning-border); border-radius: var(--cs-radius-sm); background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-sm); }
 .agent-group { overflow: hidden; scroll-margin-top: var(--cs-space-16); }.team-agent-actions { display: flex; align-items: center; gap: var(--cs-space-12); }.team-agent-actions > a { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.agent-group-empty { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-20); border-top: 1px solid var(--cs-border); background: var(--cs-surface-subtle); }.agent-group-empty > span { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.agent-group-empty strong { font-size: var(--cs-text-sm); }.agent-group-empty p { margin: var(--cs-space-4) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: var(--cs-space-12); margin: 0; padding: var(--cs-space-16); list-style: none; }.agent-card { display: grid; height: 100%; gap: var(--cs-space-16); padding: var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); box-shadow: var(--cs-shadow-hairline); color: var(--cs-text); }.agent-card:hover, .agent-card:focus-visible { border-color: var(--cs-border-accent-strong); box-shadow: var(--cs-shadow-raised); }.agent-card.selected { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent); box-shadow: 0 0 0 2px var(--cs-ring-brand); }.agent-card.unavailable { background: var(--cs-surface-subtle); }
@@ -475,7 +461,7 @@ function bindingLabel(binding: BindingView): string {
 .binding-list { display: grid; gap: var(--cs-space-8); }.binding-list p { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: var(--cs-space-8); margin: 0; }.binding-list span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .05em; }.binding-list strong { overflow: hidden; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.agent-card footer { display: flex; justify-content: space-between; padding-top: var(--cs-space-12); border-top: 1px solid var(--cs-border); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .load-more { justify-self: center; }
 .projection-note { display: flex; align-items: flex-start; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.projection-note > svg { flex: 0 0 auto; color: var(--cs-text-brand); }.projection-note strong, .projection-note span { display: block; }.projection-note strong { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.projection-note span { margin-top: var(--cs-space-2); font-size: var(--cs-text-xs); }
-@media (max-width: 980px) { .agent-overview { grid-template-columns: 1fr; }.agent-totals { width: 100%; }.agent-entry-grid { grid-template-columns: 1fr; }.agent-grid { grid-template-columns: 1fr; } }
+@media (max-width: 980px) { .agent-entry-grid { grid-template-columns: 1fr; }.agent-grid { grid-template-columns: 1fr; } }
 @media (max-width: 767px) { .entry-create { display: inline-flex; }.team-agent-actions > a { white-space: nowrap; }.agent-group-empty { grid-template-columns: 38px minmax(0, 1fr); }.agent-group-empty > button { grid-column: 2; justify-self: start; } }
-@media (max-width: 520px) { .agent-overview { padding: var(--cs-space-16); }.overview-copy { align-items: flex-start; }.overview-icon { width: 42px; height: 42px; }.agent-totals { grid-template-columns: 1fr; }.agent-totals div { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-8) var(--cs-space-12); }.agent-totals dd { margin: 0; font-size: var(--cs-text-md); }.agent-grid { padding: var(--cs-space-12); }.agent-card { padding: var(--cs-space-12); }.agent-card__heading { grid-template-columns: 36px minmax(0, 1fr); }.agent-avatar { width: 36px; height: 36px; }.agent-card__heading .status-badge { grid-column: 2; justify-self: start; }.agent-facts { grid-template-columns: 1fr; }.agent-facts div { display: flex; justify-content: space-between; gap: var(--cs-space-12); }.agent-facts dd { margin: 0; }.panel-heading { padding: var(--cs-space-16); } }
+@media (max-width: 520px) { .agent-grid { padding: var(--cs-space-12); }.agent-card { padding: var(--cs-space-12); }.agent-card__heading { grid-template-columns: 36px minmax(0, 1fr); }.agent-avatar { width: 36px; height: 36px; }.agent-card__heading .status-badge { grid-column: 2; justify-self: start; }.agent-facts { grid-template-columns: 1fr; }.agent-facts div { display: flex; justify-content: space-between; gap: var(--cs-space-12); }.agent-facts dd { margin: 0; }.panel-heading { padding: var(--cs-space-16); } }
 </style>

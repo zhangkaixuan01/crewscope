@@ -182,6 +182,12 @@ describe('ConversationPage', () => {
     )
     await nextTick()
 
+    // M13b-F09（R51）：结构块默认折叠为单行摘要（details 无 open），READY 提案在摘要行
+    // 保留「待确认」状态词——M9b-Q01 的例外突出从「默认展开」降级为「单行可见」。
+    const structure = wrapper.find('details.conversation-structure')
+    expect((structure.element as HTMLDetailsElement).open).toBe(false)
+    expect(structure.text()).toContain('任务意图')
+
     const text = () => wrapper.text()
     expect(text()).toContain('结构化任务提案')
     expect(text()).toContain('展开提案')
@@ -192,6 +198,32 @@ describe('ConversationPage', () => {
     await nextTick()
     expect(text()).toContain('预检并确认')
     expect(text()).toContain('验收标准')
+    wrapper.unmount()
+  })
+
+  it('toggles focus mode with ⌘⇧F, exits on Esc, and exposes aria-pressed', async () => {
+    const { wrapper } = await harness()
+    const workspace = () => wrapper.find('.conversation-workspace')
+    const toggle = () => wrapper.find('.focus-mode-toggle')
+
+    expect(workspace().classes()).not.toContain('conversation-workspace--focus')
+    expect(toggle().attributes('aria-pressed')).toBe('false')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { metaKey: true, shiftKey: true, code: 'KeyF' }))
+    await nextTick()
+    expect(workspace().classes()).toContain('conversation-workspace--focus')
+    expect(toggle().attributes('aria-pressed')).toBe('true')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTick()
+    expect(workspace().classes()).not.toContain('conversation-workspace--focus')
+    expect(toggle().attributes('aria-pressed')).toBe('false')
+
+    // Esc 不进入：普通 Esc 在非专注态没有任何副作用，⌘⇧F 之外的组合键也不触发。
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    document.dispatchEvent(new KeyboardEvent('keydown', { metaKey: true, code: 'KeyF' }))
+    await nextTick()
+    expect(workspace().classes()).not.toContain('conversation-workspace--focus')
     wrapper.unmount()
   })
 })

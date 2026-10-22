@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import BaseSelect from '../components/base/BaseSelect.vue'
-import { Activity, RefreshCw, X } from '@lucide/vue'
+import ScanToolbar from '../components/base/ScanToolbar.vue'
+import { RefreshCw, X } from '@lucide/vue'
 import { computed, inject, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { queryValue } from '../utils/queryParams'
@@ -145,18 +146,22 @@ function actorName(principalId: string | null, type: string): string {
     <StatePanel v-else-if="!scope" id="activity-scope-reason" state="empty" title="请选择 Team" description="Activity 始终属于一个明确的 Organization 与 Team。" />
 
     <div v-else class="activity-page page-shell">
-      <section class="activity-summary panel">
-        <i><Activity :size="22" aria-hidden="true" /></i>
-        <div><p class="eyebrow">Team pulse</p><h2>{{ store.state.teamActivity.value?.length ?? 0 }} 条已加载事实</h2><p>实时流只推进公开 Activity DTO，领域详情仍由权威 API 回读。</p></div>
+      <section class="summary-strip panel" aria-label="Activity 概览">
+        <h2>{{ store.state.teamActivity.value?.length ?? 0 }} 条已加载事实</h2>
+        <p class="summary-strip__note">实时流只推进公开 Activity DTO，领域详情仍由权威 API 回读</p>
         <StatusBadge :tone="realtime.state.phase === 'live' ? 'success' : 'warning'" dot>{{ activityRealtimePhaseLabels[realtime.state.phase] }}</StatusBadge>
       </section>
 
-      <section class="activity-toolbar panel" aria-label="Activity 筛选">
-        <label>Category<BaseSelect :model-value="selectedCategory" @update:model-value="updateCategory"><option value="ALL">全部类别</option><option v-for="category in categories" :key="category" :value="category">{{ activityCategoryLabels[category] }}</option></BaseSelect></label>
-        <label>Actor<BaseSelect :model-value="selectedActor" aria-label="按成员筛选" @update:model-value="updateActor"><option value="">全部成员</option><option v-for="member in actorOptions" :key="member.userPrincipalId" :value="member.userPrincipalId">{{ member.displayName }}</option></BaseSelect></label>
-        <span>{{ filteredItems.length }} 条当前结果</span>
-        <BaseButton variant="ghost" size="small" :aria-label="`按时间${activitySortLabel}`" @click="cycleSortQuery">{{ activitySortLabel }}</BaseButton>
-      </section>
+      <ScanToolbar aria-label="Activity 筛选">
+        <template #count>{{ filteredItems.length }} 条当前结果</template>
+        <template #filters>
+          <label>Category<BaseSelect :model-value="selectedCategory" @update:model-value="updateCategory"><option value="ALL">全部类别</option><option v-for="category in categories" :key="category" :value="category">{{ activityCategoryLabels[category] }}</option></BaseSelect></label>
+          <label>Actor<BaseSelect :model-value="selectedActor" aria-label="按成员筛选" @update:model-value="updateActor"><option value="">全部成员</option><option v-for="member in actorOptions" :key="member.userPrincipalId" :value="member.userPrincipalId">{{ member.displayName }}</option></BaseSelect></label>
+        </template>
+        <template #side>
+          <BaseButton variant="ghost" size="small" :aria-label="`按时间${activitySortLabel}`" @click="cycleSortQuery">{{ activitySortLabel }}</BaseButton>
+        </template>
+      </ScanToolbar>
 
       <div class="activity-workspace" :class="{ 'has-detail': selectedEventId }">
         <ActivityStream
@@ -184,10 +189,10 @@ function actorName(principalId: string | null, type: string): string {
 </template>
 
 <style scoped>
-.activity-page { display: grid; gap: var(--cs-space-16); max-width: 1240px; margin: 0 auto; }.activity-summary { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-16); padding: var(--cs-space-16) var(--cs-space-20); }.activity-summary > i { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 13px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.activity-summary h2 { margin: var(--cs-space-2) 0 var(--cs-space-4); font-size: var(--cs-text-lg); }.activity-summary p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
-.activity-toolbar { display: grid; grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) auto auto; align-items: end; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); }.activity-toolbar label { display: grid; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.activity-toolbar :deep(select), .activity-toolbar input { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); font-size: var(--cs-text-base); }.activity-toolbar > span { padding-bottom: var(--cs-space-8); color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }
+/* M13b-F09（S5）：宽度交给 page-shell 的 --cs-content-max，本页不再自带 1240。 */
+.activity-page { display: grid; gap: var(--cs-space-16); }
 .activity-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cs-space-16); align-items: start; }.activity-workspace.has-detail { grid-template-columns: minmax(0, 1fr) 330px; }.activity-detail { position: sticky; top: 12px; overflow: hidden; }.activity-detail > header { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-16) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.activity-detail h2 { margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-md); }.activity-detail header button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.activity-detail > dl, .activity-detail > section { margin: 0; padding: var(--cs-space-16) var(--cs-space-16); }.activity-detail > section { border-top: 1px solid var(--cs-border); }.activity-detail h3 { margin: 0 0 var(--cs-space-8); font-size: var(--cs-text-sm); }.activity-detail section > p { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.activity-detail dl { display: grid; gap: var(--cs-space-8); }.activity-detail dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }.activity-detail dd { overflow-wrap: anywhere; margin: var(--cs-space-2) 0 0; font-size: var(--cs-text-xs); }
-@media (max-width: 820px) { .activity-workspace.has-detail { grid-template-columns: 1fr; }.activity-detail { position: static; grid-row: 1; }.activity-toolbar { grid-template-columns: 1fr 1fr; }.activity-toolbar > span { grid-column: 1 / -1; padding: 0; } } @media (max-width: 520px) { .activity-page { gap: var(--cs-space-12); }.activity-summary { grid-template-columns: 36px 1fr; padding: var(--cs-space-12); }.activity-summary > i { width: 36px; height: 36px; }.activity-summary > :last-child { grid-column: 1 / -1; justify-self: start; }.activity-toolbar { grid-template-columns: 1fr; }.activity-toolbar > span { grid-column: auto; } }
+@media (max-width: 820px) { .activity-workspace.has-detail { grid-template-columns: 1fr; }.activity-detail { position: static; grid-row: 1; } } @media (max-width: 520px) { .activity-page { gap: var(--cs-space-12); } }
 
 /* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
 .activity-detail header button:hover:not(:disabled) { background: var(--cs-surface-accent); }

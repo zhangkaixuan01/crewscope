@@ -49,7 +49,8 @@ test('keeps one server ordering stable across pages', async ({ page }) => {
   // 默认按更新时间：新→旧。
   await expect(listTitles(page)).toHaveText(['新更新中优先级', '高优先级事项'])
 
-  await page.getByRole('button', { name: /^按优先级排序/ }).click()
+  // M13b-F09：排序从平铺按钮收敛为排序菜单，方向随选项文本（「优先级（高→低）」）。
+  await page.locator('.sort-control select').selectOption('priority')
 
   // 第一页是优先级前两名；「加载更多」续上第三、四名，拼起来是同一份服务端排序。
   await expect(listTitles(page)).toHaveText(['紧急事项', '高优先级事项'])
@@ -84,9 +85,8 @@ test('restarts the list from its first page when a filter changes', async ({ pag
   await page.getByRole('button', { name: '加载更多工作项' }).click()
   await expect(listTitles(page)).toHaveCount(3)
 
-  const filterToggle = page.getByRole('button', { name: /展开筛选/ })
-  if (await filterToggle.isVisible()) await filterToggle.click()
-  await page.locator('.filters select').nth(2).selectOption('URGENT')
+  // M13b-F09：筛选恒可见（wrap 布局），不再有展开折叠的入口。
+  await page.locator('.scan-toolbar__filters select').nth(2).selectOption('URGENT')
 
   // 筛选变化后列表从第一页重新开始：只剩服务端过滤后的行，已加载的旧页被替换而不是拼接。
   await expect(listTitles(page)).toHaveText(['紧急事项'])
@@ -98,9 +98,9 @@ test('restarts the list from its first page when a filter changes', async ({ pag
   expect(state.queries.filter(query => query.includes('after=')).length).toBe(1)
 })
 
-test('keeps the primary actions reachable on a phone while filters fold', async ({ page }, testInfo) => {
-  // 折叠只存在于手机布局；桌面不渲染这个开关。
-  test.skip(testInfo.project.name !== 'narrow-chromium', 'the folded filter row exists only on the phone layout')
+test('keeps the primary actions reachable on a phone while filters wrap', async ({ page }, testInfo) => {
+  // 换行布局只对手机有意义；桌面始终单行。
+  test.skip(testInfo.project.name !== 'narrow-chromium', 'the wrapped filter row exists only on the phone layout')
   const state: World = {
     pageSize: 50,
     queries: [],
@@ -110,23 +110,16 @@ test('keeps the primary actions reachable on a phone while filters fold', async 
 
   await page.goto(workUrl())
 
-  // 主操作不被筛选行挤走：新建入口与视图切换都保持可见可点（R16）。
+  // 主操作不被筛选行挤走：新建入口与视图切换都保持可见可点（R16 的主操作承诺不变）。
   await expect(page.getByRole('button', { name: /新建工作项/ })).toBeVisible()
   await expect(page.getByRole('button', { name: '看板视图' })).toBeVisible()
 
-  // 折叠的筛选行不显示控件，但已应用的数量一直在开关上；展开后控件可达。
-  const toggle = page.locator(".filters-toggle")
-  await expect(toggle).toBeVisible()
-  await expect(page.locator('.filters select').first()).toBeHidden()
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.locator('.filters select').first()).toBeVisible()
-  await page.locator('.filters select').nth(2).selectOption('URGENT')
-
-  // 应用筛选是 URL 更新，不是页面重建：折叠区保持展开，已应用数量随之上来。
-  await expect(toggle).toContainText('已应用 1 项')
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.locator('.filters select').first()).toBeVisible()
+  // M13b-F09：筛选在窄屏直接换行可见（不再折叠+badge），选择即应用 URL 更新。
+  const selects = page.locator('.scan-toolbar__filters select')
+  await expect(selects.first()).toBeVisible()
+  await selects.nth(2).selectOption('URGENT')
+  await expect(selects.first()).toBeVisible()
+  await expect(page.locator('.filters-toggle')).toHaveCount(0)
 })
 
 function workUrl(): string {

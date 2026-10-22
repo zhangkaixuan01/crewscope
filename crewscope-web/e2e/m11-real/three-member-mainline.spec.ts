@@ -259,8 +259,8 @@ test('the graph view renders the real blocking DAG with its non-graph equivalent
 
 test('a lost connection recovers the authoritative state through SSE, not the socket', async () => {
   await alicePage.goto(`/activity?team=${teamId}`)
-  const badge = alicePage.locator('.activity-summary .status-badge')
-  const factsHeading = alicePage.locator('.activity-summary h2')
+  const badge = alicePage.locator('.summary-strip .status-badge')
+  const factsHeading = alicePage.locator('.summary-strip h2')
   await expect(badge).toContainText('实时')
   const factsBefore = await factsCount()
 
@@ -310,7 +310,7 @@ test('one suspend cuts every channel at once — and no member can fire it but t
   // Bob's second tab now watches the Team Activity stream instead — his SSE channel for
   // this drill. Each tab holds its own transport, and each is revalidated independently.
   await bobTab2.goto(`/activity?team=${teamId}`)
-  const bobBadge = bobTab2.locator('.activity-summary .status-badge')
+  const bobBadge = bobTab2.locator('.summary-strip .status-badge')
   await expect(bobBadge).toContainText('实时')
 
   // Negative face first: a plain MEMBER cannot suspend anyone (policy wall, §8.11's
