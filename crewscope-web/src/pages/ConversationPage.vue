@@ -366,6 +366,20 @@ function setMessageListElement(element: unknown): void {
   virtualList.listElement.value = element instanceof HTMLElement ? element : null
 }
 
+/** M13b-F04（R22 跟随修复）：结构区（提案/关联/注入卡）异步挂载或用户展开只改
+ * scrollHeight——容器盒不变（containerObserver 不触发）、行高不动（rowObserver 不涉及）、
+ * 也没有 scroll 事件。跟随者合同「贴住最新」在此补偿：结构区高度变化即重贴底；非跟随
+ * 不碰（阅读锚点补偿归 useVirtualList 的 anchor 路径管）。 */
+const structureBlock = ref<HTMLElement | null>(null)
+const structureObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
+  if (isFollowing.value && messageHistory.value) messageHistory.value.scrollTop = messageHistory.value.scrollHeight
+}) : null
+watch(structureBlock, element => {
+  structureObserver?.disconnect()
+  if (element && structureObserver) structureObserver.observe(element)
+})
+onUnmounted(() => structureObserver?.disconnect())
+
 // Reading position, unread bookkeeping, and the restore chain live in the composable (M12b-F05);
 // its watches keep this page's registration order. The folded pre-message card reset stays here:
 // it is TaskIntent presentation, not reading state (R19).
@@ -1051,6 +1065,10 @@ async function redirectIfForbidden(): Promise<void> {
               @retry="retryMessages"
             />
             <div v-else ref="messageHistory" class="message-history" tabindex="0" @scroll="handleHistoryScroll">
+              <!-- M13b-F04（R22 跟随修复）：结构区长在滚动容器内、虚拟列表之外，包一层只为给
+                   ResizeObserver 一个高度锚点——它们的异步挂载/展开只改 scrollHeight（容器盒
+                   不变、行高不动、无 scroll 事件），跟随者合同在这里补上重贴底。 -->
+              <div ref="structureBlock" class="conversation-structures">
               <div v-if="messageStore.state.nextCursor" class="older-messages">
                 <BaseButton
                   variant="ghost"
@@ -1134,6 +1152,7 @@ async function redirectIfForbidden(): Promise<void> {
                   </li>
                 </ul>
               </details>
+              </div>
               <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{ messageAnnouncement }}</p>
               <div
                 v-if="messageStore.state.phase === 'empty' && messageStore.state.pending.length === 0 && !visibleInvocationMessage && !visibleStreamedReply && !agentBusy"

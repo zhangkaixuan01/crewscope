@@ -339,7 +339,8 @@ function formatTokens(value: number): string {
 .quota-metric dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .quota-metric dd { margin: 0; font-size: var(--cs-text-base); }
 .quota-note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
-.quota-link { color: var(--cs-text-brand); }
+/* 正文内链接除颜色外必须有非颜色区分（axe link-in-text-block）：常驻下划线。 */
+.quota-link { color: var(--cs-text-brand); text-decoration: underline; }
 
 /* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
 .quota-month-nav__item:hover:not(:disabled) { background: var(--cs-surface-subtle); border-color: var(--cs-border-accent); }

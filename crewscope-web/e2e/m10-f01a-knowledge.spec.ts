@@ -429,7 +429,8 @@ test('无 knowledge:manage 时读面完整且管理入口隐藏', async ({ page 
   await expect(detail.getByRole('tab', { name: '版本' })).toBeVisible()
 
   await expect(page.getByRole('button', { name: '创建条目' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '从执行蒸馏' })).toHaveCount(0)
+  // M13b-F04（R29）：蒸馏与后端一致是 member 级入口——读者可见，创建/发布/删除仍限管理。
+  await expect(page.getByRole('button', { name: '从执行蒸馏' }).first()).toBeVisible()
   await expect(detail.getByRole('button', { name: '发布当前草稿' })).toHaveCount(0)
   await expect(detail.getByRole('button', { name: '删除条目' })).toHaveCount(0)
   await expect(detail.getByText('审计信息')).toHaveCount(0)

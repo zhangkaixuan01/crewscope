@@ -345,7 +345,8 @@ function queryText(value: unknown): string | null {
 .panel__title { margin: 0; font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); }
 .panel__note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .budget-hint { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.budget-link { color: var(--cs-text-brand); }
+/* 正文内链接除颜色外必须有非颜色区分（axe link-in-text-block）：常驻下划线。 */
+.budget-link { color: var(--cs-text-brand); text-decoration: underline; }
 .unpriced-hint { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--cs-space-12); margin: 0; }
 .metric { display: grid; gap: var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); padding: var(--cs-space-12); }
