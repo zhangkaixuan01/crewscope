@@ -309,7 +309,9 @@ async function signOut(): Promise<void> {
           <span v-if="collaborationLabel" class="collab-pill" :class="`collab-pill--${collaborationPhase}`" role="status" aria-live="polite">
             <span class="collab-pill__dot" aria-hidden="true" />
             <button v-if="collaborationPhase === 'degraded'" type="button" class="collab-pill__retry" @click="collaborationStore?.retry()">{{ collaborationLabel }}</button>
-            <template v-else>{{ collaborationLabel }}</template>
+            <!-- M13b-F05（R37）: on the ≤767 five-column topbar the pill visually collapses to its
+                 dot — the label stays for screen readers (aria-live announces state changes). -->
+            <span v-else class="collab-pill__label">{{ collaborationLabel }}</span>
           </span>
           <button class="icon-button" type="button" aria-label="打开通知 Inbox" @click="router.push({ name: 'inbox', query: route.query })"><Bell :size="18" /></button>
         </div>
@@ -398,6 +400,7 @@ async function signOut(): Promise<void> {
 .collab-pill__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cs-success); }
 .collab-pill--reconnecting .collab-pill__dot { background: var(--cs-warning); animation: collab-pulse var(--cs-motion-slow) var(--cs-ease-in-out) infinite alternate; }
 .collab-pill--degraded .collab-pill__dot { background: var(--cs-text-muted); }
+.collab-pill__label { min-width: 0; }
 .collab-pill__retry { border: 0; padding: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
 .collab-pill__retry:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); border-radius: 4px; }
 @keyframes collab-pulse { from { opacity: .35; } to { opacity: 1; } }
@@ -441,6 +444,10 @@ async function signOut(): Promise<void> {
   .mobile-menu-toggle { display: grid !important; }
   .app-shell__body { margin-left: 0; padding-bottom: var(--cs-space-64); }
   .topbar { height: 52px; grid-template-columns: auto minmax(0, 1fr) auto auto auto; justify-items: end; gap: var(--cs-space-8); padding: 0 var(--cs-space-12); }
+  /* M13b-F05（R37）: the pill shrinks to its dot — the label survives for screen readers inside
+     the aria-live status, and the degraded retry keeps a capped, ellipsized text of its own. */
+  .collab-pill__label { position: absolute; width: 1px; height: 1px; min-width: 0; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .collab-pill__retry { max-width: 12em; overflow: hidden; text-overflow: ellipsis; }
   .topbar-scope { display: block; justify-self: stretch; min-width: 0; }
   .mobile-profile { display: block; }
   .context-header { min-height: 72px; align-items: flex-start; padding: var(--cs-space-12) var(--cs-space-16); }

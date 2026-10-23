@@ -39,4 +39,26 @@ describe('PresenceAvatarGroup', () => {
     expect(wrapper.text()).toBe('')
     expect(wrapper.find('[role="group"]').exists()).toBe(false)
   })
+
+  // M13b-F05（R36）: hover titles are desktop-only — touch and keyboard reach the full roster
+  // through the toggle: every name (overflowed included) and every multi-tab count.
+  it('opens the full roster on the toggle and closes it with Escape (R36)', async () => {
+    const wrapper = mount(PresenceAvatarGroup, { props: { entries, max: 2 } })
+
+    const toggle = wrapper.get('.presence-group__toggle')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('.presence-group__roster').exists()).toBe(false)
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    const roster = wrapper.get('.presence-group__roster')
+    expect(roster.attributes('aria-label')).toBe('在场名单')
+    // Three names even though the avatar row only shows two — the +1 overflow is reachable here.
+    expect(roster.findAll('.presence-group__roster-name').map(name => name.text())).toEqual(['Alice', 'Bob', 'Carol'])
+    expect(roster.text()).toContain('2 个标签页')
+
+    await toggle.trigger('keydown.esc', { key: 'Escape' })
+    expect(wrapper.find('.presence-group__roster').exists()).toBe(false)
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+  })
 })

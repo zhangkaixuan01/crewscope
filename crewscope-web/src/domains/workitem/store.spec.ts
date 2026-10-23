@@ -126,6 +126,38 @@ describe('WorkItem store', () => {
     expect(store.state.commandPending).toBe(false)
   })
 
+  // M13b-F05（R11）: a remote-change notice re-reads the first page stale-while-refresh — the
+  // current rows stay on screen (no loading phase, no cleared items), a failure keeps them, and
+  // the re-read carries the active filter (a status filter must not widen into the full project).
+  it('refreshes the first page stale-while-refresh, keeping rows and filter on failure', async () => {
+    const gateway = new FixtureWorkItemGateway()
+    const store = createWorkItemStore(gateway)
+    await store.load(scope)
+    expect(store.state.phase).toBe('ready')
+    const rowsBefore = store.state.items.map(row => row.id)
+    expect(rowsBefore.length).toBeGreaterThan(0)
+
+    let failNext = false
+    const original = gateway.listWorkItems.bind(gateway)
+    gateway.listWorkItems = query => failNext
+      ? Promise.reject(new CrewScopeApiError(503, { code: 'unavailable', message: 'boom', correlationId: 'c', retryable: true, currentVersion: null, details: {} }))
+      : original(query)
+
+    failNext = true
+    await expect(store.refresh()).resolves.toBe(false)
+    expect(store.state.phase).toBe('ready')
+    expect(store.state.items.map(row => row.id)).toEqual(rowsBefore)
+
+    failNext = false
+    await expect(store.refresh()).resolves.toBe(true)
+    expect(gateway.queries.at(-1)?.status).toBeUndefined()
+    expect(store.state.phase).toBe('ready')
+
+    // Nothing loaded yet — refresh is a no-op instead of a blind unscoped read.
+    const idle = createWorkItemStore(new FixtureWorkItemGateway())
+    await expect(idle.refresh()).resolves.toBe(false)
+  })
+
   it('discards an older project response after scope changes', async () => {
     let resolveFirst!: (value: { items: []; nextCursor: null }) => void
     const gateway = new FixtureWorkItemGateway()

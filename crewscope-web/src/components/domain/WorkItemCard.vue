@@ -45,6 +45,8 @@ const emit = defineEmits<{
   select: [item: WorkItemSummary]
   action: [action: WorkItemAvailableTransition]
   'toggle-select': [item: WorkItemSummary]
+  /** M13b-F05（R34）: the blocked badge asks for this item's neighbourhood in the graph view. */
+  'show-blockers': []
   'drag-start': [item: WorkItemSummary]
   'drag-end': []
 }>()
@@ -118,8 +120,9 @@ function openFromCard(event: MouseEvent): void {
     <div class="work-item-card__metadata">
       <StatusBadge :tone="priorityTone"><CircleAlert :size="11" />{{ workItemPriorityLabels[item.priority] }}</StatusBadge>
       <!-- Being blocked is a fact about the work, not decoration: the count is the aggregate's
-           authoritative blockerCount, shown wherever the list or board renders this item. -->
-      <span v-if="blockedCount > 0" class="work-item-card__blocked" :title="`被 ${blockedCount} 个进行中的工作项阻塞`"><CircleSlash :size="11" aria-hidden="true" />被 {{ blockedCount }} 项阻塞</span>
+           authoritative blockerCount. M13b-F05（R34）: the badge is also the item's on-ramp into
+           its graph neighbourhood — click lands in the graph view focused on this node. -->
+      <button v-if="blockedCount > 0" type="button" class="work-item-card__blocked" :title="`被 ${blockedCount} 个进行中的工作项阻塞，点击在依赖图中查看`" :aria-label="`被 ${blockedCount} 个进行中的工作项阻塞，在依赖图中查看`" @click.stop="emit('show-blockers')"><CircleSlash :size="11" aria-hidden="true" />被 {{ blockedCount }} 项阻塞</button>
       <span>{{ workItemTypeLabels[item.type] }}</span>
       <!-- Every time on the card is relative with the exact instant one keystroke away: a list of
            "2026/09/12 14:03:27" makes the member do the subtraction the page already knows how to
@@ -144,7 +147,7 @@ function openFromCard(event: MouseEvent): void {
 .work-item-card__metadata { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); }
 .work-item-card__metadata > span { display: inline-flex; min-height: 22px; align-items: center; gap: var(--cs-space-4); padding: var(--cs-space-2) var(--cs-space-8); border-radius: 6px; background: var(--cs-surface-subtle); font-size: var(--cs-text-xs); white-space: nowrap; }
 .work-item-card__metadata > span.overdue { background: var(--cs-danger-soft); color: var(--cs-danger); }
-.work-item-card__blocked { background: var(--cs-danger-soft); color: var(--cs-danger); font-weight: var(--cs-weight-semibold); }
+.work-item-card__blocked { display: inline-flex; align-items: center; gap: var(--cs-space-4); border: 0; padding: 0; background: var(--cs-danger-soft); color: var(--cs-danger); font-size: inherit; font-weight: var(--cs-weight-semibold); cursor: pointer; }.work-item-card__blocked:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); }
 /* The selection checkbox belongs to the row, not to the identity cell's content: it keeps the key
    and the status badge on the same 12px rhythm whether or not selection is on offer. */
 .work-item-card__select { flex: 0 0 auto; width: 16px; height: 16px; margin: 0 var(--cs-space-4) 0 0; accent-color: var(--cs-focus); cursor: pointer; }

@@ -3552,9 +3552,14 @@ test('M11 collaboration signal states ride the surfaces without touching the sil
     .analyze()
   expect(conversationAxe.violations, formatAxeViolations(conversationAxe.violations)).toEqual([])
 
-  // Board: one presence row for the whole board (the project-granularity subscription).
+  // M13b-F05（R35）: the presence row is the collection layer — the list view carries the same
+  // project-granularity roster, so switching views never un-explains a colleague away.
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=list&status=all&type=all&priority=all`)
+  await expect(page.locator('.collection-presence .presence-group')).toHaveAttribute('aria-label', '在场：林晨、王睿')
+
+  // Board: the same collection row (the project-granularity subscription).
   await page.goto(`/work?team=${ids.team}&project=${ids.project}&view=board&status=all&type=all&priority=all`)
-  await expect(page.locator('.board-presence .presence-group')).toHaveAttribute('aria-label', '在场：林晨、王睿')
+  await expect(page.locator('.collection-presence .presence-group')).toHaveAttribute('aria-label', '在场：林晨、王睿')
   await expect(page.locator('.collab-pill')).toContainText('实时协作在线')
   await expect(page).toHaveScreenshot(`work-board-collaboration-${testInfo.project.name}.png`, { fullPage: true })
 

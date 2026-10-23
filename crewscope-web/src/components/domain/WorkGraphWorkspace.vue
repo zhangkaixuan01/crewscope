@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Columns3, List, Network } from '@lucide/vue'
-import { computed, inject, onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, inject, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { workItemStatusLabels, workItemStatusTone } from '../../domains/workitem/labels'
 import type { WorkItemScope } from '../../domains/workitem/types'
 import { WORK_GRAPH_STORE } from '../../domains/workgraph/store'
@@ -27,11 +27,15 @@ const props = defineProps<{
   teamName: string | undefined
   projectKey: string
   scope: WorkItemScope | null
+  /** M13b-F05（R34）: deep-link focus from the collection views' blocked badge (?focus=<id>). */
+  focusId?: string | null
 }>()
 
 const emit = defineEmits<{
   'switch-view': [view: 'list' | 'board']
   'open-item': [workItemId: string]
+  /** M13b-F05（R34）: focus is URL-owned so a badge click deep-links and stays shareable. */
+  'update:focus': [workItemId: string | null]
 }>()
 
 const graphStore = inject(WORK_GRAPH_STORE, null)
@@ -109,13 +113,25 @@ function onSelect(nodeId: string): void {
 function focusFromRow(nodeId: string): void {
   focusCenterId.value = nodeId
   selectedId.value = nodeId
+  emit('update:focus', nodeId)
 }
 function enterFocus(): void {
-  if (selectedId.value) focusCenterId.value = selectedId.value
+  if (selectedId.value) focusFromRow(selectedId.value)
 }
 function exitFocus(): void {
   focusCenterId.value = null
+  emit('update:focus', null)
 }
+
+// M13b-F05（R34）: a focus deep link (?focus=<id>, minted by the collection badge) takes effect
+// on arrival and on every later change; data may still be loading — the focus computed waits for
+// it. Arriving from the URL is not a user action, so it sets the state without emitting back.
+watch(() => props.focusId, id => {
+  if (id && id !== focusCenterId.value) {
+    focusCenterId.value = id
+    selectedId.value = id
+  }
+}, { immediate: true })
 </script>
 
 <template>

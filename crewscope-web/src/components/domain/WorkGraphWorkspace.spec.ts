@@ -39,10 +39,10 @@ function stubGateway(overrides: Partial<WorkGraphGateway> = {}): WorkGraphGatewa
   } as WorkGraphGateway
 }
 
-function mountWorkspace(store: ReturnType<typeof createWorkGraphStore>) {
+function mountWorkspace(store: ReturnType<typeof createWorkGraphStore>, props: Record<string, unknown> = {}) {
   // jsdom has no matchMedia, which the shell reads as the wide form — the phone form is an e2e fact.
   return mount(WorkGraphWorkspace, {
-    props: { teamName: '平台组', projectKey: 'CRW', scope: graphScope },
+    props: { teamName: '平台组', projectKey: 'CRW', scope: graphScope, ...props },
     global: { provide: { [WORK_GRAPH_STORE as symbol]: store } },
   })
 }
@@ -162,5 +162,28 @@ describe('WorkGraphWorkspace', () => {
     await retry!.trigger('click')
     await flushPromises()
     expect(wrapper.find('.graph-canvas').exists()).toBe(true)
+  })
+
+  // M13b-F05（R34）: the collection views' blocked badge deep-links in with ?focus=<id> — the
+  // workspace lands focused on that node's neighbourhood, and exiting focus reports back so the
+  // URL never claims a focus the graph no longer has.
+  it('lands focused on the focusId deep link and reports focus exits (R34)', async () => {
+    const gateway = stubGateway({
+      listBlockedWorkItems: vi.fn().mockResolvedValue({
+        items: [blockedRow(workItemIds.first), blockedRow(workItemIds.third)],
+        nextCursor: null,
+      }),
+    })
+    const store = createWorkGraphStore(gateway)
+    const wrapper = mountWorkspace(store, { focusId: workItemIds.first })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('返回全图')
+    expect(wrapper.emitted('update:focus')).toBeUndefined()
+
+    const exitFocus = wrapper.findAll('button').find(button => button.text() === '返回全图')
+    expect(exitFocus).toBeDefined()
+    await exitFocus!.trigger('click')
+    expect(wrapper.emitted('update:focus')).toEqual([[null]])
   })
 })

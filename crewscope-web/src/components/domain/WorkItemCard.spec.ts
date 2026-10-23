@@ -65,4 +65,20 @@ describe('WorkItemCard', () => {
     await wrapper.get('.transition-menu button').trigger('click')
     expect(wrapper.text()).toContain('当前状态没有可执行的动作')
   })
+
+  // M13b-F05（R34）: the blocked badge is the item's on-ramp into its graph neighbourhood — a
+  // real button that stops the card's own open action and asks for the graph instead. Without a
+  // count the badge (and the affordance) stays absent.
+  it('emits show-blockers from the blocked badge without opening the card (R34)', async () => {
+    const blocked = mount(WorkItemCard, { props: { item, layout: 'list', blockedCount: 2 } })
+    const badge = blocked.get('.work-item-card__blocked')
+    expect(badge.text()).toContain('被 2 项阻塞')
+
+    await badge.trigger('click')
+    expect(blocked.emitted('show-blockers')).toHaveLength(1)
+    expect(blocked.emitted('select')).toBeUndefined()
+
+    const unblocked = mount(WorkItemCard, { props: { item, layout: 'list', blockedCount: 0 } })
+    expect(unblocked.find('.work-item-card__blocked').exists()).toBe(false)
+  })
 })

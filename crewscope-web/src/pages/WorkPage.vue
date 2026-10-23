@@ -30,7 +30,7 @@ import { useAgentStore } from '../domains/agent/store'
 import { useScopeStore } from '../domains/scope/store'
 import { useKnowledgeStore } from '../domains/knowledge/store'
 import type { DistillKnowledgeInput } from '../domains/knowledge/types'
-import { type CollaborationScope } from '../domains/collaboration/types'
+import { collaborationScopeKey, type CollaborationScope } from '../domains/collaboration/types'
 import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
 import type { ConversationWorkItemAssociation } from '../domains/conversation/workItemLinkGateway'
@@ -82,6 +82,7 @@ import {
 } from '../domains/workitem/types'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 import { useCollaborationPresence } from '../composables/useCollaborationPresence'
+import { useCollaborationStore } from '../domains/collaboration/store'
 import { useWorkSavedViews } from '../composables/useWorkSavedViews'
 import { useWorkTaskWorkbench } from '../composables/useWorkTaskWorkbench'
 
@@ -214,10 +215,11 @@ const codingScope = computed<CodingScope | null>(() => principal && team.value &
 const principalScope = computed<PrincipalScope | null>(() => principal && team.value
   ? { organizationId: principal.organizationId, teamId: team.value.id }
   : null)
-// M11-F01: board presence rides the project scope of the collaboration channel. The
-// subscription follows the board view itself — the list view costs no signal traffic.
-const boardCollabScope = computed<CollaborationScope | null>(() => {
-  if (view.value !== 'board' || !principal || !team.value || !project.value) return null
+// M11-F01 + M13b-F05（R35）: presence rides the project scope of the collaboration channel for
+// BOTH collection views — a member switching board ↔ list must not see colleagues blink out of
+// existence without explanation. The graph view keeps costing no signal traffic.
+const collectionCollabScope = computed<CollaborationScope | null>(() => {
+  if (view.value === 'graph' || !principal || !team.value || !project.value) return null
   return {
     organization: principal.organizationId,
     team: team.value.id,
@@ -225,7 +227,31 @@ const boardCollabScope = computed<CollaborationScope | null>(() => {
     resourceId: project.value.id,
   }
 })
-const { presence: boardPresence, degraded: collaborationDegraded } = useCollaborationPresence(boardCollabScope)
+const { presence: collectionPresence, degraded: collaborationDegraded } = useCollaborationPresence(collectionCollabScope)
+const collaborationStore = useCollaborationStore()
+
+// M13b-F05（R11）: the collaboration channel's project-scope resource_changed finally has a
+// collection consumer — a colleague's card move re-reads the first page stale-while-refresh,
+// instead of waiting for the member's own next write to be version-rejected. Our own REST writes
+// also land here (no project-level version is echoed to acknowledge), which costs one redundant
+// consistent re-read — cheaper than deduplicating on the wrong version.
+const collectionChangeNotice = computed(() => {
+  const scope = collectionCollabScope.value
+  if (!scope) return null
+  return collaborationStore.state.changeByScope[collaborationScopeKey(scope)] ?? null
+})
+watch(collectionChangeNotice, async notice => {
+  if (!notice) return
+  const refreshed = await workStore.refresh()
+  if (!refreshed) toast.show('他人改动到达但刷新失败，页面显示的可能不是最新状态', { tone: 'warning' })
+})
+
+// M13b-F05（R13）: outside the graph view an absent badge read as「not blocked」is a silent
+// downgrade of the aggregate's failure into a fact — the collection surfaces it once per failure.
+watch(() => graphStore.state.blocked.phase, phase => {
+  if (phase !== 'error' || view.value === 'graph') return
+  toast.show('阻塞关系加载失败：阻塞徽标可能不完整，可在依赖图视图中重试', { tone: 'warning' })
+})
 const showCreate = ref(false)
 useCreationEntry('work', () => canCreate.value && scopeStore.state.phase === 'ready'
   ? project.value?.id ?? null : null, openCreate)
@@ -837,6 +863,24 @@ function selectTask(task: TaskSummary): void {
 }
 
 /**
+ * M13b-F05（R34）: the blocked badge is the item's on-ramp into its graph neighbourhood — the
+ * focus coordinate is URL-owned, so the landing is shareable and the graph keeps it honest.
+ */
+function openBlockerGraph(item: WorkItemSummary): void {
+  const query: LocationQueryRaw = { ...withoutCodingRoute(route.query), view: 'graph', focus: item.id }
+  delete query.review
+  void router.replace({ query })
+}
+
+const graphFocusId = computed(() => queryValue(route.query.focus))
+function setGraphFocus(workItemId: string | null): void {
+  const query = { ...route.query }
+  if (workItemId) query.focus = workItemId
+  else delete query.focus
+  void router.replace({ query })
+}
+
+/**
  * Resolves the drawer's close path: routing first, then the workbench's own selection clear
  * (one call for the task/coding/review/delivery stores), then focus restoration.
  */
@@ -1053,8 +1097,10 @@ function retry(): void {
         :team-name="team?.name"
         :project-key="project.key"
         :scope="workScope"
+        :focus-id="graphFocusId"
         @switch-view="next => updateQuery('view', next)"
         @open-item="openGraphItem"
+        @update:focus="setGraphFocus"
       />
 
       <template v-else>
@@ -1118,7 +1164,7 @@ function retry(): void {
         :view="collectionView"
         :board-statuses="boardStatuses"
         :status-labels="statusLabels"
-        :board-presence="boardPresence"
+        :collection-presence="collectionPresence"
         :collaboration-degraded="collaborationDegraded"
         :next-cursor="workStore.state.nextCursor"
         :loading-more="workStore.state.loadingMore"
@@ -1139,6 +1185,7 @@ function retry(): void {
         :on-clear-filters="clearWorkFilters"
         :on-load-more="workStore.loadMore"
         :on-select="selectItem"
+        :on-show-blockers="openBlockerGraph"
         :on-toggle-select="toggleSelect"
         :on-action="runCardAction"
         :on-drag-start="startWorkItemDrag"

@@ -140,6 +140,11 @@ export interface WorkItemStore {
     filter?: WorkItemListFilter | WorkItemStatus,
     force?: boolean,
   ): Promise<void>
+  /**
+   * M13b-F05（R11）stale-while-refresh first page re-read for remote-change notices: the
+   * current items stay on screen while the page re-reads, and a failed refresh keeps them.
+   */
+  refresh(): Promise<boolean>
   loadMore(): Promise<void>
   create(input: CreateWorkItemInput): Promise<string | null>
   loadDetails(scope: WorkItemScope, workItemId: string, force?: boolean): Promise<void>
@@ -265,6 +270,23 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
       if (version !== requestVersion) return
       state.phase = 'error'
       state.errorMessage = presentError(error, '暂时无法加载工作项，请稍后重试')
+    }
+  }
+
+  async function refresh(): Promise<boolean> {
+    if (!activeScope || !['ready', 'empty'].includes(state.phase)) return false
+    const version = ++requestVersion
+    try {
+      const page = await gateway.listWorkItems({ ...activeScope, ...activeFilter, limit: 50 })
+      if (version !== requestVersion) return false
+      state.items = page.items
+      state.nextCursor = page.nextCursor
+      state.phase = page.items.length === 0 ? 'empty' : 'ready'
+      return true
+    } catch {
+      // A failed background refresh keeps the stale facts on screen; the caller decides
+      // whether to surface that (the WorkPage toasts once per collaboration refresh miss).
+      return false
     }
   }
 
@@ -1104,6 +1126,7 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
   return {
     state: readonly(state) as Readonly<WorkItemState>,
     load,
+    refresh,
     loadMore,
     create,
     loadDetails,

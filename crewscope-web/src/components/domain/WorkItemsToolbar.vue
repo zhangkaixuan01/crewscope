@@ -67,8 +67,10 @@ const sortScopeHint = computed(() => props.hasMore
         <button type="button" :class="{ active: view === 'list' }" aria-label="列表视图" @click="emit('updateQuery', 'view', 'list')"><List :size="15" />List</button>
         <button type="button" :class="{ active: view === 'board' }" aria-label="看板视图" @click="emit('updateQuery', 'view', 'board')"><Columns3 :size="15" />Board</button>
         <!-- M11-F02: the third view entry. The graph shell renders its own switcher, so this button
-             never carries the active state — it only promises the view exists and navigates to it. -->
-        <button type="button" aria-label="依赖图视图" @click="emit('updateQuery', 'view', 'graph')"><Network :size="15" />Graph</button>
+             never carries the active state — it only promises the view exists and navigates to it.
+             M13b-F05（R34）: the entry explains what the graph is for — it is not a third layout of
+             the same list, it is the blocking-relation view of the whole project. -->
+        <button type="button" aria-label="依赖图视图：按阻塞关系查看整个项目的工作项" @click="emit('updateQuery', 'view', 'graph')"><Network :size="15" />Graph</button>
       </div>
       <!-- 每个排序键自带服务端合同的固定方向（写进选项文本）；负责人以禁用选项出现，排序边界与
            原因由 aria-describedby 读出——M9b-A06 平铺按钮契约的 M13b-F09 菜单化形态。 -->

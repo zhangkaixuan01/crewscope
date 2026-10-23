@@ -18,8 +18,9 @@ defineProps<{
   view: 'list' | 'board'
   boardStatuses: WorkItemStatus[]
   statusLabels: Record<string, string>
-  /** Who is viewing this project board (M11-F01, project scope; optional for story mounts). */
-  boardPresence?: readonly PresenceEntry[]
+  /** Who else is viewing this project (M11-F01 project scope; M13b-F05/R35 both collection
+      views — switching board ↔ list must not make colleagues vanish without explanation). */
+  collectionPresence?: readonly PresenceEntry[]
   collaborationDegraded?: boolean
   nextCursor: string | null
   loadingMore: boolean
@@ -46,6 +47,8 @@ defineProps<{
   onLoadMore: () => void
   onSelect: (item: WorkItemSummary) => void
   onToggleSelect: (item: WorkItemSummary) => void
+  /** M13b-F05（R34）: the blocked badge asks for the item's neighbourhood in the graph view. */
+  onShowBlockers: (item: WorkItemSummary) => void
   onAction: (item: WorkItemSummary, action: WorkItemAvailableTransition) => void
   onDragStart: (item: WorkItemSummary) => void
   onDragEnd: () => void
@@ -61,24 +64,24 @@ defineProps<{
     <!-- M13b-F09：S4 hero 退出后页面只剩 shell 的 h1，卡片标题 h3 直接跟在它后面跳级
          （axe heading-order）。列表容器补一个 sr-only h2 垫平层级，不占单行扫读预算。 -->
     <h2 class="sr-only">{{ view === 'board' ? '工作项看板' : '工作项列表' }}</h2>
+    <!-- M13b-F05（R35）: one presence row for both collection views — the subscription is the
+         project scope, so switching board ↔ list must not make colleagues vanish silently. -->
+    <div v-if="collectionPresence?.length || collaborationDegraded" class="collection-presence">
+      <PresenceAvatarGroup :entries="collectionPresence ?? []" :degraded="collaborationDegraded" />
+    </div>
     <StatePanel v-if="phase === 'loading'" state="loading" />
     <StatePanel v-else-if="phase === 'error'" state="error" :description="errorMessage ?? undefined" @retry="onRetry" />
     <StatePanel v-else-if="phase === 'empty' && hasAppliedFilters" state="empty" title="没有符合筛选条件的工作项" description="调整类型或优先级筛选即可恢复结果。"><template #action><BaseButton variant="secondary" @click="onClearFilters"><Filter :size="15" />清除筛选</BaseButton></template></StatePanel>
     <StatePanel v-else-if="phase === 'empty'" state="empty" title="当前范围还没有工作项" description="创建第一个 WorkItem，让团队目标进入可追踪的执行流。"><template #action><BaseButton v-if="canCreate" @click="onCreate"><Plus :size="15" />新建工作项</BaseButton></template></StatePanel>
     <div v-else-if="view === 'list'" class="work-list" aria-label="工作项列表">
-      <WorkItemCard v-for="item in filteredItems" :key="item.id" :item="item" layout="list" :confirming-target="pendingItemId === item.id ? confirmingTarget : null" :busy="busyItemId === item.id" :selectable="selectable" :selected="selectable && isSelected(item.id)" :blocked-count="blockedCountOf(item.id)" @select="onSelect" @action="onAction(item, $event)" @toggle-select="onToggleSelect" />
+      <WorkItemCard v-for="item in filteredItems" :key="item.id" :item="item" layout="list" :confirming-target="pendingItemId === item.id ? confirmingTarget : null" :busy="busyItemId === item.id" :selectable="selectable" :selected="selectable && isSelected(item.id)" :blocked-count="blockedCountOf(item.id)" @select="onSelect" @action="onAction(item, $event)" @toggle-select="onToggleSelect" @show-blockers="onShowBlockers(item)" />
     </div>
     <div v-else class="work-board-wrap" aria-label="工作项看板" @keydown="onBoardKeydown">
-      <!-- M11-F01: one presence row for the whole board — the subscription is the project
-           scope, so a group per column would only repeat the same roster. -->
-      <div v-if="boardPresence?.length || collaborationDegraded" class="board-presence">
-        <PresenceAvatarGroup :entries="boardPresence ?? []" :degraded="collaborationDegraded" />
-      </div>
       <div class="work-board">
         <section v-for="status in boardStatuses" :key="status" class="board-column" :class="{ 'drop-target': dragOverStatus === status, 'drop-rejected': draggedWorkItem && !allowDrop(status) }" :aria-label="statusLabels[status]" @dragover.prevent="onDragOver(status)" @dragleave="onDragLeave" @drop.prevent="onDrop(status)">
           <header><span>{{ statusLabels[status] }}</span><StatusBadge>{{ itemsFor(status).length }}</StatusBadge></header>
           <div class="board-column__items">
-            <WorkItemCard v-for="item in itemsFor(status)" :key="item.id" :item="item" layout="board" :confirming-target="pendingItemId === item.id ? confirmingTarget : null" :busy="busyItemId === item.id" :blocked-count="blockedCountOf(item.id)" @select="onSelect" @action="onAction(item, $event)" @drag-start="onDragStart" @drag-end="onDragEnd" />
+            <WorkItemCard v-for="item in itemsFor(status)" :key="item.id" :item="item" layout="board" :confirming-target="pendingItemId === item.id ? confirmingTarget : null" :busy="busyItemId === item.id" :blocked-count="blockedCountOf(item.id)" @select="onSelect" @action="onAction(item, $event)" @show-blockers="onShowBlockers(item)" @drag-start="onDragStart" @drag-end="onDragEnd" />
             <p v-if="itemsFor(status).length === 0">暂无工作项</p>
           </div>
         </section>
@@ -93,6 +96,6 @@ defineProps<{
 </template>
 
 <style scoped>
-.work-content { min-width: 0; }.work-content :deep(.state-panel) { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }.work-list { display: grid; gap: var(--cs-space-8); }.work-board-wrap { min-width: 0; }.board-presence { display: flex; min-height: 26px; align-items: center; margin-bottom: var(--cs-space-8); }.work-board { display: grid; grid-auto-columns: minmax(255px, 1fr); grid-auto-flow: column; gap: var(--cs-space-12); overflow-x: auto; padding-bottom: var(--cs-space-8); scroll-snap-type: x proximity; }.board-column { min-height: 390px; overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); scroll-snap-align: start; }.board-column > header { display: flex; min-height: 47px; align-items: center; justify-content: space-between; padding: 0 var(--cs-space-12); border-bottom: 1px solid var(--cs-border); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.board-column__items { display: grid; align-content: start; gap: var(--cs-space-8); padding: var(--cs-space-8); }.board-column__items > p { padding: var(--cs-space-24) var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: center; }.load-more { display: grid; justify-items: center; gap: var(--cs-space-8); padding: var(--cs-space-16); }.load-more p { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }.board-column.drop-target { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent); box-shadow: inset 0 0 0 2px var(--cs-ring-brand); }.board-column.drop-rejected { opacity: .62; }
+.work-content { min-width: 0; }.work-content :deep(.state-panel) { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }.work-list { display: grid; gap: var(--cs-space-8); }.work-board-wrap { min-width: 0; }.collection-presence { display: flex; min-height: 26px; align-items: center; margin-bottom: var(--cs-space-8); }.work-board { display: grid; grid-auto-columns: minmax(255px, 1fr); grid-auto-flow: column; gap: var(--cs-space-12); overflow-x: auto; padding-bottom: var(--cs-space-8); scroll-snap-type: x proximity; }.board-column { min-height: 390px; overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); scroll-snap-align: start; }.board-column > header { display: flex; min-height: 47px; align-items: center; justify-content: space-between; padding: 0 var(--cs-space-12); border-bottom: 1px solid var(--cs-border); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.board-column__items { display: grid; align-content: start; gap: var(--cs-space-8); padding: var(--cs-space-8); }.board-column__items > p { padding: var(--cs-space-24) var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: center; }.load-more { display: grid; justify-items: center; gap: var(--cs-space-8); padding: var(--cs-space-16); }.load-more p { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }.board-column.drop-target { border-color: var(--cs-border-accent-strong); background: var(--cs-surface-accent); box-shadow: inset 0 0 0 2px var(--cs-ring-brand); }.board-column.drop-rejected { opacity: .62; }
 @media (max-width: 767px) { .work-board { grid-auto-columns: minmax(272px, 84vw); } }
 </style>

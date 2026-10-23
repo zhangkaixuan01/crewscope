@@ -22,7 +22,7 @@ function mountWorkspace(overrides: Record<string, unknown> = {}) {
       pendingItemId: null, confirmingTarget: null, busyItemId: null, blockedCountOf: () => 0,
       allowDrop: () => true, itemsFor: () => [item], selectable: false, isSelected: () => false,
       onCreate: () => undefined, onRetry: () => undefined, onClearFilters: () => undefined,
-      onLoadMore: () => undefined, onSelect: () => undefined, onToggleSelect: () => undefined, onAction: () => undefined, onDragStart: () => undefined, onDragEnd: () => undefined,
+      onLoadMore: () => undefined, onSelect: () => undefined, onToggleSelect: () => undefined, onShowBlockers: () => undefined, onAction: () => undefined, onDragStart: () => undefined, onDragEnd: () => undefined,
       onDragOver: () => undefined, onDragLeave: () => undefined, onDrop: () => undefined, onBoardKeydown: () => undefined,
       ...overrides,
     },
@@ -82,22 +82,30 @@ describe('WorkItemsWorkspace', () => {
     expect(onToggleSelect).toHaveBeenCalledWith(item)
   })
 
-  it('shows one presence row for the whole board, and none without a channel', () => {
-    // 看板在场只认 project 粒度订阅——逐列重复同一份名单只会是噪音（M11-F01）。
+  it('shows one presence row for both collection views, and none without a channel', () => {
+    // 在场只认 project 粒度订阅——逐列重复同一份名单只会是噪音（M11-F01）；M13b-F05（R35）
+    // 起这行属于列表与看板两个视图：切换视图不该让同事无解释地消失。
     const present = mountWorkspace({
       view: 'board',
-      boardPresence: [{ principalId: 'account:bob', displayName: 'Bob', connections: 1 }],
+      collectionPresence: [{ principalId: 'account:bob', displayName: 'Bob', connections: 1 }],
     })
-    expect(present.get('.board-presence .presence-group').attributes('aria-label')).toBe('在场：Bob')
+    expect(present.get('.collection-presence .presence-group').attributes('aria-label')).toBe('在场：Bob')
     expect(present.findAll('.board-column .presence-group').length).toBe(0)
     present.unmount()
 
+    const listPresent = mountWorkspace({
+      view: 'list',
+      collectionPresence: [{ principalId: 'account:bob', displayName: 'Bob', connections: 1 }],
+    })
+    expect(listPresent.get('.collection-presence .presence-group').attributes('aria-label')).toBe('在场：Bob')
+    listPresent.unmount()
+
     const degraded = mountWorkspace({ view: 'board', collaborationDegraded: true })
-    expect(degraded.get('.board-presence').text()).toBe('实时协作暂不可用')
+    expect(degraded.get('.collection-presence').text()).toBe('实时协作暂不可用')
     degraded.unmount()
 
     const silent = mountWorkspace({ view: 'board' })
-    expect(silent.find('.board-presence').exists()).toBe(false)
+    expect(silent.find('.collection-presence').exists()).toBe(false)
     silent.unmount()
   })
 })
