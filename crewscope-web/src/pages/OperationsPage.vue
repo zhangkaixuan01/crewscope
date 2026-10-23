@@ -7,7 +7,7 @@ import BaseButton from '../components/base/BaseButton.vue'
 import RelativeTime from '../components/base/RelativeTime.vue'
 import OperationsWorkspace from '../components/domain/OperationsWorkspace.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
-import SettingsShell from '../components/settings/SettingsShell.vue'
+import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { useTeamOpsStore } from '../domains/teamops/store'
 import type { ProjectionCommand, RecoveryCandidate, TeamOpsScope } from '../domains/teamops/types'
@@ -80,23 +80,27 @@ async function runProjectionCommand(command: ProjectionCommand, idempotencyKey: 
 </script>
 
 <template>
-  <SettingsShell title="运行与发布" eyebrow="运维 · 健康与演示证据">
+  <!-- M13b-F10（L06）：「运行与发布」是工作区页面（主 rail「工作」组），不再套设置外壳——
+    设置目录是它不需要的第二套导航，还会把内容宽度从 1156 压到 946。 -->
+  <AppShell title="运行与发布" eyebrow="运维 · 健康与演示证据">
     <template #actions>
       <label class="auto-refresh"><input v-model="autoRefresh" type="checkbox">15 秒自动刷新</label>
       <span v-if="lastRefreshedAt" class="last-refreshed">上次刷新于 <RelativeTime :value="lastRefreshedAt" /></span>
       <BaseButton size="small" variant="secondary" :disabled="!scope" :aria-describedby="scope ? undefined : 'operations-scope-reason'" @click="refresh(true)"><RefreshCw :size="14" />刷新</BaseButton>
     </template>
-    <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
-    <StatePanel v-else-if="!scope" id="operations-scope-reason" state="empty" title="请选择 Team" description="运行健康属于明确的 Organization 与 Team。" />
-    <OperationsWorkspace
-      v-else :key="scope.teamId" :phase="store.state.operationsHealth.phase" :error="store.state.operationsHealth.error"
-      :health="store.state.operationsHealth.value" :diagnostics-phase="store.state.diagnostics.phase"
-      :diagnostics-error="store.state.diagnostics.error" :diagnostics="store.state.diagnostics.value"
-      :command="store.state.command" :can-manage="canManage" :online="online"
-      @refresh="refresh(true)" @recover="recover"
-      @projection-command="runProjectionCommand" @clear-command="store.clearCommand"
-    />
-  </SettingsShell>
+    <div class="operations-page page-shell">
+      <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
+      <StatePanel v-else-if="!scope" id="operations-scope-reason" state="empty" title="请选择 Team" description="运行健康属于明确的 Organization 与 Team。" />
+      <OperationsWorkspace
+        v-else :key="scope.teamId" :phase="store.state.operationsHealth.phase" :error="store.state.operationsHealth.error"
+        :health="store.state.operationsHealth.value" :diagnostics-phase="store.state.diagnostics.phase"
+        :diagnostics-error="store.state.diagnostics.error" :diagnostics="store.state.diagnostics.value"
+        :command="store.state.command" :can-manage="canManage" :online="online"
+        @refresh="refresh(true)" @recover="recover"
+        @projection-command="runProjectionCommand" @clear-command="store.clearCommand"
+      />
+    </div>
+  </AppShell>
 </template>
 
 <style scoped>

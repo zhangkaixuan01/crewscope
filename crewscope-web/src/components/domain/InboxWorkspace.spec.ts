@@ -44,6 +44,51 @@ describe('InboxWorkspace', () => {
     expect(wrapper.emitted('changeDispositionStatus')?.[0]).toEqual(['READ'])
   })
 
+  it('M13b-F10 L01: states the total and the unread total exactly once — on the summary strip', async () => {
+    const wrapper = mount(InboxWorkspace, { props: props(), global: { stubs: routerLinkStub } })
+
+    const views = wrapper.findAll('[aria-label="Inbox 五类视图"] button')
+    // 「全部」视图不再重复 strip 已给出的总数/未读总数；分类计数是增量信息才保留。
+    expect(views[0]!.text()).toContain('全部')
+    expect(views[0]!.find('i').exists()).toBe(false)
+    expect(views[1]!.text()).toContain('1')
+    // strip 说明句不再复述任何计数——未读总数由徽标唯一持有。
+    expect(wrapper.get('.summary-strip__note').text()).not.toMatch(/\d/)
+    expect(wrapper.get('.summary-strip').text()).toContain('1 未读')
+  })
+
+  it('M13b-F10 L02: leads each row with the readable work context and falls back when none was joined', async () => {
+    const titled = item({
+      inboxItemId: '00000000-0000-4000-8000-000000000910',
+      sourceContext: { projectId: 'project-1', workItemId: 'work-item-1', workItemTitle: '结算看板主链路', taskObjective: '确认 Owner 的责任分配方案', waitingOnDisplayName: null, targetActionKind: 'WORK_ITEM' },
+    })
+    const waiting = item({
+      inboxItemId: '00000000-0000-4000-8000-000000000911', itemType: 'EXECUTION', priority: 'NORMAL',
+      source: { type: 'TASK_EXECUTION', id: '00000000-0000-4000-8000-000000000912', revision: 2 },
+      sourceContext: { projectId: 'project-1', workItemId: 'work-item-2', workItemTitle: '执行看板迁移', taskObjective: null, waitingOnDisplayName: 'Carol', targetActionKind: 'TASK' },
+      sourceStatus: 'CLOSED', closeReason: 'REVIEW_COMPLETED', closedAt: '2026-08-26T09:00:00Z',
+    })
+    const bare = item()
+    const wrapper = mount(InboxWorkspace, {
+      props: props({ items: [titled, waiting, bare] }),
+      global: { stubs: routerLinkStub },
+    })
+
+    const rows = wrapper.findAll('.inbox-list article')
+    // 主文本：workItemTitle 优先；类型标签降为 facts 行的 badge，只作分类不占行首。
+    expect(rows[0]!.get('header strong').text()).toBe('结算看板主链路')
+    expect(rows[1]!.get('header strong').text()).toBe('执行看板迁移')
+    expect(rows[2]!.get('header strong').text()).toBe('我的负责')
+    // 副行：任务目标 → 在等谁 → 回退来源事实（类型 · revision）。
+    expect(rows[0]!.get('p').text()).toBe('确认 Owner 的责任分配方案')
+    expect(rows[1]!.get('p').text()).toBe('Carol')
+    expect(rows[2]!.get('p').text()).toBe('责任分配 · revision 3')
+    expect(rows[0]!.get('.inbox-card__facts').text()).toContain('我的负责')
+    // footer 换来源状态：open 行指向仍需处理的事实，closed 行明示来源已关闭。
+    expect(rows[0]!.get('footer .inbox-card__source').text()).toBe('来源仍需处理')
+    expect(rows[1]!.get('footer .inbox-card__source').text()).toBe('来源已关闭')
+  })
+
   it('exposes the strong-version member actions and authorized target entry', async () => {
     const selected = item({ dispositionStatus: 'UNREAD', dispositionVersion: 0, etag: '"0"' })
     const wrapper = mount(InboxWorkspace, {

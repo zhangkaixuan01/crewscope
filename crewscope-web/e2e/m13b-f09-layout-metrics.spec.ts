@@ -76,6 +76,22 @@ const inboxItems = [
   inbox('00000000-4000-4000-8000-000000000902', 'OWNERSHIP', 'NORMAL', 'RESPONSIBILITY_ASSIGNMENT', 2, null),
 ]
 
+/** Work 页首条量测的最小工作项集合（结构对齐 m9-workdesk 的 workItemSummary）。 */
+const workItems = [
+  { id: ids.workItem, organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace, projectId: ids.project, key: 'CRW-01', type: 'TASK', title: '结算看板主链路', description: '结算看板主链路的协作说明', status: 'IN_PROGRESS', priority: 'HIGH', labels: ['team-work'], dueAt: null, source: 'CREWSCOPE', sourceReference: null, version: 0, createdAt: '2026-09-01T01:00:00Z', createdByPrincipalId: ids.principal, updatedAt: '2026-09-02T01:00:00Z', updatedByPrincipalId: ids.principal, availableActions: [] },
+  { id: '00000000-4000-4000-8000-000000000602', organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace, projectId: ids.project, key: 'CRW-02', type: 'FEATURE', title: '执行看板迁移', description: '执行看板迁移的协作说明', status: 'OPEN', priority: 'MEDIUM', labels: [], dueAt: null, source: 'CREWSCOPE', sourceReference: null, version: 0, createdAt: '2026-09-01T01:00:00Z', createdByPrincipalId: ids.principal, updatedAt: '2026-09-02T01:00:00Z', updatedByPrincipalId: ids.principal, availableActions: [] },
+]
+
+/** Activity 首条量测的最小事件集（结构对齐 m6-activity 的 activity()）。 */
+const activityEvents = [
+  {
+    eventId: 'event-review', domainEventId: 'event-review-domain', teamSequence: 4, eventType: 'REVIEW_APPROVED',
+    category: 'REVIEW', visibility: 'TEAM', subject: { type: 'REVIEW_REQUEST', id: 'review-1' },
+    actor: { type: 'MEMBER', principalId: ids.principal }, references: [{ type: 'WORK_ITEM', id: ids.workItem }],
+    occurredAt: '2026-08-27T08:04:00Z', payload: { schemaName: 'activity-summary', schemaVersion: 1, values: { outcome: 'APPROVED' } },
+  },
+]
+
 async function mockMetricsApi(page: import('@playwright/test').Page): Promise<void> {
   await page.route(/\/api\/v1\//, async route => {
     const request = route.request()
@@ -95,6 +111,16 @@ async function mockMetricsApi(page: import('@playwright/test').Page): Promise<vo
     }
     if (request.method() === 'GET' && path.endsWith('/inbox')) {
       return fulfillJson(route, { items: inboxItems, nextCursor: null })
+    }
+    if (request.method() === 'GET' && path.endsWith('/work-items')) {
+      return fulfillJson(route, { items: workItems, nextCursor: null })
+    }
+    if (request.method() === 'GET' && path.endsWith('/activity/snapshot')) {
+      return fulfillJson(route, { items: activityEvents, hasMore: false, nextCursor: null, snapshotCursor: 'snapshot-cursor' })
+    }
+    if (request.method() === 'GET' && path.endsWith('/activity/events')) {
+      // 补发 snapshot 已有的一条：浏览器按耐久 Cursor 去重（m6-activity 同款语义）。
+      return fulfillSse(route, activityEvents)
     }
     const inboxDetail = path.match(/\/inbox\/([^/]+)$/)
     if (request.method() === 'GET' && inboxDetail) return fulfillJson(route, inboxItems.find(item => item.inboxItemId === inboxDetail[1]))
@@ -138,6 +164,57 @@ test('inbox scan layout meets the F09 contracts at the desktop viewport', async 
   const firstItemDistance = firstItemBox!.y - (headerBox!.y + headerBox!.height)
   // 量测值入档：跑报告里留数字，断言只对契约阈值负责。
   console.log(`[f09-metrics] header=${headerBox!.height}px strip=${stripBox!.height}px toolbar=${toolbarBox!.height}px first-item-distance=${firstItemDistance}px`)
+  expect(stripBox!.height).toBeLessThanOrEqual(56)
+  expect(toolbarBox!.height).toBeLessThanOrEqual(56)
+  expect(firstItemDistance).toBeLessThanOrEqual(200)
+})
+
+/** F10（L08）：Work 工具栏压进 56px 后，置顶条是否吞掉首行预算由量测裁定——首条 ≤200px。 */
+test('work scan layout meets the scan contracts at the desktop viewport', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', '契约 §7 的量测视口是 1440 宽桌面')
+  await page.goto(`/work?team=${ids.team}&project=${ids.project}`)
+  await expect(page.locator('.work-item-card').first()).toBeVisible()
+
+  const headerBox = await page.locator('.context-header').boundingBox()
+  const toolbarBox = await page.locator('.work-toolbar').boundingBox()
+  const pinsBox = await page.locator('.work-pins').boundingBox()
+  const firstItemBox = await page.locator('.work-item-card').first().boundingBox()
+  expect(headerBox && toolbarBox && firstItemBox).toBeTruthy()
+
+  const firstItemDistance = firstItemBox!.y - (headerBox!.y + headerBox!.height)
+  console.log(`[f10-metrics] work toolbar=${toolbarBox!.height}px pins=${pinsBox ? `${pinsBox.height}px` : 'none'} first-item-distance=${firstItemDistance}px`)
+  expect(toolbarBox!.height).toBeLessThanOrEqual(56)
+  expect(firstItemDistance).toBeLessThanOrEqual(200)
+})
+
+/** F10（L05）：Activity 三层页头合一后，首条事实距 context header ≤200px。 */
+test('activity scan layout meets the scan contracts at the desktop viewport', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', '契约 §7 的量测视口是 1440 宽桌面')
+  await page.goto(`/activity?team=${ids.team}&project=${ids.project}`)
+  await expect(page.locator('.activity-list article').first()).toBeVisible()
+  // 连接态提示已收敛进 strip（L05），流内不再插恢复 panel——首条事实的位置是稳态量。
+  await expect(page.locator('.activity-stream .state-panel')).toHaveCount(0)
+
+  const headerBox = await page.locator('.context-header').boundingBox()
+  const stripBox = await page.locator('.summary-strip').boundingBox()
+  const toolbarBox = await page.locator('.scan-toolbar').boundingBox()
+  const firstItemBox = await page.locator('.activity-list article').first().boundingBox()
+  expect(headerBox && stripBox && toolbarBox && firstItemBox).toBeTruthy()
+
+  const firstItemDistance = firstItemBox!.y - (headerBox!.y + headerBox!.height)
+  const segments = await page.evaluate(() => {
+    const pick = (selector: string) => {
+      const element = document.querySelector(selector)
+      return element ? { top: Math.round(element.getBoundingClientRect().top), bottom: Math.round(element.getBoundingClientRect().bottom) } : null
+    }
+    return {
+      strip: pick('.summary-strip'), toolbar: pick('.scan-toolbar'),
+      stream: pick('.activity-stream'), list: pick('.activity-list'),
+    }
+  })
+  // 流组件内部页头已删（L05），实时徽标只出现在 strip 上。
+  console.log(`[f10-metrics] activity strip=${stripBox!.height}px toolbar=${toolbarBox!.height}px first-item-distance=${firstItemDistance}px segments=${JSON.stringify(segments)}`)
+  expect(page.locator('.activity-stream__header')).toHaveCount(0)
   expect(stripBox!.height).toBeLessThanOrEqual(56)
   expect(toolbarBox!.height).toBeLessThanOrEqual(56)
   expect(firstItemDistance).toBeLessThanOrEqual(200)

@@ -22,10 +22,11 @@ test('unmarks a read row into a persisted unread and the live counts follow', as
   const api = await mockInboxApi(page)
   await page.goto(`/inbox?team=${ids.team}&inboxItem=${ids.read}`)
   await expect(page.getByText('2 项待处理事实')).toBeVisible()
-  await expect(page.getByText('1 项未读，处置状态由当前成员独立维护')).toBeVisible()
+  // M13b-F10（L01）：未读总数由 strip 徽标唯一持有，live 计数跟随徽标变化。
+  await expect(page.locator('.summary-strip .status-badge')).toContainText('1 未读')
 
   await page.getByRole('button', { name: '标为未读' }).click()
-  await expect(page.getByText('2 项未读，处置状态由当前成员独立维护')).toBeVisible()
+  await expect(page.locator('.summary-strip .status-badge')).toContainText('2 未读')
   expect(api.putCommands).toHaveLength(1)
   // A persisted UNREAD is a positive version row (contract §5.1), never a synthetic zero.
   expect(api.putCommands[0]).toMatchObject({ itemId: ids.read, status: 'UNREAD', ifMatch: '"1"' })
@@ -61,7 +62,7 @@ test('restores an archived row one step at a time and archives only after confir
   // From the archive itself, unmarking is the explicit two-step command: one CAS on the
   // archived version, landing two versions ahead on a persisted UNREAD row.
   await page.getByRole('button', { name: '恢复并标为未读' }).click()
-  await expect(page.getByText('2 项未读，处置状态由当前成员独立维护')).toBeVisible()
+  await expect(page.locator('.summary-strip .status-badge')).toContainText('2 未读')
   expect(api.putCommands.at(-1)).toMatchObject({ itemId: ids.archived, status: 'UNREAD', ifMatch: '"5"' })
   await expect(page.getByText('v7', { exact: true })).toBeVisible()
 })

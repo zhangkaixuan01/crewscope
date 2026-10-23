@@ -267,7 +267,8 @@ function updatedAt(value: string): string {
     />
 
     <div v-else class="repository-page page-shell">
-      <ProjectExecutionDefaultsPanel :scope="scope" />
+      <!-- M13b-F10（L09）：先讲本页主题——概览 → 来源说明 → 创建绑定 → 绑定目录；
+        执行默认配置（前置任务表单）收进末尾的默认折叠 disclosure，不再打断页面主题。 -->
       <StatePanel v-if="!online" compact state="offline" title="仓库写操作已暂停" description="已加载的 RepositoryBinding 保持可读，联网后可继续 Preflight、绑定和启停。" />
 
       <section class="summary-strip panel" aria-label="仓库概览">
@@ -392,6 +393,8 @@ function updatedAt(value: string): string {
           </article>
         </div>
       </section>
+
+      <ProjectExecutionDefaultsPanel :scope="scope" />
 
       <section class="security-note"><ShieldCheck :size="17" /><div><strong>浏览器披露边界</strong><span>Canonical Path、Managed Root、文件系统用户和原始 Git 输出停留在受信基础设施内。</span></div></section>
     </div>

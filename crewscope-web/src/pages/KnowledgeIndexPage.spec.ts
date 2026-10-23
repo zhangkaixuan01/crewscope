@@ -21,9 +21,18 @@ import type { RepositoryBinding } from '../domains/coding/types'
 import { createScopeStore, SCOPE_STORE } from '../domains/scope/store'
 import { FixtureScopeGateway, fixtureIds } from '../test/scopeFixtures'
 import { reactive } from 'vue'
+import type { VueWrapper } from '@vue/test-utils'
 import KnowledgeIndexPage from './KnowledgeIndexPage.vue'
 
 const jobAId = '00000000-0000-0000-0000-000000007401'
+
+/** L16：重建/自动刷新收进 overflow 菜单（弹层 v-if，收起时不在 DOM），先开菜单再取内容。
+ * 幂等：banner 的关闭按钮不派发 pointerdown，jsdom 里菜单不会被外部点击关掉，重复 toggle 反而收起。 */
+async function openMoreActions(wrapper: VueWrapper): Promise<void> {
+  const trigger = wrapper.get('button[aria-label="更多索引动作"]')
+  if (trigger.attributes('aria-expanded') !== 'true') await trigger.trigger('click')
+  await flushPromises()
+}
 
 const manager: AuthenticatedPrincipal = {
   id: fixtureIds.principal, accountId: '00000000-0000-0000-0000-000000000201', displayName: 'Knowledge Manager', role: 'Team Owner',
@@ -81,6 +90,8 @@ describe('KnowledgeIndexPage', () => {
     const { wrapper, gateway } = await mountPage(manager, '', { rebuildEnqueued: 2 })
     const listsBefore = gateway.listCalls.length
 
+    // L16：重建收进 overflow 菜单，先开菜单才能拿到按钮。
+    await openMoreActions(wrapper)
     await wrapper.findAll('button').find(button => button.text().includes('重建知识索引'))!.trigger('click')
     await flushPromises()
 
@@ -89,6 +100,7 @@ describe('KnowledgeIndexPage', () => {
 
     gateway.rebuildEnqueued = 0
     await wrapper.get('button[aria-label="关闭提示"]').trigger('click')
+    await openMoreActions(wrapper)
     await wrapper.findAll('button').find(button => button.text().includes('重建知识索引'))!.trigger('click')
     await flushPromises()
 
@@ -120,6 +132,8 @@ describe('KnowledgeIndexPage', () => {
     const { wrapper } = await mountPage(member, '')
 
     expect(wrapper.get('section[aria-label="索引作业列表"]').text()).toContain('绑定 00000000')
+    // 菜单开着也没有重建入口（菜单收起时弹层不在 DOM，断言会空转）。
+    await openMoreActions(wrapper)
     expect(wrapper.text()).not.toContain('重建知识索引')
     expect(wrapper.text()).not.toContain('构建仓库索引')
     expect(wrapper.text()).not.toContain('取消作业')
@@ -135,6 +149,7 @@ describe('KnowledgeIndexPage', () => {
       await vi.advanceTimersByTimeAsync(15_000)
       expect(gateway.listCalls.length).toBe(listsBefore + 1)
 
+      await openMoreActions(wrapper)
       await wrapper.get('input[type="checkbox"]').setValue(false)
       await vi.advanceTimersByTimeAsync(45_000)
       expect(gateway.listCalls.length).toBe(listsBefore + 1)

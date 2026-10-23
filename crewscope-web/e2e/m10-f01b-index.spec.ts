@@ -225,6 +225,8 @@ test('取消作业就地替换行，409 披露当前状态且行不动', async (
 test('重建回执区分入队与闸关跳过两种形态', async ({ page }) => {
   await page.goto(`/knowledge/index?team=${ids.team}&project=${ids.project}`)
 
+  // L16：重建收进 overflow 菜单（弹层 v-if，收起时不在 DOM），先开菜单。
+  await page.getByRole('button', { name: '更多索引动作' }).click()
   await page.getByRole('button', { name: '重建知识索引' }).click()
   // The banner is scoped by class: the listing's StatePanel also answers role=status
   // while the forced re-read holds it in the loading state.
@@ -239,6 +241,8 @@ test('重建回执区分入队与闸关跳过两种形态', async ({ page }) => 
 
   gateClosed = true
   await page.getByRole('button', { name: '关闭提示' }).click()
+  // 关闭 banner 的 pointerdown 会顺带收起菜单，重开再点重建。
+  await page.getByRole('button', { name: '更多索引动作' }).click()
   await page.getByRole('button', { name: '重建知识索引' }).click()
   // Gate closed is a skip, never an error (contract §7).
   await expect(page.locator('p.index-banner')).toContainText('未新建作业：索引开关未开启，或没有可重建的生效版本')
@@ -294,6 +298,8 @@ test('无 knowledge:manage 时读面完整且命令入口与技术块隐藏', as
   await expect(listing.locator('li.job-item', { hasText: '已取消' })).toBeVisible()
   await expect(listing.getByText('嵌入模型与索引键冻结版本不一致')).toBeVisible()
 
+  // 重建收进了 overflow 菜单——菜单开着也没有该入口（关着时弹层不在 DOM，断言会空转）。
+  await page.getByRole('button', { name: '更多索引动作' }).click()
   await expect(page.getByRole('button', { name: '重建知识索引' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '构建仓库索引' })).toHaveCount(0)
   await expect(listing.getByRole('button', { name: '取消作业' })).toHaveCount(0)
@@ -315,6 +321,8 @@ test('15 秒自动刷新可开关', async ({ page }) => {
   await page.clock.fastForward(15_000)
   await expect.poll(() => listingQueries.length).toBe(initialReads + 1)
 
+  // L16：自动刷新 checkbox 收进 overflow 菜单，先开菜单再操作。
+  await page.getByRole('button', { name: '更多索引动作' }).click()
   await page.getByLabel('15 秒自动刷新').uncheck()
   await page.clock.fastForward(45_000)
   expect(listingQueries.length).toBe(initialReads + 1)

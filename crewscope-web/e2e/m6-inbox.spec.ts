@@ -26,7 +26,10 @@ test('renders the five views, de-duplicates Cursor pages and passes Axe with sta
   await expect(page.getByRole('heading', { name: '我的 Inbox', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Inbox 五类视图' }).getByRole('button')).toHaveCount(6)
   await expect(page.getByText('4 项待处理事实')).toBeVisible()
-  await expect(page.getByText('责任分配 · revision 3')).toBeVisible()
+  // M13b-F10（L02）：行首是服务端 join 的工作标题与目标，不再是类型 + revision。
+  await expect(page.getByText('结算看板主链路')).toBeVisible()
+  await expect(page.getByText('确认 Owner 的责任分配方案')).toBeVisible()
+  await expect(page.getByText('责任分配 · revision 3')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Inbox 详情' })).toBeVisible()
 
   const axe = await new AxeBuilder({ page }).analyze()
@@ -35,10 +38,13 @@ test('renders the five views, de-duplicates Cursor pages and passes Axe with sta
 
   await page.getByRole('button', { name: '加载更多' }).click()
   await expect(page.getByRole('button', { name: /查看 我的负责 详情/ })).toHaveCount(2)
+  // 没有 sourceContext 的行回退到类型标签 + 来源事实（类型 · revision）。
+  await expect(page.getByText('责任分配 · revision 2')).toBeVisible()
 
   await page.getByRole('button', { name: /^我的执行/ }).click()
   await expect(page).toHaveURL(/inboxType=EXECUTION/)
-  await expect(page.getByText('Task 执行 · revision 2')).toBeVisible()
+  await expect(page.getByText('执行看板迁移')).toBeVisible()
+  await expect(page.getByText('Carol')).toBeVisible()
 })
 
 test('refreshes a strong-ETag conflict and preserves the member disposition after reload', async ({ page }) => {
@@ -61,7 +67,7 @@ test('refreshes a strong-ETag conflict and preserves the member disposition afte
 
 test('keeps cached Inbox facts readable offline and opens only the server-authorized source route', async ({ page, context }) => {
   await page.goto(`/inbox?team=${ids.team}&project=${ids.project}&inboxItem=${ids.ownership}`)
-  await expect(page.getByText('责任分配 · revision 3')).toBeVisible()
+  await expect(page.getByText('结算看板主链路')).toBeVisible()
 
   await context.setOffline(true)
   await expect(page.getByText('正在展示最近同步的 Inbox')).toBeVisible()
@@ -77,9 +83,15 @@ test('keeps cached Inbox facts readable offline and opens only the server-author
 
 async function mockInboxApi(page: Page): Promise<void> {
   const items = [
-    inbox(ids.ownership, 'OWNERSHIP', 'URGENT', 'RESPONSIBILITY_ASSIGNMENT', 3, '2026-08-27T09:00:00Z'),
+    inbox(ids.ownership, 'OWNERSHIP', 'URGENT', 'RESPONSIBILITY_ASSIGNMENT', 3, '2026-08-27T09:00:00Z', {
+      projectId: ids.project, workItemId: ids.workItem, workItemTitle: '结算看板主链路',
+      taskObjective: '确认 Owner 的责任分配方案', waitingOnDisplayName: null, targetActionKind: 'WORK_ITEM',
+    }),
     inbox(ids.ownershipOlder, 'OWNERSHIP', 'NORMAL', 'RESPONSIBILITY_ASSIGNMENT', 2, null),
-    inbox(ids.execution, 'EXECUTION', 'HIGH', 'TASK_EXECUTION', 2, '2026-08-27T10:00:00Z'),
+    inbox(ids.execution, 'EXECUTION', 'HIGH', 'TASK_EXECUTION', 2, '2026-08-27T10:00:00Z', {
+      projectId: ids.project, workItemId: ids.workItem, workItemTitle: '执行看板迁移',
+      taskObjective: null, waitingOnDisplayName: 'Carol', targetActionKind: 'TASK',
+    }),
     inbox('00000000-0000-4000-8000-000000000904', 'EXCEPTION', 'URGENT', 'ACTION_DELIVERY', 1, null),
   ]
   let conflictInjected = false
@@ -169,12 +181,14 @@ function inbox(
   sourceType: string,
   sourceRevision: number,
   deadline: string | null,
+  sourceContext: object | null = null,
 ) {
   return {
     inboxItemId, itemType, priority, deadline, openedAt: `2026-08-27T0${sourceRevision}:00:00Z`,
     sourceStatus: 'OPEN', closeReason: null, closedAt: null,
     dispositionStatus: 'UNREAD', dispositionVersion: 0, etag: '"0"',
     source: { type: sourceType, id: ids.source, revision: sourceRevision },
+    sourceContext,
   }
 }
 

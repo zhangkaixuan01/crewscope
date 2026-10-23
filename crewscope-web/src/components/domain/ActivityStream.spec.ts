@@ -29,9 +29,10 @@ describe('ActivityStream', () => {
     expect(wrapper.text()).toContain(expected)
   })
 
-  it('keeps cached events visible while reconnecting', async () => {
+  it('keeps cached events visible while reconnecting — without a panel pushing the list down', async () => {
     const wrapper = await mounted({ items: [activity()], realtimePhase: 'reconnecting' })
-    expect(wrapper.text()).toContain('正在恢复实时活动')
+    // M13b-F10（L05）：连接态由页面 strip 收敛表达，组件不再在列表前插恢复提示。
+    expect(wrapper.text()).not.toContain('正在恢复实时活动')
     expect(wrapper.text()).toContain('TASK_COMPLETED')
   })
 
@@ -58,13 +59,28 @@ describe('ActivityStream', () => {
 
   it('keeps cached facts readable across offline and hard-error recovery states', async () => {
     const offline = await mounted({ items: [activity()], online: false, realtimePhase: 'offline', nextCursor: 'older' })
-    expect(offline.text()).toContain('正在展示最近同步的 Activity')
+    // 离线时缓存事实仍在列表里（R25 的「最近同步于」由 ActivityPage 的 strip note 表达）。
+    expect(offline.text()).not.toContain('正在展示最近同步的 Activity')
+    expect(offline.text()).toContain('TASK_COMPLETED')
     const more = offline.findAll('button').at(-1)!
     expect(more.attributes('disabled')).toBeDefined()
 
     const failed = await mounted({ phase: 'error', items: [activity()], error: error('unknown') })
+    // 硬错误时缓存事实保持可读；错误细节由 ActivityPage 的 strip note 表达（L05 收敛）。
     expect(failed.text()).toContain('TASK_COMPLETED')
-    expect(failed.text()).toContain('unknown')
+  })
+
+  it('M13b-F10 L05: drops the in-stream page header at page level but keeps a one-line section head when embedded', async () => {
+    // 页面级页头合一：AppShell context header + summary-strip 已是两层，组件内层的
+    // eyebrow/h2/description 与实时徽标不再渲染——徽标由 ActivityPage 的 strip 唯一持有。
+    const page = await mounted({ items: [activity()] })
+    expect(page.find('.activity-stream__header').exists()).toBe(false)
+    expect(page.get('section.activity-stream').attributes('aria-label')).toBe('团队活动')
+
+    // 抽屉 compact 场景没有外部标题：保留单行区块头并自报实时相位。
+    const embedded = await mounted({ items: [activity()], compact: true, heading: 'WorkItem Activity', realtimePhase: 'idle' })
+    expect(embedded.get('.activity-stream__header h2').text()).toBe('WorkItem Activity')
+    expect(embedded.get('.activity-stream__header').text()).toContain('历史模式')
   })
 })
 

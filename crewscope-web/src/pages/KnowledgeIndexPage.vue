@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GitBranchPlus, ListRestart, RefreshCw, X } from '@lucide/vue'
+import { GitBranchPlus, ListRestart, MoreHorizontal, RefreshCw, X } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { normalizeQuery, oneOf } from '../utils/queryParams'
@@ -7,6 +7,7 @@ import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
 import AppShell from '../components/layout/AppShell.vue'
 import BaseButton from '../components/base/BaseButton.vue'
+import BaseMenu from '../components/base/BaseMenu.vue'
 import RelativeTime from '../components/base/RelativeTime.vue'
 import RepositoryBuildDialog from '../components/domain/RepositoryBuildDialog.vue'
 import KnowledgeIndexJobList from '../components/domain/KnowledgeIndexJobList.vue'
@@ -35,6 +36,7 @@ const store = useKnowledgeIndexStore()
 const online = useNetworkStatus()
 
 const buildOpen = ref(false)
+const moreOpen = ref(false)
 const autoRefresh = ref(true)
 const autoRefreshTimer = useAutoRefresh(() => void refresh(), {
   interval: 15_000,
@@ -175,12 +177,19 @@ function closeBuild(): void {
 
 <template>
   <AppShell title="索引作业" eyebrow="团队 · 知识管理">
+    <!-- M13b-F10（L16）：header 只留「刷新」+「构建」；「重建」与自动刷新（含上次刷新时间）
+         收进 overflow 菜单——≤767 下 5 个 header action 会排成约 190px 的三行。 -->
     <template #actions>
-      <label class="auto-refresh"><input v-model="autoRefresh" type="checkbox">15 秒自动刷新</label>
-      <span v-if="lastRefreshedAt" class="last-refreshed">上次刷新于 <RelativeTime :value="lastRefreshedAt" /></span>
       <BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scopeMissing ? 'knowledge-index-scope-reason' : undefined" @click="refresh"><RefreshCw :size="14" />刷新</BaseButton>
-      <BaseButton v-if="canManage" variant="secondary" size="small" :disabled="!online" :loading="rebuildPending" @click="rebuild"><ListRestart :size="14" />重建知识索引</BaseButton>
       <BaseButton v-if="canManage" variant="secondary" size="small" :disabled="!online" @click="buildOpen = true"><GitBranchPlus :size="14" />构建仓库索引</BaseButton>
+      <BaseMenu :open="moreOpen" label="更多索引动作" trigger-label="更多索引动作" initial-focus="none" placement="bottom-end" trigger-class="index-more-toggle touch-target" menu-class="index-more-menu" @update:open="moreOpen = $event">
+        <template #trigger><MoreHorizontal :size="14" />更多</template>
+        <div class="index-more">
+          <p v-if="lastRefreshedAt" class="last-refreshed">上次刷新于 <RelativeTime :value="lastRefreshedAt" /></p>
+          <label class="auto-refresh"><input v-model="autoRefresh" type="checkbox">15 秒自动刷新</label>
+          <BaseButton v-if="canManage" variant="secondary" size="small" class="index-more__rebuild" :disabled="!online" :loading="rebuildPending" @click="rebuild"><ListRestart :size="14" />重建知识索引</BaseButton>
+        </div>
+      </BaseMenu>
     </template>
 
     <StatePanel v-if="scopeMissing" id="knowledge-index-scope-reason" state="empty" title="请选择 Team" description="索引作业始终属于明确的 Organization 与 Team。" />
@@ -238,6 +247,16 @@ function closeBuild(): void {
 .auto-refresh { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .auto-refresh input { accent-color: var(--cs-focus); }
 .last-refreshed { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+/* L16 的 overflow 触发钮与 header 里的 BaseButton 同档外观。 */
+.index-more-toggle { display: inline-flex; min-height: 30px; align-items: center; gap: var(--cs-space-4); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }
+.index-more { display: grid; gap: var(--cs-space-8); min-width: 220px; padding: var(--cs-space-12); }
+.index-more .last-refreshed { margin: 0; }
+.index-more__rebuild { justify-self: start; }
+/* 767 下 header actions 固定 2+1 两行（AppShell），trigger 落第二行左缘——bottom-end 右对齐
+   会把 ~230px 弹层推出视口左缘（实测 left:-174）。窄断点改从 trigger 左缘向右展开并钳宽。 */
+@media (max-width: 767px) {
+  :deep(.index-more-menu) { left: 0; right: auto; width: min(244px, calc(100vw - 32px)); }
+}
 
 /* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
 .index-banner button:hover:not(:disabled) { background: var(--cs-surface-accent); }

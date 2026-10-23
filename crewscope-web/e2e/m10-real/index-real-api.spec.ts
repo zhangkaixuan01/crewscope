@@ -78,6 +78,8 @@ test('a published entry rebuild enqueues a real QUEUED job with the technical bl
   })
   expect(published.status()).toBe(202)
 
+  // L16：重建收进 overflow 菜单（弹层 v-if，收起时不在 DOM），先开菜单。
+  await page.getByRole('button', { name: '更多索引动作' }).click()
   await page.getByRole('button', { name: '重建知识索引' }).click()
   // The augmented stack opens the gate and keeps the worker off: one enqueued, still QUEUED.
   // The banner is scoped by class: the listing's StatePanel also answers role=status while

@@ -5,10 +5,13 @@ import type { KnowledgeEntrySummary } from '../../domains/knowledge/types'
 
 describe('KnowledgeEntryList', () => {
   it('renders entry keys as the row identity with category, status, index and revision facts', async () => {
-    const wrapper = await mounted({ items: [entry(), entry({ id: 'entry-2', entryKey: 'release-notes', status: 'DRAFT', indexStatus: 'PENDING', effectiveRevision: null, draft: { title: 'x', content: 'y' } })] })
+    const wrapper = await mounted({ items: [entry(), entry({ id: 'entry-2', entryKey: 'release-notes', status: 'DRAFT', indexStatus: 'PENDING', effectiveRevision: null, draft: { title: '发布说明草稿', content: 'y' } })] })
 
     expect(wrapper.get('section[aria-label="知识条目列表"]')).toBeTruthy()
     expect(wrapper.text()).toContain('deploy-runbook')
+    // L04：有草稿标题的行以标题为主文本，key 降为副行小字仍在（可复制、可对照）。
+    expect(wrapper.findAll('button.knowledge-list__row strong.knowledge-list__title')[1]!.text()).toBe('发布说明草稿')
+    expect(wrapper.findAll('button.knowledge-list__row small.knowledge-list__key')[0]!.text()).toBe('release-notes')
     expect(wrapper.text()).toContain('操作手册')
     expect(wrapper.text()).toContain('已发布')
     expect(wrapper.text()).toContain('已索引')

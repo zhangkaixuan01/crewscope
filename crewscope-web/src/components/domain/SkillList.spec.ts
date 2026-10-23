@@ -6,13 +6,19 @@ import type { SkillSummary } from '../../domains/skill/types'
 
 describe('SkillList', () => {
   it('lists skills with status badges and revision facts, and emits selection', async () => {
-    const wrapper = await mounted({ items: [skill('deploy-runbook-v2', { effectiveRevision: 2, latestRevision: 3 })] })
+    const wrapper = await mounted({ items: [
+      skill('deploy-runbook-v2', { effectiveRevision: 2, latestRevision: 3 }),
+      skill('release-guard', { id: '00000000-0000-0000-0000-000000008102', draft: { name: '发布守卫 Skill', description: '', content: '' } }),
+    ] })
 
     const row = wrapper.get('button.skill-list__row')
     expect(row.text()).toContain('deploy-runbook-v2')
     expect(row.text()).toContain('已发布')
     expect(row.text()).toContain('生效 r2')
     expect(row.text()).toContain('最新 r3')
+    // L04：有草稿名称的行以名称为主文本，key 降为副行小字仍在。
+    expect(wrapper.findAll('button.skill-list__row strong.skill-list__title')[1]!.text()).toBe('发布守卫 Skill')
+    expect(wrapper.findAll('button.skill-list__row small.skill-list__key')[0]!.text()).toBe('release-guard')
 
     await row.trigger('click')
     expect(wrapper.emitted('select')?.[0]).toEqual(['00000000-0000-0000-0000-000000008101'])

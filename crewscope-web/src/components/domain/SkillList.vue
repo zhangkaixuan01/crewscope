@@ -99,7 +99,11 @@ function statusTone(status: SkillStatus): 'neutral' | 'info' | 'danger' {
       <li v-for="skill in items" :key="skill.id" :class="{ selected: selectedSkillId === skill.id }">
         <button type="button" class="skill-list__row" :aria-current="selectedSkillId === skill.id ? 'true' : undefined" @click="emit('select', skill.id)">
           <ListChecks :size="16" aria-hidden="true" />
-          <span class="skill-list__key">{{ skill.skillKey }}</span>
+          <span class="skill-list__main">
+            <!-- M13b-F10（L04）：主文本用草稿名称；key 降为副行 mono 小字（发布态回退 key）。 -->
+            <strong class="skill-list__title">{{ skill.draft?.name?.trim() || skill.skillKey }}</strong>
+            <small v-if="skill.draft?.name?.trim()" class="skill-list__key">{{ skill.skillKey }}</small>
+          </span>
           <span class="skill-list__badges">
             <StatusBadge :tone="statusTone(skill.status)">{{ skillStatusLabels[skill.status] }}</StatusBadge>
           </span>
@@ -122,7 +126,9 @@ li.selected > .skill-list__row { border-color: var(--cs-border-accent-strong); b
 .skill-list__row { display: grid; width: 100%; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8) var(--cs-space-12); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text); text-align: left; cursor: pointer; }
 .skill-list__row:hover { border-color: var(--cs-border-strong); }
 .skill-list__row:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); }
-.skill-list__key { min-width: 0; overflow-wrap: anywhere; font-family: var(--cs-font-mono, ui-monospace, monospace); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
+.skill-list__main { display: grid; min-width: 0; gap: var(--cs-space-4); }
+.skill-list__title { min-width: 0; overflow-wrap: anywhere; font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); }
+.skill-list__key { min-width: 0; overflow-wrap: anywhere; font-family: var(--cs-font-mono, ui-monospace, monospace); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); color: var(--cs-text-muted); }
 .skill-list__badges { display: flex; flex-wrap: wrap; gap: var(--cs-space-4); }
 .skill-list__meta { display: flex; grid-column: 2; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 </style>

@@ -1203,7 +1203,6 @@ function retry(): void {
           :online="isOnline"
           compact
           heading="WorkItem Activity"
-          description="此工作项在 Team Activity 投影中的公开事实。"
           :principal-names="principalNames"
           @retry="retryWorkItemActivity"
           @load-more="selectedWorkItemActivityRoute && teamOpsStore.loadWorkItemActivity(selectedWorkItemActivityRoute, {}, true)"

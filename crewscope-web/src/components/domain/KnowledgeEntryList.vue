@@ -123,7 +123,12 @@ function clearFilters(): void {
       <li v-for="entry in items" :key="entry.id" :class="{ selected: selectedEntryId === entry.id }">
         <button type="button" class="knowledge-list__row" :aria-current="selectedEntryId === entry.id ? 'true' : undefined" @click="emit('select', entry.id)">
           <BookOpen :size="16" aria-hidden="true" />
-          <span class="knowledge-list__key">{{ entry.entryKey }}</span>
+          <span class="knowledge-list__main">
+            <!-- M13b-F10（L04）：主文本用草稿标题；key 降为副行 mono 小字（发布态 draft 为 null，
+                 Summary 无 effectiveTitle 是服务端缺字段，回退 key——F04/后端补齐后自然升级）。 -->
+            <strong class="knowledge-list__title">{{ entry.draft?.title?.trim() || entry.entryKey }}</strong>
+            <small v-if="entry.draft?.title?.trim()" class="knowledge-list__key">{{ entry.entryKey }}</small>
+          </span>
           <span class="knowledge-list__badges">
             <StatusBadge tone="neutral">{{ knowledgeCategoryLabels[entry.category] }}</StatusBadge>
             <StatusBadge :tone="statusTone(entry.status)">{{ knowledgeEntryStatusLabels[entry.status] }}</StatusBadge>
@@ -147,7 +152,9 @@ li.selected > .knowledge-list__row { border-color: var(--cs-border-accent-strong
 .knowledge-list__row { display: grid; width: 100%; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8) var(--cs-space-12); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text); text-align: left; cursor: pointer; }
 .knowledge-list__row:hover { border-color: var(--cs-border-strong); }
 .knowledge-list__row:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); }
-.knowledge-list__key { min-width: 0; overflow-wrap: anywhere; font-family: var(--cs-font-mono, ui-monospace, monospace); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
+.knowledge-list__main { display: grid; min-width: 0; gap: var(--cs-space-4); }
+.knowledge-list__title { min-width: 0; overflow-wrap: anywhere; font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); }
+.knowledge-list__key { min-width: 0; overflow-wrap: anywhere; font-family: var(--cs-font-mono, ui-monospace, monospace); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); color: var(--cs-text-muted); }
 .knowledge-list__badges { display: flex; flex-wrap: wrap; gap: var(--cs-space-4); }
 .knowledge-list__meta { display: flex; grid-column: 2; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 @media (max-width: 767px) { .knowledge-list__filters { grid-template-columns: 1fr; } }

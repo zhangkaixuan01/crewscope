@@ -38,7 +38,9 @@ test('keeps cached Activity readable while offline', async ({ page, context }) =
   await expect(page.getByText('TASK_COMPLETED')).toBeVisible()
 
   await context.setOffline(true)
-  await expect(page.getByText('正在展示最近同步的 Activity')).toBeVisible()
+  // M13b-F10（L05）：离线提示收敛进 summary-strip 的 note（缓存事实可读 + R25 最近同步），
+  // 列表前不再插恢复 panel——缓存事实位置不动。
+  await expect(page.locator('.summary-strip__note')).toContainText('离线 · 缓存事实保持可读')
   await expect(page.getByText('TASK_COMPLETED')).toBeVisible()
   await context.setOffline(false)
 })

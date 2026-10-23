@@ -106,16 +106,19 @@ async function save(): Promise<void> {
 </script>
 
 <template>
+  <!-- M13b-F10（L09）：本页主题是仓库绑定；执行默认配置降为默认收起的 disclosure，
+    概览/绑定目录先讲，进页面不再被前置任务表单打断。 -->
   <section class="execution-defaults panel" aria-labelledby="execution-defaults-title">
-    <div class="execution-defaults__header">
-      <div>
-        <p class="eyebrow">Project execution</p>
-        <h2 id="execution-defaults-title">项目默认执行配置</h2>
-        <p>日常创建任务会优先复用这里的仓库、分支和受控构建方案；任务仍可在启动前明确覆盖。</p>
-      </div>
-      <span v-if="defaults" class="muted">版本 {{ defaults.version }}</span>
-    </div>
-    <StatePanel v-if="store.state.executionDefaults.phase === 'loading'" compact state="loading" />
+    <details class="execution-defaults__details">
+      <summary class="execution-defaults__summary">
+        <span>
+          <p class="eyebrow">Project execution</p>
+          <h2 id="execution-defaults-title">项目默认执行配置</h2>
+        </span>
+        <span v-if="defaults" class="muted">版本 {{ defaults.version }}</span>
+      </summary>
+      <p class="execution-defaults__lead">日常创建任务会优先复用这里的仓库、分支和受控构建方案；任务仍可在启动前明确覆盖。</p>
+      <StatePanel v-if="store.state.executionDefaults.phase === 'loading'" compact state="loading" />
     <StatePanel v-else-if="store.state.executionDefaults.phase === 'error' && !defaults" compact state="error" :description="store.state.executionDefaults.errorMessage ?? undefined" retry-label="重新加载默认配置" @retry="reload" />
     <form v-else class="execution-defaults__form" @submit.prevent="save">
       <div v-if="draftAvailable" class="draft-recovery" role="status">
@@ -130,11 +133,14 @@ async function save(): Promise<void> {
       <p id="execution-defaults-save-reason" class="sr-only">{{ defaults ? (saving ? '正在保存项目默认配置。' : '保存当前项目默认配置。') : '项目默认配置尚未加载完成。' }}</p>
       <p v-if="store.state.executionDefaults.errorMessage" class="error-text">{{ store.state.executionDefaults.errorMessage }}</p>
     </form>
+    </details>
   </section>
 </template>
 
 <style scoped>
-.execution-defaults__header { display: flex; justify-content: space-between; gap: var(--cs-space-16); align-items: flex-start; }
+.execution-defaults__summary { display: flex; justify-content: space-between; gap: var(--cs-space-16); align-items: center; cursor: pointer; }
+.execution-defaults__summary .eyebrow { margin-bottom: var(--cs-space-4); }
+.execution-defaults__lead { max-width: 60ch; margin: var(--cs-space-12) 0 0; color: var(--text-secondary); }
 .execution-defaults__form { display: grid; gap: var(--cs-space-12); max-width: 42rem; margin-top: var(--cs-space-16); }
 .draft-recovery { display: flex; justify-content: space-between; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--border-subtle); border-radius: .5rem; background: var(--surface); }
 .draft-recovery strong { display: block; font-size: var(--cs-text-base); }

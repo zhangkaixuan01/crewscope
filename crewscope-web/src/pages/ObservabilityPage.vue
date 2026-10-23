@@ -208,29 +208,33 @@ function queryText(value: unknown): string | null {
           <StatePanel v-if="store.state.detail.phase === 'loading'" state="loading" title="正在加载当月成本明细" />
           <StatePanel v-else-if="store.state.detail.phase === 'error'" state="error" :title="store.state.detail.errorMessage ?? '暂时无法加载当月成本明细'" />
           <StatePanel v-else-if="detailRows.length === 0" state="empty" title="该角色本月没有用量行" />
+          <!-- M13b-F10（L10）：10 列压 6 列——Tokens 三项堆叠同格、费用是主数字（Attempt 降为小字）、
+               价格修订并进计价列小字；数值列右对齐 + tabular-nums；首列 sticky；≤767 变卡片。 -->
           <BaseTable v-else class="model-detail-table" :caption="`${selectedMonth} 模型用量明细`">
             <thead>
               <tr>
-                <th scope="col">角色</th><th scope="col">Provider / 模型</th><th scope="col">价格修订</th>
-                <th scope="col">Attempt</th><th scope="col">输入 token</th><th scope="col">输出 token</th>
-                <th scope="col">缓存 token</th><th scope="col">费用（币种）</th><th scope="col">事实</th><th scope="col">计价</th>
+                <th scope="col">角色</th><th scope="col">Provider / 模型</th><th scope="col" class="num">Tokens（输入 / 输出 / 缓存）</th>
+                <th scope="col" class="num">费用（币种）</th><th scope="col" class="num">事实</th><th scope="col">计价</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="row in detailRows" :key="`${row.role}-${row.providerKey}-${row.modelId}-${row.currencyCode}-${row.catalogRevision}-${row.priceRevision}-${row.attempt}`">
                 <td>{{ observabilityUsageRoleLabels[row.role] }}</td>
                 <td>{{ row.providerKey }} / {{ row.modelId }}</td>
-                <td>
-                  <span v-if="row.priceRevision != null" class="price-revision">目录 {{ row.catalogRevision }} · 价格 {{ row.priceRevision }}</span>
-                  <span v-else aria-label="无价格修订">—</span>
+                <td class="num token-stack">
+                  <span><i>输入</i>{{ formatTokens(row.inputTokens) }}</span>
+                  <span><i>输出</i>{{ formatTokens(row.outputTokens) }}</span>
+                  <span><i>缓存</i>{{ formatTokens(row.cachedTokens) }}</span>
                 </td>
-                <td>{{ row.attempt }}</td>
-                <td>{{ formatTokens(row.inputTokens) }}</td>
-                <td>{{ formatTokens(row.outputTokens) }}</td>
-                <td>{{ formatTokens(row.cachedTokens) }}</td>
-                <td>{{ row.inputCost == null ? '—' : `${row.inputCost} + ${row.outputCost ?? '0'} ${row.currencyCode}` }}</td>
-                <td>{{ row.factCount }}<span v-if="row.unreportedFactCount > 0" class="unreported">（未回显 {{ row.unreportedFactCount }}）</span></td>
-                <td><StatusBadge :tone="row.costStatus === 'PRICED' ? 'success' : 'warning'">{{ observabilityCostStatusLabels[row.costStatus] }}</StatusBadge></td>
+                <td class="num cost-cell">
+                  <strong>{{ row.inputCost == null ? '—' : `${row.inputCost} + ${row.outputCost ?? '0'} ${row.currencyCode}` }}</strong>
+                  <small>Attempt {{ row.attempt }}</small>
+                </td>
+                <td class="num">{{ row.factCount }}<span v-if="row.unreportedFactCount > 0" class="unreported">（未回显 {{ row.unreportedFactCount }}）</span></td>
+                <td>
+                  <StatusBadge :tone="row.costStatus === 'PRICED' ? 'success' : 'warning'">{{ observabilityCostStatusLabels[row.costStatus] }}</StatusBadge>
+                  <span v-if="row.priceRevision != null" class="price-revision">目录 {{ row.catalogRevision }} · 价格 {{ row.priceRevision }}</span>
+                </td>
               </tr>
             </tbody>
           </BaseTable>
@@ -289,6 +293,32 @@ function queryText(value: unknown): string | null {
 .role-filter :deep(select) { min-height: 0; font-size: inherit; width: auto; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text); padding: var(--cs-space-4) var(--cs-space-8); }
 .price-revision { font-variant-numeric: tabular-nums; }
 .unreported { color: var(--cs-text-muted); }
+/* L10：数值列右对齐 + tabular-nums——十列左对齐时费用埋在第 8 列且无法竖向比对。 */
+.model-detail-table :is(th, td).num { text-align: right; font-variant-numeric: tabular-nums; }
+.model-detail-table td.num { white-space: nowrap; }
+.model-detail-table .token-stack { display: grid; gap: var(--cs-space-2); justify-items: end; }
+.model-detail-table .token-stack i { font-style: normal; color: var(--cs-text-muted); margin-right: var(--cs-space-8); font-size: var(--cs-text-xs); }
+.model-detail-table .cost-cell { display: grid; gap: var(--cs-space-2); justify-items: end; }
+.model-detail-table .cost-cell small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.model-detail-table td:last-child :deep(.status-badge) { margin-bottom: var(--cs-space-4); }
+.model-detail-table td:last-child .price-revision { display: block; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+/* 首列 sticky：横向滚动时角色列钉在左侧（背景取表体表面色，盖住滚过的列）。 */
+.model-detail-table :is(th, td):first-child { position: sticky; left: 0; z-index: 1; background: var(--cs-surface); }
+/* ≤767 变卡片：thead 隐藏，每行一块，td 变「标签: 值」两端的行（列名固定，nth-child 硬编码）。 */
+@media (max-width: 767px) {
+  .model-detail-table :is(th, td):first-child { position: static; }
+  .model-detail-table thead { display: none; }
+  .model-detail-table tbody { display: grid; gap: var(--cs-space-12); }
+  .model-detail-table tr { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); }
+  .model-detail-table td { display: flex; justify-content: space-between; align-items: baseline; gap: var(--cs-space-12); text-align: right; }
+  .model-detail-table td::before { content: '角色'; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+  .model-detail-table td:nth-child(2)::before { content: 'Provider / 模型'; }
+  .model-detail-table td:nth-child(3)::before { content: 'Tokens'; }
+  .model-detail-table td:nth-child(4)::before { content: '费用'; }
+  .model-detail-table td:nth-child(5)::before { content: '事实'; }
+  .model-detail-table td:nth-child(6)::before { content: '计价'; }
+  .model-detail-table td.token-stack, .model-detail-table td.cost-cell { justify-items: end; }
+}
 .quality-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--cs-space-12); }
 .quality-card { display: grid; gap: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); padding: var(--cs-space-16); }
 .quality-card h3 { margin: 0; font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }

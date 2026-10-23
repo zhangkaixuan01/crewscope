@@ -25,20 +25,16 @@ const props = withDefaults(defineProps<{
   nextCursor: string | null
   loadingMore: boolean
   error: TeamOpsErrorState | null
-  /** When the offline panel shows, how stale the readable facts are (R25「最近同步于」). */
-  lastSyncedAt?: string | null
   realtimePhase?: ActivityRealtimePhase
   online?: boolean
   compact?: boolean
   heading?: string
-  description?: string
   principalNames?: PrincipalNameDirectory
 }>(), {
   realtimePhase: 'idle',
   online: true,
   compact: false,
   heading: '团队活动',
-  description: '责任、执行、Review 与交付事实按团队顺序汇聚。',
   principalNames: () => ({}),
 })
 
@@ -95,13 +91,12 @@ function referenceLabel(type: string): string {
 </script>
 
 <template>
-  <section class="activity-stream" :class="{ compact }" aria-labelledby="activity-stream-title">
-    <header class="activity-stream__header">
-      <div>
-        <p>Shared facts</p>
-        <h2 id="activity-stream-title">{{ heading }}</h2>
-        <span>{{ description }}</span>
-      </div>
+  <section class="activity-stream" :class="{ compact }" :aria-label="compact ? undefined : heading" :aria-labelledby="compact ? 'activity-stream-title' : undefined">
+    <!-- M13b-F10（L05）：页头合一——页面级已有 AppShell context header + summary-strip 两层，组件
+         内部的 eyebrow/h2/description 第三层整块删除；抽屉 compact 场景没有外部标题，保留单行
+         区块头。实时徽标页面级由 ActivityPage 的 summary-strip 唯一持有，抽屉内仍需自报相位。 -->
+    <header v-if="compact" class="activity-stream__header">
+      <h2 id="activity-stream-title">{{ heading }}</h2>
       <StatusBadge :tone="realtimePhase === 'live' ? 'success' : realtimePhase === 'reconnecting' || realtimePhase === 'connecting' ? 'warning' : 'neutral'" dot>
         <Radio :size="12" aria-hidden="true" />{{ realtimeLabel }}
       </StatusBadge>
@@ -115,12 +110,8 @@ function referenceLabel(type: string): string {
     <StatePanel v-else-if="items.length === 0" state="empty" :compact="compact" title="还没有团队活动" description="责任、执行或交付事实产生后会出现在这里。" />
 
     <template v-else>
-      <StatePanel v-if="offline" state="offline" compact title="正在展示最近同步的 Activity" description="恢复网络后会从耐久 Cursor 补齐缺失事件。">
-        <template v-if="lastSyncedAt" #description>恢复网络后会从耐久 Cursor 补齐缺失事件。最近同步于 <RelativeTime :value="lastSyncedAt" />。</template>
-      </StatePanel>
-      <StatePanel v-else-if="realtimePhase === 'reconnecting' || realtimePhase === 'connecting'" state="reconnecting" compact title="正在恢复实时活动" description="历史事实保持可读，新事件会按服务端 Cursor 去重补发。" />
-      <StatePanel v-else-if="hardError" state="error" compact :description="error?.message" @retry="emit('retry')" />
-
+      <!-- M13b-F10（L05）：缓存事实之上的恢复提示（offline/reconnecting/hardError）不再插在
+           列表前——strip 的 note 与徽标已收敛表达连接态（ActivityPage），这里只保留事实本身。 -->
       <ol class="activity-list" aria-label="团队活动列表">
         <li v-for="item in items" :key="item.eventId">
           <span class="activity-marker" aria-hidden="true"><CircleDot :size="13" /></span>
@@ -155,10 +146,9 @@ function referenceLabel(type: string): string {
 
 <style scoped>
 .activity-stream { overflow: hidden; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); box-shadow: var(--cs-shadow-raised); }
-.activity-stream__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-20) var(--cs-space-24) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: linear-gradient(135deg, var(--cs-surface-accent), var(--cs-surface)); }
-.activity-stream__header p { margin: 0; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .11em; text-transform: uppercase; }
-.activity-stream__header h2 { margin: var(--cs-space-4) 0 var(--cs-space-4); font: var(--cs-text-xl)/var(--cs-leading-tight) var(--cs-font-display); }
-.activity-stream__header span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+/* L05：header 只在抽屉 compact 场景渲染——单行区块标题 + 实时相位徽标。 */
+.activity-stream__header { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: 0 0 var(--cs-space-12); }
+.activity-stream__header h2 { margin: 0; font: var(--cs-weight-semibold) var(--cs-text-base) var(--cs-font-sans); }
 .activity-stream__header :deep(.status-badge) { flex: none; }
 .activity-list { margin: 0; padding: var(--cs-space-8) var(--cs-space-20) var(--cs-space-16); list-style: none; }
 .activity-list > li { position: relative; display: grid; grid-template-columns: 25px minmax(0, 1fr); gap: var(--cs-space-8); padding-top: var(--cs-space-12); }
@@ -180,15 +170,10 @@ function referenceLabel(type: string): string {
 .activity-evidence a:hover, .activity-evidence a:focus-visible, .activity-evidence button:hover, .activity-evidence button:focus-visible { border-color: var(--cs-border-accent-strong); outline: 2px solid var(--cs-ring-brand); outline-offset: 1px; }
 .activity-stream__footer { display: flex; justify-content: center; padding: var(--cs-space-12) var(--cs-space-20) var(--cs-space-20); border-top: 1px solid var(--cs-border); }
 .activity-stream.compact { border: 0; border-radius: 0; box-shadow: none; }
-.activity-stream.compact .activity-stream__header { padding: 0 0 var(--cs-space-12); background: transparent; }
-.activity-stream.compact .activity-stream__header h2 { font: var(--cs-weight-semibold) var(--cs-text-base) var(--cs-font-sans); }
 .activity-stream.compact .activity-list { padding: var(--cs-space-4) 0 0; }
 .activity-stream.compact .activity-list article { padding: var(--cs-space-12); }
 .activity-stream.compact .activity-list dl { grid-template-columns: 1fr; }
 @media (max-width: 640px) {
-  .activity-stream__header { padding: var(--cs-space-16); }
-  .activity-stream__header h2 { font-size: var(--cs-text-lg); }
-  .activity-stream__header span { display: block; max-width: 230px; }
   .activity-list { padding: var(--cs-space-4) var(--cs-space-12) var(--cs-space-12); }
   .activity-list > li { grid-template-columns: 20px minmax(0, 1fr); gap: var(--cs-space-8); }
   .activity-marker { width: 20px; height: 20px; }

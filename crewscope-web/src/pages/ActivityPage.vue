@@ -18,6 +18,7 @@ import { useActivityRealtimeStore } from '../domains/teamops/activityRealtimeSto
 import { useTeamOpsStore } from '../domains/teamops/store'
 import { activityCategories, type ActivityItem, type TeamOpsScope } from '../domains/teamops/types'
 import { enumLabel } from '../domains/shared/labels'
+import RelativeTime from '../components/base/RelativeTime.vue'
 import {
   activityCategoryLabels,
   activityRealtimePhaseLabels,
@@ -148,7 +149,14 @@ function actorName(principalId: string | null, type: string): string {
     <div v-else class="activity-page page-shell">
       <section class="summary-strip panel" aria-label="Activity 概览">
         <h2>{{ store.state.teamActivity.value?.length ?? 0 }} 条已加载事实</h2>
-        <p class="summary-strip__note">实时流只推进公开 Activity DTO，领域详情仍由权威 API 回读</p>
+        <!-- M13b-F10（L05）：连接态收敛进 strip——徽标报相位，note 说明缓存事实与最近同步（R25），
+             列表前不再插恢复提示 panel，首条事实不被推走。 -->
+        <p class="summary-strip__note">
+          <template v-if="!online || realtime.state.phase === 'offline'">离线 · 缓存事实保持可读，恢复后从耐久 Cursor 补齐<template v-if="lastSyncedAt">（最近同步于 <RelativeTime :value="lastSyncedAt" />）</template></template>
+          <template v-else-if="realtime.state.phase === 'reconnecting' || realtime.state.phase === 'connecting'">实时流中断，正在补发 · 已加载事实保持可读</template>
+          <template v-else-if="store.state.teamActivity.error">权威读取异常（{{ store.state.teamActivity.error.message }}）· 已加载事实保持可读</template>
+          <template v-else>实时流只推进公开 Activity DTO，领域详情仍由权威 API 回读</template>
+        </p>
         <StatusBadge :tone="realtime.state.phase === 'live' ? 'success' : 'warning'" dot>{{ activityRealtimePhaseLabels[realtime.state.phase] }}</StatusBadge>
       </section>
 

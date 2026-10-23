@@ -10,18 +10,12 @@ import SettingsFieldSearch from './SettingsFieldSearch.vue'
 export interface SettingsNavItem { key: string; label: string; route: string; description?: string }
 const props = withDefaults(defineProps<{ title: string; eyebrow?: string; items?: SettingsNavItem[] }>(), {
   eyebrow: 'Settings · 配置中心',
+  // M13b-F10（L07/S3）：目录不再与主 rail 重复——Agent 配置/模型与凭证/受管仓库/GitHub/飞书/
+  // 配置健康在主 rail「配置」组，团队成员/运维在主 rail 团队/工作组；这里只留 rail 之外的入口。
   items: () => [
     { key: 'organization', label: '组织', route: '/settings/organization' },
     { key: 'quota', label: '配额与用量', route: '/settings/quota' },
-    { key: 'agents', label: 'Agent 配置', route: '/settings/agents' },
-    { key: 'models', label: '模型与凭证', route: '/settings/models' },
-    { key: 'repositories', label: '受管仓库', route: '/settings/repositories' },
-    { key: 'github', label: 'GitHub', route: '/settings/integrations/github' },
-    { key: 'lark', label: '飞书', route: '/settings/integrations/lark' },
-    { key: 'setup', label: '配置健康', route: '/setup' },
     { key: 'account', label: '账号', route: '/account' },
-    { key: 'members', label: '团队成员', route: '/team/members' },
-    { key: 'operations', label: '运维', route: '/operations' },
   ],
 })
 const route = useRoute()
@@ -76,5 +70,7 @@ async function goConfigureReturn(): Promise<void> {
 .settings-shell__empty { padding: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .settings-shell__nav a:hover, .settings-shell__nav a[aria-current='page'] { background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-weight: var(--cs-weight-semibold); }
 .settings-shell__content { min-width: 0; }
-@media (max-width: 767px) { .settings-shell { grid-template-columns: 1fr; gap: var(--cs-space-12); } .settings-shell__side { position: static; } .settings-shell__nav { display: flex; overflow-x: auto; } .settings-shell__nav a { flex: 0 0 auto; } }
+/* M13b-F10（L07/S3）：折叠断点 767→1100——主 rail 在 1100 已折叠成图标条，设置目录若仍占
+ * 190px，900 宽视口两份导航合计 266px（30% 视口），内容只剩 574px。 */
+@media (max-width: 1100px) { .settings-shell { grid-template-columns: 1fr; gap: var(--cs-space-12); } .settings-shell__side { position: static; } .settings-shell__nav { display: flex; overflow-x: auto; } .settings-shell__nav a { flex: 0 0 auto; } }
 </style>
