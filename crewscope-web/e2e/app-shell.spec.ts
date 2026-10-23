@@ -3659,6 +3659,11 @@ test('M11 collaboration signal states ride the surfaces without touching the sil
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
     .analyze()
   expect(drawerAxe.violations, formatAxeViolations(drawerAxe.violations)).toEqual([])
+  // M13b-F11（C1）：同路径仅 query 变化保留滚动——抽屉打开时文档停在点击处的滚动偏移，
+  // fullPage 截图会把 fixed 抽屉画在该偏移处，偏移量随 click 自动滚动漂移（CI 池渲染微差
+  // 放大成整块 diff）。BaseDrawer 不锁 body 滚动，截图前把文档 pin 回顶部，基线只锚抽屉
+  // 与页面的文档流内容本身。
+  await page.evaluate(() => window.scrollTo(0, 0))
   await expect(page).toHaveScreenshot(`work-drawer-collaboration-${testInfo.project.name}.png`, { fullPage: true })
 })
 
