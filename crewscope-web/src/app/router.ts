@@ -6,7 +6,8 @@ import {
 } from 'vue-router'
 import { can, permissions } from './auth'
 import type { AuthStore } from '../domains/identity/store'
-import { defaultLoginDestination } from '../domains/identity/route'
+import { defaultLoginDestination, isRestorablePath } from '../domains/identity/route'
+import { consumeSsoReturn } from '../domains/identity/ssoReturn'
 
 export function createCrewScopeRouter(
   history: RouterHistory,
@@ -243,8 +244,14 @@ export function createCrewScopeRouter(
     // 根落点对 Today 不可达的会话改写为按权限裁决的目的地；可达会话保持 SSO 的今日第一屏。
     // to.name 必须限定 Today：redirectedFrom 在守卫返回字符串的重定向链上保持 `/`，不限定
     // 会让改写目标再次命中条件而无限重定向。
-    if (to.name === 'today' && to.redirectedFrom?.path === '/' && !can(authStore.principal, permissions.scopeRead)) {
-      return defaultLoginDestination(authStore.principal)
+    if (to.name === 'today' && to.redirectedFrom?.path === '/') {
+      // M13b-F07（R09）：SSO 整页往返幸存的 returnTo 在这里接管——恢复目标经 consume 即清，
+      // 若它本身解析回 Today，第二次命中时记录已不在，落回权限裁决，重定向链不循环。
+      const ssoReturn = consumeSsoReturn(authStore.state.session?.principal?.principalId ?? null)
+      if (ssoReturn && isRestorablePath(ssoReturn.path, router)) return ssoReturn.path
+      if (!can(authStore.principal, permissions.scopeRead)) {
+        return defaultLoginDestination(authStore.principal)
+      }
     }
     const targetTeamId = queryValue(to.query.team)
     if (targetTeamId !== null || authStore.state.activeTeamId === null) {

@@ -59,6 +59,8 @@ export interface InvitationStore {
   previewProof(hash?: string): Promise<boolean>
   hasProof(): boolean
   registrationProof(): string | null
+  /** Reinstates a proof recovered from session-scoped storage (M13b-F07 R10); preview follows. */
+  reinstateProof(proof: string): void
   acceptInvitation(csrf: AuthCsrfCoordinate): Promise<InvitationAcceptanceResult | null>
   /** Reinstates committed accept coordinates recovered from session-scoped storage (F02 R29). */
   restoreAcceptance(acceptance: InvitationAcceptance): void
@@ -232,6 +234,14 @@ export function createInvitationStore(
     return proof
   }
 
+  // R10: the recovered proof re-enters through the same private slot the URL hash used to fill —
+  // the accept idempotency key resets with it, exactly as a fresh link would.
+  function reinstateProof(recovered: string): void {
+    if (!recovered) return
+    proof = recovered
+    acceptKey = null
+  }
+
   async function acceptInvitation(csrf: AuthCsrfCoordinate): Promise<InvitationAcceptanceResult | null> {
     if (!proof || state.publicPhase === 'accepting') return null
     acceptKey ??= secureId()
@@ -326,6 +336,7 @@ export function createInvitationStore(
   return {
     state: readonly(state) as Readonly<InvitationStoreState>,
     loadManagement, createInvitation, revokeInvitation, previewProof, hasProof, registrationProof,
+    reinstateProof,
     acceptInvitation, restoreAcceptance, clearCommand, pausePublic, clearProof, resetManagement, reset,
   }
 }

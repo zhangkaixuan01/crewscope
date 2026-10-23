@@ -14,7 +14,11 @@ import { expect, test, type Page, type Route } from '@playwright/test'
  *    cleaned URL).
  * 3. **local_login_disabled** — a 403 login verdict steers to the SSO entry without echoing the
  *    server's English message.
- * 4. **Account session list** — GET /auth/sessions renders rows with the current-device badge
+ * 4. **SSO return restore (M13b-F07/R09)** — the provider hop lands on `/`; a whitelisted
+ *    destination parked in sessionStorage is consumed there exactly once, then normal routing
+ *    resumes. A missing SSO entry under sso-only explains itself with an operable recheck
+ *    (R44) instead of a dead end.
+ * 5. **Account session list** — GET /auth/sessions renders rows with the current-device badge
  *    and the login identities through localized labels (raw enums never leak); revoking another
  *    device sends DELETE with the CSRF header and refreshes the list; a 404 folds into a
  *    refreshed notice; deleting the current session is a logout equivalent routed to /login.
@@ -46,7 +50,8 @@ test('offers the SSO entry beside a working local form under coexist', async ({ 
   })
 
   await page.goto(`/login?returnTo=${encodeURIComponent('/today')}`)
-  const entry = page.getByRole('link', { name: '使用企业单点登录进入' })
+  // M13b-F07（R48）：入口 URL 里的 registrationId 是部署内唯一可区分的 provider 名字。
+  const entry = page.getByRole('link', { name: '使用 team-beta 企业单点登录进入' })
   await expect(entry).toHaveAttribute('href', SSO_HREF)
   await expect(page.getByText('或使用账号密码')).toBeVisible()
   // Coexist means both doors work: the local submission still reaches the work desk.
@@ -65,7 +70,7 @@ test('hides the local form under sso-only and keeps the rescue line accessible',
   })
 
   await page.goto('/login')
-  await expect(page.getByRole('link', { name: '使用企业单点登录进入' })).toBeVisible()
+  await expect(page.getByRole('link', { name: '使用 team-beta 企业单点登录进入' })).toBeVisible()
   await expect(page.locator('input[name="password"]')).toHaveCount(0)
   await expect(page.getByText('创建账号')).toHaveCount(0)
   await expect(page.getByText('无法完成单点登录？请联系你的管理员恢复访问。')).toBeVisible()
@@ -108,7 +113,59 @@ test('steers a local_login_disabled verdict to the SSO entry without echoing ser
   await expect(page.getByRole('alert')).toContainText('账号密码登录已停用')
   await expect(page.getByRole('alert')).toContainText('请使用单点登录入口进入')
   await expect(page.getByRole('alert')).not.toContainText(/local login disabled|deployment policy/)
-  await expect(page.getByRole('link', { name: '使用企业单点登录进入' })).toBeVisible()
+  await expect(page.getByRole('link', { name: '使用 team-beta 企业单点登录进入' })).toBeVisible()
+})
+
+// M13b-F07（R09）：SSO 回跳由后端固定落在 /，query returnTo 活不过 IdP 往返——白名单
+// 目的地由 sessionStorage 承载，守卫在 / → today 的回跳特征处消费并放行到原目标；
+// 消费即清，下一次访问 / 不再重放。
+test('restores the parked SSO destination when the provider hop lands on /', async ({ page }) => {
+  await installIdentityApi(page, {
+    policy: 'coexist',
+    authenticated: true,
+    session: () => sessionPayload({ authenticated: true }),
+  })
+  await page.addInitScript(record => {
+    // addInitScript replays on every navigation; the guard's real input is a record parked
+    // once by the login page, so a localStorage sentinel keeps the second landing clean.
+    if (localStorage.getItem('e2e-sso-return-seeded') === '1') return
+    localStorage.setItem('e2e-sso-return-seeded', '1')
+    sessionStorage.setItem('crewscope:sso-return:v1', JSON.stringify(record))
+  }, { path: '/account', principalId: null, savedAt: Date.now() })
+
+  await page.goto('/')
+  await expect(page).toHaveURL(/\/account$/)
+  expect(await page.evaluate(() => sessionStorage.getItem('crewscope:sso-return:v1'))).toBeNull()
+
+  // The record is spent: a fresh landing on / goes through the normal first-screen ruling.
+  await page.goto('/')
+  await expect(page).toHaveURL(/\/today$/)
+})
+
+// M13b-F07（R44）：sso-only 且入口未配置是部署状态而非用户死端——说明缺失原因并保留
+// 可操作的重新检查，而不是渲染零可操作元素。
+test('explains the missing SSO entry under sso-only and offers a recheck', async ({ page }) => {
+  let sessionReads = 0
+  await installIdentityApi(page, {
+    policy: 'sso-only',
+    session: () => {
+      sessionReads += 1
+      return sessionPayload({ policy: 'sso-only', ssoHref: null })
+    },
+  })
+
+  await page.goto('/login')
+  await expect(page.getByText('本部署仅开放单点登录，但登录入口尚未配置。')).toBeVisible()
+  await expect(page.locator('input[name="password"]')).toHaveCount(0)
+  await expect(page.locator('a[href^="/oauth2/authorization/"]')).toHaveCount(0)
+  const recheck = page.getByRole('button', { name: '重新检查' })
+  await expect(recheck).toBeEnabled()
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+
+  const readsAfterLoad = sessionReads
+  await recheck.click()
+  await expect(page.getByText('本部署仅开放单点登录，但登录入口尚未配置。')).toBeVisible()
+  expect(sessionReads).toBeGreaterThan(readsAfterLoad)
 })
 
 test('lists browser sessions and login identities through localized labels', async ({ page }) => {

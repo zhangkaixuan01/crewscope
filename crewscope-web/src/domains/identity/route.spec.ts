@@ -2,7 +2,24 @@
 import { createMemoryHistory } from 'vue-router'
 import { bootstrapPrincipal, fixtureAuthStore } from '../../test/authFixtures'
 import { createCrewScopeRouter } from '../../app/router'
-import { defaultLoginDestination, safeLoginDestination } from './route'
+import { defaultLoginDestination, isRestorablePath, safeLoginDestination } from './route'
+
+describe('isRestorablePath', () => {
+  // M13b-F07（R09）：SSO 存储恢复与 query 恢复共用同一条白名单判定——两扇门后是同一规则。
+  it('accepts a registered protected route and normalizes it through the router', () => {
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(bootstrapPrincipal))
+    expect(isRestorablePath('/today?team=team-1', router)).toBe(true)
+    expect(isRestorablePath('/invite', router)).toBe(true)
+  })
+
+  it('rejects external, public and unknown targets exactly like the query restore', () => {
+    const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(bootstrapPrincipal))
+    expect(isRestorablePath('https://attacker.example/work', router)).toBe(false)
+    expect(isRestorablePath('/login?returnTo=/work', router)).toBe(false)
+    expect(isRestorablePath('/invite#token=secret', router)).toBe(false)
+    expect(isRestorablePath('/unknown', router)).toBe(false)
+  })
+})
 
 describe('safeLoginDestination', () => {
   it.each([

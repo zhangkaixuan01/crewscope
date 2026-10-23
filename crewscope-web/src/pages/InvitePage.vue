@@ -5,6 +5,7 @@ import AuthLayout from '../components/auth/AuthLayout.vue'
 import InvitationWorkspace from '../components/auth/InvitationWorkspace.vue'
 import { useNetworkStatus } from '../app/network'
 import { clearAcceptance, persistAcceptance, readAcceptance } from '../domains/invitation/acceptanceRecovery'
+import { clearProofRecord, persistProofRecord, readProofRecord } from '../domains/invitation/proofRecovery'
 import { offlineInvitationProblem, type InvitationProblem } from '../domains/invitation/presentation'
 import { useInvitationStore } from '../domains/invitation/store'
 import { useAuthStore } from '../domains/identity/store'
@@ -38,6 +39,7 @@ onBeforeRouteLeave(to => {
   store.pausePublic()
   if (to.name !== 'login' && to.name !== 'register') {
     store.clearProof()
+    clearProofRecord()
     clearAcceptance()
   }
 })
@@ -45,7 +47,17 @@ onBeforeRouteLeave(to => {
 async function initialize(): Promise<void> {
   const hash = route.hash
   if (hash) await router.replace({ name: 'invite' })
+  else restoreProofFromSession()
   await preview(hash || undefined)
+  // R10: a fresh link parks its proof in session storage right after a successful preview, so
+  // the refresh — or the SSO hop out and back — resumes instead of degrading to the dead end.
+  if (hash && store.hasProof()) {
+    persistProofRecord({
+      proof: store.registrationProof()!,
+      principalId: authStore.state.session?.principal?.principalId ?? null,
+      savedAt: Date.now(),
+    })
+  }
   // R29: a committed accept may have outlived the browser session. Its coordinates restore
   // only for the same principal, and only until the session actually lands on the Team.
   const pageOwner = pageRequests.capture()
@@ -73,6 +85,22 @@ async function preview(hash?: string): Promise<void> {
   if (!pageOwner.isCurrent()) return
 }
 
+/**
+ * R10: the URL hash is authoritative while it exists; once stripped (refresh, SSO hop back),
+ * the session-scoped record is the recovery path. An anonymous save restores for whoever signs
+ * in — the first authenticated read re-binds the record to that principal.
+ */
+function restoreProofFromSession(): void {
+  if (store.hasProof()) return
+  const principalId = authStore.state.session?.principal?.principalId ?? null
+  const recovered = readProofRecord(principalId)
+  if (!recovered) return
+  store.reinstateProof(recovered.proof)
+  if (recovered.principalId === null && principalId) {
+    persistProofRecord({ proof: recovered.proof, principalId, savedAt: Date.now() })
+  }
+}
+
 async function accept(): Promise<void> {
   const pageOwner = pageRequests.captureIdentity()
   localProblem.value = null
@@ -83,6 +111,8 @@ async function accept(): Promise<void> {
   const result = await store.acceptInvitation(csrf)
   if (!pageOwner.isCurrent()) return
   if (!result) return
+  // The one-time proof is spent — its session-scoped shadow must not outlive it.
+  clearProofRecord()
   if (result.acceptance?.teamId) {
     // R29: persist before the session refresh, while the accepting principal is still known.
     persistAcceptance({
@@ -161,6 +191,7 @@ async function login(): Promise<void> {
     if (!pageOwner.isCurrent()) return
   } else {
     store.clearProof()
+    clearProofRecord()
     await router.push({ name: 'login' })
     if (!pageOwner.isCurrent()) return
   }

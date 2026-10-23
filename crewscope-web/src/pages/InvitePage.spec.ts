@@ -47,6 +47,35 @@ describe('InvitePage', () => {
     expect(store.hasProof()).toBe(false)
     // R29: the entry landed, so the recovery record is consumed rather than left behind.
     expect(sessionStorage.getItem('crewscope:invitation-acceptance:v1')).toBeNull()
+    // R10: the one-time proof is spent — its session-scoped shadow must not outlive it.
+    expect(sessionStorage.getItem('crewscope:invitation-proof:v1')).toBeNull()
+    wrapper.unmount()
+  })
+
+  // M13b-F07（R10）：链接打开后 proof 停入 sessionStorage（匿名打开是常态），刷新或 SSO
+  // 往返后无 hash 也能恢复预览，而不是落到「请联系管理员」终态。
+  it('parks the proof from a fresh link and resumes the preview after the hash is gone', async () => {
+    const opened = await mountPage(false)
+    const parked = sessionStorage.getItem('crewscope:invitation-proof:v1')
+    expect(parked && JSON.parse(parked)).toEqual(expect.objectContaining({ proof: token, principalId: null }))
+    opened.wrapper.unmount()
+
+    const reloaded = await mountPage(false, '', true)
+    expect(reloaded.gateway.preview).toHaveBeenCalledWith(token, expect.any(AbortSignal))
+    expect(reloaded.wrapper.text()).toContain('Platform Engineering')
+    expect(reloaded.store.hasProof()).toBe(true)
+    reloaded.wrapper.unmount()
+  })
+
+  it('re-binds a recovered anonymous proof to the principal that signed in', async () => {
+    sessionStorage.setItem('crewscope:invitation-proof:v1', JSON.stringify({
+      proof: token, principalId: null, savedAt: Date.now(),
+    }))
+    const { wrapper, gateway } = await mountPage(true, '', false)
+
+    expect(gateway.preview).toHaveBeenCalledWith(token, expect.any(AbortSignal))
+    const rebound = sessionStorage.getItem('crewscope:invitation-proof:v1')
+    expect(rebound && JSON.parse(rebound).principalId).toBe('principal-1')
     wrapper.unmount()
   })
 

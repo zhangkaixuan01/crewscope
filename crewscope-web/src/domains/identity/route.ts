@@ -46,11 +46,24 @@ export function safeLoginDestination(
 ): string {
   const fallback = defaultLoginDestination(principal)
   const candidate = query.returnTo
-  if (typeof candidate !== 'string' || !isSafeCandidate(candidate)) return fallback
+  if (typeof candidate !== 'string') return fallback
+  return restorableFullPath(candidate, router) ?? fallback
+}
+
+/**
+ * M13b-F07（R09）: one predicate for every post-login restore path — the query-based password
+ * restore and the session-storage SSO restore agree on what a legal destination is.
+ */
+export function isRestorablePath(candidate: string, router: Router): boolean {
+  return restorableFullPath(candidate, router) !== null
+}
+
+function restorableFullPath(candidate: string, router: Router): string | null {
+  if (!isSafeCandidate(candidate)) return null
   const resolved = router.resolve(candidate)
   return typeof resolved.name === 'string' && restorableRouteNames.has(resolved.name)
     ? resolved.fullPath
-    : fallback
+    : null
 }
 
 function isSafeCandidate(candidate: string): boolean {

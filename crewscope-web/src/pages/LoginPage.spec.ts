@@ -165,6 +165,97 @@ describe('LoginPage', () => {
     expect(document.activeElement).toBe(alert.element)
     wrapper.unmount()
   })
+
+  // M13b-F07（R09）：SSO 入口是整页导航，query returnTo 活不过去——点击前把白名单内的
+  // 目的地停进 sessionStorage；外站/未知目标不停车，跳完落在权限裁决的第一屏。
+  it('parks a whitelisted returnTo before the SSO hop and parks nothing for unsafe targets', async () => {
+    const safe = gateway({ sessionOverrides: { ssoAuthorizationUrl: '/oauth2/authorization/team-beta' } })
+    const { wrapper } = await mountPage(safe, '/login?returnTo=%2Ftoday%3Fteam%3Dteam-1')
+    await wrapper.get('[data-testid="login-sso-entry"]').trigger('click')
+
+    const parked = sessionStorage.getItem('crewscope:sso-return:v1')
+    expect(parked && JSON.parse(parked).path).toBe('/today?team=team-1')
+    wrapper.unmount()
+    sessionStorage.clear()
+
+    const unsafe = gateway({ sessionOverrides: { ssoAuthorizationUrl: '/oauth2/authorization/team-beta' } })
+    const second = await mountPage(unsafe, '/login?returnTo=https%3A%2F%2Fattacker.example%2Fwork')
+    await second.wrapper.get('[data-testid="login-sso-entry"]').trigger('click')
+    expect(sessionStorage.getItem('crewscope:sso-return:v1')).toBeNull()
+    second.wrapper.unmount()
+  })
+
+  it('consumes a parked SSO return when an authenticated session lands on the login page', async () => {
+    sessionStorage.setItem('crewscope:sso-return:v1', JSON.stringify({
+      path: '/today?team=team-1', principalId: null, savedAt: Date.now(),
+    }))
+    const identity = gateway({ authenticated: true })
+    const { wrapper, router } = await mountPage(identity, '/login')
+
+    await vi.waitFor(
+      () => expect(router.currentRoute.value.fullPath).toBe('/today?team=team-1'),
+      { timeout: 5_000 },
+    )
+    expect(sessionStorage.getItem('crewscope:sso-return:v1')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('drops a parked SSO return when the password login supersedes the hop', async () => {
+    sessionStorage.setItem('crewscope:sso-return:v1', JSON.stringify({
+      path: '/today?team=team-1', principalId: null, savedAt: Date.now(),
+    }))
+    const identity = gateway()
+    const { wrapper, router } = await mountPage(identity, '/login?returnTo=%2Faccount')
+    await wrapper.get('input[name="identifier"]').setValue('alice@example.com')
+    await wrapper.get('input[name="password"]').setValue('one-way-password')
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/account'), { timeout: 5_000 })
+    expect(sessionStorage.getItem('crewscope:sso-return:v1')).toBeNull()
+    wrapper.unmount()
+  })
+
+  // M13b-F07（R44）：sso-only 且入口未配置是部署状态而非用户死端——说明缺失原因并保留
+  // 可操作的重新检查，而不是渲染零可操作元素。
+  it('explains the missing SSO entry under sso-only and stays operable', async () => {
+    const identity = gateway({ sessionOverrides: { identityPolicy: 'sso-only', ssoAuthorizationUrl: null } })
+    const { wrapper } = await mountPage(identity)
+
+    expect(wrapper.find('input[name="password"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="login-sso-entry"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('本部署仅开放单点登录，但登录入口尚未配置。')
+    expect(wrapper.text()).toContain('管理员完成身份提供方配置后，回到本页即可进入。')
+    const recheck = wrapper.findAll('button').find(button => button.text() === '重新检查')
+    expect(recheck).toBeDefined()
+    expect(recheck!.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  // M13b-F07（R48）：入口 URL 里的 registrationId 是部署内唯一可区分 provider 的名字——
+  // 具名入口取代统一泛称；形态意外时回退泛称。
+  it('names the provider from the entry URL and falls back to the generic label', async () => {
+    const named = gateway({ sessionOverrides: { ssoAuthorizationUrl: '/oauth2/authorization/team-beta' } })
+    const first = await mountPage(named)
+    expect(first.wrapper.get('[data-testid="login-sso-entry"]').text()).toBe('使用 team-beta 企业单点登录进入')
+    first.wrapper.unmount()
+
+    const unnamed = gateway({ sessionOverrides: { ssoAuthorizationUrl: '/sso/entry' } })
+    const second = await mountPage(unnamed)
+    expect(second.wrapper.get('[data-testid="login-sso-entry"]').text()).toBe('使用企业单点登录进入')
+    second.wrapper.unmount()
+  })
+
+  // M13b-F07（R47）：SSO 共存时键盘用户不再被排除在输入框之外——初始焦点照常落在标识符
+  // 输入框，SSO 入口保持 Tab 可达。
+  it('focuses the identifier field on mount even when the SSO entry coexists', async () => {
+    const identity = gateway({ sessionOverrides: { ssoAuthorizationUrl: '/oauth2/authorization/team-beta' } })
+    const { wrapper } = await mountPage(identity)
+
+    expect(document.activeElement).toBe(wrapper.get('input[name="identifier"]').element)
+    wrapper.unmount()
+  })
 })
 
 async function mountPage(
@@ -188,6 +279,7 @@ async function mountPage(
 function gateway(options: {
   authenticated?: boolean
   sessionError?: unknown
+  sessionOverrides?: Partial<AuthSession>
   loginError?: unknown
   loginPromise?: Promise<{ authenticated: true, accountId: string, displayName: string }>
   abortableLogin?: boolean
@@ -207,7 +299,7 @@ function gateway(options: {
   return {
     session: vi.fn(async () => {
       if (options.sessionError) throw options.sessionError
-      return session(authenticated)
+      return { ...session(authenticated), ...options.sessionOverrides }
     }),
     login,
     logout: vi.fn(),

@@ -19,7 +19,8 @@ import {
   presentSsoReturnProblem,
   type LoginProblem,
 } from '../domains/identity/presentation'
-import { safeLoginDestination } from '../domains/identity/route'
+import { isRestorablePath, safeLoginDestination } from '../domains/identity/route'
+import { clearSsoReturn, consumeSsoReturn, persistSsoReturn } from '../domains/identity/ssoReturn'
 import type { AuthCsrfCoordinate, IdentityPolicy, RegistrationMode } from '../domains/identity/types'
 import { isAbort } from '../api/errors'
 import { createRequestScope } from '../api/requestScope'
@@ -58,6 +59,15 @@ const registrationMessage = computed(() => registrationMode.value ? registration
 const policyMessage = computed(() => identityPolicy.value ? identityPolicyLabel(identityPolicy.value) : null)
 const ssoOnly = computed(() => identityPolicy.value === 'sso-only')
 const passwordFormVisible = computed(() => formVisible.value && !ssoOnly.value)
+// M13b-F07（R44）: sso-only without a configured entry is a deployment state, not a user dead
+// end — the page keeps a re-check action instead of rendering nothing operable.
+const ssoEntryMissing = computed(() => ssoOnly.value && !ssoAuthorizationUrl.value)
+// M13b-F07（R48）: the deployment's registration id rides in the entry URL; naming it tells two
+// providers apart where the generic label cannot. The generic label stays the fallback.
+const ssoEntryLabel = computed(() => {
+  const registrationId = ssoAuthorizationUrl.value?.match(/^\/oauth2\/authorization\/([^/?#]+)/)?.[1]
+  return registrationId ? `使用 ${registrationId} 企业单点登录进入` : '使用企业单点登录进入'
+})
 
 // One channel per face (M12b-F05): a submit supersedes the previous submit and the session
 // restore rides its own channel — the controller + generation + disposed flags this replaces.
@@ -104,7 +114,12 @@ async function loadSession(): Promise<void> {
     identityPolicy.value = session.identityPolicy
     ssoAuthorizationUrl.value = session.ssoAuthorizationUrl
     if (session.authenticated) {
-      await router.replace(safeLoginDestination(route.query, router, authStore.principal))
+      // M13b-F07（R09）: a stored SSO returnTo takes precedence — e.g. an already-signed-in
+      // visitor landing back on /login after the hop.
+      const ssoReturn = consumeSsoReturn(session.principal?.principalId ?? null)
+      await router.replace(ssoReturn && isRestorablePath(ssoReturn.path, router)
+        ? ssoReturn.path
+        : safeLoginDestination(route.query, router, authStore.principal))
       return
     }
     phase.value = 'ready'
@@ -145,6 +160,9 @@ async function submitLogin(): Promise<void> {
     if (!await authStore.refresh()) throw new Error('Authenticated Session could not be restored')
     if (!request.isCurrent()) return
     password.value = ''
+    // R09: this password login supersedes any parked SSO hop — its record must not hijack the
+    // next visit to `/`.
+    clearSsoReturn()
     await router.replace(safeLoginDestination(route.query, router, authStore.principal))
   } catch (error) {
     if (!request.isCurrent() || isAbort(error)) return
@@ -160,6 +178,22 @@ async function submitLogin(): Promise<void> {
 function setProblem(value: LoginProblem): void {
   problem.value = value
   problemFocusKey.value += 1
+}
+
+/**
+ * M13b-F07（R09）: the SSO entry is a full-page navigation the query cannot survive. Park the
+ * whitelisted returnTo in session storage right before the browser leaves; the redirect back to
+ * `/` is met by the router guard, which consumes the record. Unwhitelisted or absent targets
+ * park nothing — the hop then lands on the permission-adjudicated first screen (M13b-F01).
+ */
+function beginSsoHop(): void {
+  const candidate = route.query.returnTo
+  if (typeof candidate !== 'string' || !isRestorablePath(candidate, router)) return
+  persistSsoReturn({
+    path: candidate,
+    principalId: authStore.state.session?.principal?.principalId ?? null,
+    savedAt: Date.now(),
+  })
 }
 
 /** Times an operation out, distinguishing timeout from page-scope cancellation. */
@@ -246,10 +280,21 @@ async function timedRequest<T>(
         class="login-page__sso"
         :href="ssoAuthorizationUrl"
         data-testid="login-sso-entry"
+        @click="beginSsoHop"
       >
         <Building2 :size="16" aria-hidden="true" />
-        使用企业单点登录进入
+        {{ ssoEntryLabel }}
       </a>
+      <!-- R44: sso-only without a configured registration is a deployment gap the member cannot
+           fix — say what is missing and keep the page operable instead of rendering nothing. -->
+      <div v-else-if="ssoEntryMissing" class="login-page__sso-missing">
+        <p>本部署仅开放单点登录，但登录入口尚未配置。</p>
+        <p class="login-page__sso-missing-hint">管理员完成身份提供方配置后，回到本页即可进入。</p>
+        <BaseButton variant="secondary" :disabled="!online" @click="retrySession">
+          <template #icon><RefreshCw :size="16" /></template>
+          重新检查
+        </BaseButton>
+      </div>
       <p v-if="ssoAuthorizationUrl && passwordFormVisible" class="login-page__divider">或使用账号密码</p>
       <form v-if="passwordFormVisible" class="login-page__form" :aria-busy="submitting" @submit.prevent="submitLogin">
         <AuthField
@@ -262,7 +307,7 @@ async function timedRequest<T>(
           required
           :maxlength="1024"
           :error="identifierError"
-          :focus-on-mount="!problem && !ssoProblem && !ssoAuthorizationUrl"
+          :focus-on-mount="!problem && !ssoProblem"
           @input="identifierError = undefined"
         />
         <AuthPasswordField
@@ -288,7 +333,7 @@ async function timedRequest<T>(
           <p>{{ registrationMessage }}</p>
           <RouterLink v-if="registrationMode === 'OPEN'" to="/register">创建账号</RouterLink>
         </div>
-        <p v-if="ssoOnly" class="login-page__registration login-page__rescue">
+        <p v-if="ssoOnly && ssoAuthorizationUrl" class="login-page__registration login-page__rescue">
           无法完成单点登录？请联系你的管理员恢复访问。
         </p>
       </template>
@@ -308,4 +353,7 @@ async function timedRequest<T>(
 .login-page__registration p { margin: 0; }
 .login-page__registration a { color: var(--cs-text-brand); font-weight: var(--cs-weight-semibold); }
 .login-page__rescue { margin-top: var(--cs-space-16); }
+.login-page__sso-missing { display: grid; justify-items: start; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
+.login-page__sso-missing p { margin: 0; }
+.login-page__sso-missing-hint { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 </style>

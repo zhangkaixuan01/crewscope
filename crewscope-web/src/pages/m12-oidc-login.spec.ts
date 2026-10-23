@@ -23,7 +23,8 @@ describe('LoginPage OIDC entry (M12-F03)', () => {
 
     const entry = wrapper.get('a[data-testid="login-sso-entry"]')
     expect(entry.attributes('href')).toBe('/oauth2/authorization/team-beta')
-    expect(entry.text()).toContain('使用企业单点登录进入')
+    // M13b-F07（R48）：registrationId 具名入口——team-beta 是部署内唯一可区分的名字。
+    expect(entry.text()).toContain('使用 team-beta 企业单点登录进入')
     expect(wrapper.text()).toContain('或使用账号密码')
     expect(wrapper.find('input[name="identifier"]').exists()).toBe(true)
     wrapper.unmount()
