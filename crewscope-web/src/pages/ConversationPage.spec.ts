@@ -60,7 +60,8 @@ async function harness(): Promise<{ wrapper: VueWrapper, taskIntentStore: Return
   // RouterLink resolves every navigation name during render; unknown names throw, so register them all.
   const navigationNames = ['access-denied', 'account', 'activity', 'agent-settings', 'audit',
     'conversation', 'github-settings', 'inbox', 'invite', 'knowledge-base', 'knowledge-index', 'lark-settings', 'login',
-    'model-settings', 'not-found', 'observability', 'onboarding', 'operations', 'register', 'repository-settings', 'search',
+    'model-settings', 'not-found', 'observability', 'onboarding', 'operations', 'organization-settings', 'quota-settings',
+    'register', 'repository-settings', 'search',
     'setup', 'skill-catalog', 'team-members', 'team-observer', 'today', 'work']
   const router = createRouter({
     history: createMemoryHistory(),

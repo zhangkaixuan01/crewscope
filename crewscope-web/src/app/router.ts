@@ -6,6 +6,7 @@ import {
 } from 'vue-router'
 import { can, permissions } from './auth'
 import type { AuthStore } from '../domains/identity/store'
+import { defaultLoginDestination } from '../domains/identity/route'
 
 export function createCrewScopeRouter(
   history: RouterHistory,
@@ -236,6 +237,14 @@ export function createCrewScopeRouter(
     if (to.meta.publicIdentity === true) return true
     if (authStore.state.phase !== 'authenticated') {
       return { name: 'login', query: { returnTo: to.fullPath } }
+    }
+    // M13b-F01（R01/R49）：SSO 成功固定跳根路径，而 `/` 的静态 redirect（导航解析期拿不到
+    // 已恢复会话）指向 Today——无 scope:read 的纯组织角色会在这里循环回 access-denied。
+    // 根落点对 Today 不可达的会话改写为按权限裁决的目的地；可达会话保持 SSO 的今日第一屏。
+    // to.name 必须限定 Today：redirectedFrom 在守卫返回字符串的重定向链上保持 `/`，不限定
+    // 会让改写目标再次命中条件而无限重定向。
+    if (to.name === 'today' && to.redirectedFrom?.path === '/' && !can(authStore.principal, permissions.scopeRead)) {
+      return defaultLoginDestination(authStore.principal)
     }
     const targetTeamId = queryValue(to.query.team)
     if (targetTeamId !== null || authStore.state.activeTeamId === null) {

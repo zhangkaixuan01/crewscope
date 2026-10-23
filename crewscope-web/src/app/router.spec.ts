@@ -134,6 +134,34 @@ describe('application routing', () => {
     expect(router.currentRoute.value.query.returnTo).toBe('/work')
   })
 
+  // M13b-F01（R01/R49）：SSO 成功固定跳根路径——纯组织角色的根落点必须改写，不能循环回
+  // access-denied；有 team 能力的会话保持今日第一屏不变。
+  it('rewrites the SSO root landing to the organization settings for a pure organization role', async () => {
+    const orgOnly = authSession(true)
+    orgOnly.permissions = ['org:audit-read']
+    orgOnly.teams = []
+    const authStore = createAuthStore(identityGateway(async () => orgOnly), { channelFactory: () => null })
+    const router = createCrewScopeRouter(createMemoryHistory(), authStore)
+
+    await router.push('/')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('organization-settings')
+  })
+
+  it('keeps Today as the SSO root landing for scope-capable members', async () => {
+    const member = authSession(true)
+    member.permissions = ['scope:read']
+    member.teams = [{ teamId: fixtureIds.teamPlatform, name: 'Platform', memberId: 'member-1', permissions: ['scope:read'] }]
+    const authStore = createAuthStore(identityGateway(async () => member), { channelFactory: () => null })
+    const router = createCrewScopeRouter(createMemoryHistory(), authStore)
+
+    await router.push('/')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('today')
+  })
+
   it('exposes the public registration route without applying workspace permissions', async () => {
     const noPermissions = { ...principal, permissions: new Set<string>() }
     const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(noPermissions))

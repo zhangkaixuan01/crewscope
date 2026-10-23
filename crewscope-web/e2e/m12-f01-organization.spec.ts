@@ -230,6 +230,38 @@ test('权限矩阵：审计员可读策略与角色但治理面被拒', async ({
   await expect(page.getByRole('button', { name: '调整策略' })).toHaveCount(0)
 })
 
+// M13b-F01（R01/R05/R49）：纯组织角色的完整到达路径——登录落点、侧栏组织组、被拒出口，
+// 全部走真实导航（R23 的教训：goto 直链深跳验证不了「如何到达」）。
+test('纯组织角色：登录落点、组织导航组与被拒出口无死胡同', async ({ page }, testInfo) => {
+  await mockApi(page)
+  await installGovernanceApi(page, 'ORG_AUDITOR')
+  // R01 复现形状：无任何 team，仅 org:audit-read（ORG_AUDITOR 投影的最小集）。
+  await page.route('**/api/v1/auth/session', route => fulfillJson(route, {
+    ...sessionFor('ORG_AUDITOR'), teams: [], permissions: [permissions.orgAuditRead],
+  }))
+
+  // 已认证会话访问登录页，落点按权限裁决直达组织设置——不再被 /conversation 守卫拦进拒绝页。
+  await page.goto('/login')
+  await expect(page).toHaveURL(/\/settings\/organization/)
+  // 窄视口侧栏收进「移动端主导航」抽屉，先开抽屉再断言组内容。
+  const narrow = testInfo.project.name === 'narrow-chromium'
+  if (narrow) await page.getByRole('button', { name: '打开主导航' }).click()
+  const rail = page.locator(narrow ? '#mobile-navigation' : '.rail-navigation')
+  await expect(rail.getByText('组织设置')).toBeVisible()
+  await expect(rail.getByText('配额与用量')).toBeVisible()
+  await expect(rail.getByText('今日')).toHaveCount(0)
+
+  // 组织组是真实导航入口：从导航走到配额页。
+  await rail.getByRole('link', { name: '配额与用量' }).click()
+  await expect(page).toHaveURL(/\/settings\/quota/)
+
+  // 无 team 能力访问 Today 被拦——出口落在当前会话可达的组织设置，一跳回到工作面。
+  await page.goto('/today')
+  await expect(page.getByRole('heading', { name: '需要额外的团队权限' })).toBeVisible()
+  await page.getByRole('button', { name: '前往组织设置' }).click()
+  await expect(page).toHaveURL(/\/settings\/organization/)
+})
+
 test('权限矩阵：无组织角色的成员只见信息卡', async ({ page }) => {
   await mockApi(page)
   await installGovernanceApi(page, 'MEMBER')

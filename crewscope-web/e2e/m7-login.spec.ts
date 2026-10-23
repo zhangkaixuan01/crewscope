@@ -59,7 +59,9 @@ test('keeps invalid credentials non-enumerating and presents capacity limits sep
 test('redirects an existing Session safely and exposes an accessible offline state', async ({ page, context }) => {
   await installIdentityApi(page, { authenticated: true, loginMode: () => 'success' })
   await page.goto('/login?returnTo=https://attacker.example/work')
-  await expect(page).toHaveURL(/\/conversation$/)
+  // M13b-F01（R01/R49）：拒绝外部 returnTo 后的回退按会话权限裁决——该会话只有
+  // scope:read，落 Today；旧的 /conversation 常量会把这个用户送进拒绝页。
+  await expect(page).toHaveURL(/\/today$/)
 
   await installIdentityApi(page, { authenticated: false, loginMode: () => 'success' })
   await page.goto('/login')

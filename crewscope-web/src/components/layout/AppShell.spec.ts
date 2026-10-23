@@ -11,12 +11,12 @@ import AppShell from './AppShell.vue'
  * real height, so the shell must hand the workspace the remaining viewport instead of growing with
  * content. The class pair is the contract; every other page keeps the scrolling body.
  */
-async function harness() {
+async function harness(principalOverride?: typeof bootstrapPrincipal) {
   // RouterLink resolves every navigation name during render; unknown names throw, so register them all.
   const navigationNames = ['access-denied', 'account', 'activity', 'agent-settings', 'audit',
     'conversation', 'github-settings', 'inbox', 'invite', 'knowledge-base', 'knowledge-index', 'lark-settings', 'login',
-    'model-settings', 'not-found', 'observability', 'onboarding', 'operations', 'register', 'repository-settings', 'search',
-    'setup', 'skill-catalog', 'team-members', 'team-observer', 'today', 'work']
+    'model-settings', 'not-found', 'observability', 'onboarding', 'operations', 'organization-settings', 'quota-settings',
+    'register', 'repository-settings', 'search', 'setup', 'skill-catalog', 'team-members', 'team-observer', 'today', 'work']
   const router = createRouter({
     history: createMemoryHistory(),
     routes: navigationNames.map(name => ({
@@ -29,7 +29,8 @@ async function harness() {
   })
   await router.push(`/conversation?team=${fixtureIds.teamPlatform}`)
   await router.isReady()
-  const scopeStore = createScopeStore(new FixtureScopeGateway(), bootstrapPrincipal)
+  const activePrincipal = principalOverride ?? bootstrapPrincipal
+  const scopeStore = createScopeStore(new FixtureScopeGateway(), activePrincipal)
   await scopeStore.synchronize(fixtureIds.teamPlatform)
   const wrapper = mount(AppShell, {
     props: { title: '对话', eyebrow: '沟通 · 项目范围' },
@@ -37,7 +38,7 @@ async function harness() {
       plugins: [router],
       provide: {
         [SCOPE_STORE as symbol]: scopeStore,
-        [AUTH_PRINCIPAL as symbol]: bootstrapPrincipal,
+        [AUTH_PRINCIPAL as symbol]: activePrincipal,
       },
     },
   })
@@ -89,6 +90,24 @@ describe('AppShell', () => {
     expect(links[2]!.attributes('href')).toMatch(/^\/conversation\?/)
     // 当前分区在底栏亮起，与侧栏的 aria-current 同源。
     expect(links[2]!.attributes('aria-current')).toBe('page')
+    wrapper.unmount()
+  })
+
+  // M13b-F01（R01）：纯组织角色此前侧栏全空（三个 team 粒度组全被过滤）——组织组是其唯一
+  // 导航入口；固定指向 Today 的品牌/模式切换/底栏对该会话是死链，须隐藏或改指可达页。
+  it('keeps a pure organization role on the organization rail with no dead team links', async () => {
+    const orgOnly = { ...bootstrapPrincipal, permissions: new Set(['org:audit-read']) }
+    const wrapper = await harness(orgOnly)
+
+    const rail = wrapper.get('.rail-navigation').text()
+    expect(rail).toContain('组织')
+    expect(rail).toContain('组织设置')
+    expect(rail).toContain('配额与用量')
+    expect(rail).not.toContain('今日')
+    expect(rail).not.toContain('团队成员')
+    expect(wrapper.get('.brand').attributes('href')).toBe('/settings/organization')
+    expect(wrapper.find('.mode-switcher').exists()).toBe(false)
+    expect(wrapper.find('.mobile-mode').exists()).toBe(false)
     wrapper.unmount()
   })
 })

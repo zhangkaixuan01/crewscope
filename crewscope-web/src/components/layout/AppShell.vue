@@ -5,8 +5,10 @@ import {
   BookOpen,
   Bot,
   BriefcaseBusiness,
+  Building2,
   CalendarDays,
   ChartColumn,
+  ChartPie,
   Command,
   LayoutDashboard,
   MessageSquare,
@@ -29,6 +31,7 @@ import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { queryValue } from '../../utils/queryParams'
 import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
+import { defaultLoginDestination } from '../../domains/identity/route'
 import { useNetworkStatus } from '../../app/network'
 import { SCOPE_STORE } from '../../domains/scope/store'
 import { IDENTITY_GATEWAY } from '../../domains/identity/gateway'
@@ -72,6 +75,13 @@ const activeMode = computed(() => route.meta.mode)
 const activeSection = computed(() => route.meta.section)
 const modeTarget = (name: 'conversation' | 'today') => ({ name, query: route.query })
 const canReadScope = computed(() => Boolean(principal && can(principal, permissions.scopeRead)))
+const canConversation = computed(() => Boolean(principal && can(principal, permissions.conversationUse)))
+const canWork = computed(() => Boolean(principal && can(principal, permissions.workRead)))
+// M13b-F01（R01 复现路径 3）：品牌、模式切换与移动端底栏固定指向 Today/对话/工作项——对没有
+// 对应能力的会话（纯组织角色）这是循环回 access-denied 的死链。目标与可见性跟随会话能力。
+const brandTarget = computed<RouteLocationRaw>(() => canReadScope.value
+  ? modeTarget('today')
+  : { path: defaultLoginDestination(principal) })
 const isOnline = useNetworkStatus()
 let scopeSynchronizationVersion = 0
 const signingOut = ref(false)
@@ -106,6 +116,13 @@ const navigationGroups = [
     { label: '仓库设置', icon: GitFork, name: 'repository-settings', section: 'repositories', permission: permissions.repositoriesManage },
     { label: '飞书与通知', icon: Send, name: 'lark-settings', section: 'lark', permission: permissions.providerManage },
     { label: 'GitHub 集成', icon: GitFork, name: 'github-settings', section: 'github', permission: permissions.providerManage },
+  ] },
+  // M13b-F01（R01）：纯组织角色（ORG_* 投影的 org:* 权限）此前在侧栏没有任何入口——三个
+  // team 粒度组全被过滤后，治理页只剩 URL 直达。org:audit-read 是 ORG_AUDITOR/ADMIN/OWNER
+  // 共同投影的最小可见集。
+  { label: '组织', items: [
+    { label: '组织设置', icon: Building2, name: 'organization-settings', section: 'organization', permission: permissions.orgAuditRead },
+    { label: '配额与用量', icon: ChartPie, name: 'quota-settings', section: 'organization', permission: permissions.orgAuditRead },
   ] },
 ]
 const visibleNavigationGroups = computed(() => navigationGroups.map(group => ({
@@ -240,7 +257,7 @@ async function signOut(): Promise<void> {
   <div class="app-shell" :class="{ 'app-shell--collapsed': railCollapsedValue }">
     <a class="skip-link" href="#main-workspace">跳到主要内容</a>
     <aside class="app-shell__rail" aria-label="主导航">
-      <RouterLink class="brand" :to="modeTarget('today')" aria-label="CrewScope 首页">
+      <RouterLink class="brand" :to="brandTarget" aria-label="CrewScope 首页">
         <img :src="crewScopeMark" alt="" width="34" height="34">
         <span>CrewScope<small>Team execution</small></span>
       </RouterLink>
@@ -276,11 +293,11 @@ async function signOut(): Promise<void> {
       </div>
       <div class="topbar" role="region" aria-label="全局工具栏">
         <button class="mobile-menu-toggle" type="button" aria-label="打开主导航" :aria-expanded="mobileNavOpen" aria-controls="mobile-navigation" @click="mobileNavOpen = true"><PanelLeftOpen :size="18" aria-hidden="true" /></button>
-        <div class="mode-switcher" aria-label="工作模式">
-          <RouterLink :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')" :aria-current="activeMode === 'conversation' ? 'page' : undefined">
+        <div v-if="canConversation || canReadScope" class="mode-switcher" aria-label="工作模式">
+          <RouterLink v-if="canConversation" :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')" :aria-current="activeMode === 'conversation' ? 'page' : undefined">
             <MessageSquare :size="16" aria-hidden="true" />对话
           </RouterLink>
-          <RouterLink :class="{ active: activeMode === 'control' }" :to="modeTarget('today')" :aria-current="activeMode === 'control' ? 'page' : undefined">
+          <RouterLink v-if="canReadScope" :class="{ active: activeMode === 'control' }" :to="modeTarget('today')" :aria-current="activeMode === 'control' ? 'page' : undefined">
             <LayoutDashboard :size="16" aria-hidden="true" />工作台
           </RouterLink>
         </div>
@@ -328,10 +345,10 @@ async function signOut(): Promise<void> {
       </nav>
     </BaseDrawer>
 
-    <nav class="mobile-mode" aria-label="移动端底部导航">
-      <RouterLink :class="{ active: activeSection === 'today' }" :to="modeTarget('today')" :aria-current="activeSection === 'today' ? 'page' : undefined"><CalendarDays :size="18" />今日</RouterLink>
-      <RouterLink :class="{ active: activeSection === 'work' }" :to="navigationTarget('work')" :aria-current="activeSection === 'work' ? 'page' : undefined"><BriefcaseBusiness :size="18" />工作</RouterLink>
-      <RouterLink :class="{ active: activeSection === 'conversation' }" :to="modeTarget('conversation')" :aria-current="activeSection === 'conversation' ? 'page' : undefined"><MessageSquare :size="18" />对话</RouterLink>
+    <nav v-if="canReadScope || canWork || canConversation" class="mobile-mode" aria-label="移动端底部导航">
+      <RouterLink v-if="canReadScope" :class="{ active: activeSection === 'today' }" :to="modeTarget('today')" :aria-current="activeSection === 'today' ? 'page' : undefined"><CalendarDays :size="18" />今日</RouterLink>
+      <RouterLink v-if="canWork" :class="{ active: activeSection === 'work' }" :to="navigationTarget('work')" :aria-current="activeSection === 'work' ? 'page' : undefined"><BriefcaseBusiness :size="18" />工作</RouterLink>
+      <RouterLink v-if="canConversation" :class="{ active: activeSection === 'conversation' }" :to="modeTarget('conversation')" :aria-current="activeSection === 'conversation' ? 'page' : undefined"><MessageSquare :size="18" />对话</RouterLink>
     </nav>
   </div>
 </template>
@@ -346,7 +363,9 @@ async function signOut(): Promise<void> {
 .skip-link { position: fixed; top: 8px; left: 8px; z-index: var(--cs-z-toast); padding: var(--cs-space-8) var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-action-primary); color: var(--cs-action-primary-text); font-size: var(--cs-text-sm); transform: translateY(-160%); }.skip-link:focus { transform: translateY(0); }
 .network-banner { position: relative; z-index: var(--cs-z-banner); display: flex; min-height: 36px; align-items: center; justify-content: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-danger); background: var(--cs-danger-soft); color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-align: center; }.network-banner span { color: var(--cs-danger); }
 .app-shell__rail { position: fixed; inset: 0 auto 0 0; z-index: var(--cs-z-raised); display: flex; width: var(--cs-rail-width); height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; padding: var(--cs-space-20) var(--cs-space-16) var(--cs-space-16); border-right: 1px solid var(--cs-border); background: var(--cs-surface); color: var(--cs-text); }
-.rail-collapse { display: grid; width: 32px; height: 30px; align-items: center; justify-content: center; align-self: flex-end; margin: 0 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-muted); cursor: pointer; }
+/* M13b-F01：组织组加入后 nav 溢出转为滚动，flex 收缩曾把 30px 折叠钮压到 23px（WCAG
+ * target-size serious）——rail 的固定行全部不参与收缩，溢出只由 .rail-navigation 承担。 */
+.rail-collapse { display: grid; flex: 0 0 auto; width: 32px; height: 30px; align-items: center; justify-content: center; align-self: flex-end; margin: 0 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-muted); cursor: pointer; }
 .brand { display: flex; min-height: var(--cs-density-control-height); flex: 0 0 auto; align-items: center; gap: var(--cs-space-12); padding: 0 var(--cs-space-4); font-family: var(--cs-font-display); font-size: var(--cs-text-lg); }
 .brand img { border: 1px solid var(--cs-border); border-radius: 11px; }
 .brand span, .brand small { display: block; }

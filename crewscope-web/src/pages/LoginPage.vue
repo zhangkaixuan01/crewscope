@@ -104,7 +104,7 @@ async function loadSession(): Promise<void> {
     identityPolicy.value = session.identityPolicy
     ssoAuthorizationUrl.value = session.ssoAuthorizationUrl
     if (session.authenticated) {
-      await router.replace(safeLoginDestination(route.query, router))
+      await router.replace(safeLoginDestination(route.query, router, authStore.principal))
       return
     }
     phase.value = 'ready'
@@ -145,7 +145,7 @@ async function submitLogin(): Promise<void> {
     if (!await authStore.refresh()) throw new Error('Authenticated Session could not be restored')
     if (!request.isCurrent()) return
     password.value = ''
-    await router.replace(safeLoginDestination(route.query, router))
+    await router.replace(safeLoginDestination(route.query, router, authStore.principal))
   } catch (error) {
     if (!request.isCurrent() || isAbort(error)) return
     const nextProblem = presentLoginProblem(error)

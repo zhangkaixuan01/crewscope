@@ -3,7 +3,7 @@ import type { LocationQuery } from 'vue-router'
 import { createMemoryHistory } from 'vue-router'
 import { createCrewScopeRouter } from '../../app/router'
 import { bootstrapPrincipal, fixtureAuthStore } from '../../test/authFixtures'
-import { DEFAULT_LOGIN_DESTINATION, safeLoginDestination } from './route'
+import { safeLoginDestination } from './route'
 
 interface RedirectAttack {
   id: string
@@ -49,6 +49,6 @@ describe('M7-Q01 fixed open-redirect attack set', () => {
   it.each(attacks)('$id rejects $returnTo', ({ returnTo }) => {
     const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(bootstrapPrincipal))
 
-    expect(safeLoginDestination({ returnTo } as LocationQuery, router)).toBe(DEFAULT_LOGIN_DESTINATION)
+    expect(safeLoginDestination({ returnTo } as LocationQuery, router, bootstrapPrincipal)).toBe('/conversation')
   })
 })

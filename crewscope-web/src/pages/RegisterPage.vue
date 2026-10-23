@@ -13,6 +13,7 @@ import BaseButton from '../components/base/BaseButton.vue'
 import { useNetworkStatus } from '../app/network'
 import { useIdentityGateway } from '../domains/identity/gateway'
 import { registrationInvitationFromHash, type RegistrationInvitationContext } from '../domains/identity/invitation'
+import { defaultLoginDestination } from '../domains/identity/route'
 import { useAuthStore } from '../domains/identity/store'
 import {
   IdentityRequestTimeoutError,
@@ -127,7 +128,7 @@ async function loadSession(): Promise<void> {
     csrf.value = session.csrf
     registrationMode.value = session.registrationMode
     if (session.authenticated) {
-      await router.replace('/conversation')
+      await router.replace(defaultLoginDestination(authStore.principal))
       return
     }
     phase.value = 'ready'
