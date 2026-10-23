@@ -22,6 +22,8 @@ export interface ConversationSummary extends ConversationScope {
   visibility: ConversationVisibility
   status: ConversationStatus
   lastMessageSequence: number | null
+  /** M13b-F06（R12/A07）：查看者视角未读数 = max(0, lastMessageSequence − lastReadSequence)；AGENT 消息不计（后端口径）。 */
+  unreadCount: number
   version: number
   createdAt: string
   updatedAt: string

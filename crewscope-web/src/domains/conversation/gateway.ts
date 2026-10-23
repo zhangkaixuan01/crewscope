@@ -22,6 +22,16 @@ export interface ConversationGateway {
     input: CreateConversationInput,
     idempotencyKey: string,
   ): Promise<ConversationCommandReceipt>
+  /**
+   * M13b-F06（R12/A07）：打开对话即读到消息尖端——body-less 命令，服务端按 `max` 幂等推进
+   * last_read_sequence，只增不减。
+   */
+  submitReadReceipt(
+    scope: ConversationScope,
+    conversationId: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<ConversationCommandReceipt>
 }
 
 /** HTTP adapter for the M2 Conversation collection and detail contracts. */
@@ -50,6 +60,15 @@ export class HttpConversationGateway implements ConversationGateway {
   ): Promise<ConversationCommandReceipt> {
     return createAndLocate(this.client, scope, 'CONVERSATION', idempotencyKey,
       () => this.client.post(root(scope), input, { idempotencyKey }))
+  }
+
+  submitReadReceipt(
+    scope: ConversationScope,
+    conversationId: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<ConversationCommandReceipt> {
+    return this.client.post(`${root(scope)}/${segment(conversationId)}/read-receipts`, undefined, { idempotencyKey, signal })
   }
 }
 

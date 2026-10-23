@@ -28,6 +28,8 @@ export const fixtureConversations: Record<string, ConversationSummary[]> = {
 
 export class FixtureConversationGateway implements ConversationGateway {
   readonly created: CreateConversationInput[] = []
+  /** M13b-F06（R12）：打开带未读的对话时提交的回执（scope、conversationId、幂等键）。 */
+  readonly readReceipts: Array<{ organizationId: string, teamId: string, conversationId: string, idempotencyKey: string }> = []
   conversations: Record<string, ConversationSummary[]>
 
   constructor(conversations = fixtureConversations) {
@@ -96,6 +98,15 @@ export class FixtureConversationGateway implements ConversationGateway {
     return { ...receipt(), creation: { ...scope, projectId: null, type: 'CONVERSATION',
       resourceId: created.id, committedVersion: 0, stage: 'COMMITTED' } }
   }
+
+  async submitReadReceipt(
+    scope: ConversationScope,
+    conversationId: string,
+    idempotencyKey: string,
+  ): Promise<ConversationCommandReceipt> {
+    this.readReceipts.push({ organizationId: scope.organizationId, teamId: scope.teamId, conversationId, idempotencyKey })
+    return receipt()
+  }
 }
 
 function conversation(
@@ -104,6 +115,7 @@ function conversation(
   title: string,
   visibility: 'PRIVATE' | 'TEAM',
   lastMessageSequence: number | null,
+  unreadCount = 0,
 ): ConversationSummary {
   const workspaceId = teamId === fixtureIds.teamSecurity ? fixtureIds.workspaceSecurity : fixtureIds.workspacePlatform
   return {
@@ -118,6 +130,7 @@ function conversation(
     visibility,
     status: 'ACTIVE',
     lastMessageSequence,
+    unreadCount,
     version: 0,
     createdAt: '2026-08-08T01:00:00Z',
     updatedAt: '2026-08-08T03:00:00Z',

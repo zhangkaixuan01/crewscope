@@ -121,7 +121,7 @@ test('创建对话后的第一次列表读取返回旧投影时不产生幽灵�
   function summary(id: string, title: string, lastMessageSequence: number | null) {
     return { id, organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace,
       ownerMemberId: 'member-1', ownerPrincipalId: ids.principal, personalAgentPrincipalId: null,
-      title, visibility: 'TEAM', status: 'ACTIVE', lastMessageSequence, version: 0,
+      title, visibility: 'TEAM', status: 'ACTIVE', lastMessageSequence, unreadCount: 0, version: 0,
       createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-08T03:00:00Z' }
   }
 

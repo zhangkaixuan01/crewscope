@@ -48,12 +48,21 @@ type InboxView = InboxItemType | 'ALL'
 const scopeMissing = computed(() => scopeStore.state.phase === 'ready' && !scope.value)
 const itemType = computed<InboxView>(() => oneOf(route.query.inboxType, ['ALL', ...inboxItemTypes] as const, 'ALL'))
 const sourceStatus = computed<InboxSourceStatus>(() => oneOf(route.query.sourceStatus, inboxSourceStatuses, 'OPEN'))
-const dispositionStatus = computed<InboxDispositionStatus | 'ALL'>(() => oneOf(route.query.disposition, ['ALL', ...inboxDispositionStatuses] as const, 'ALL'))
+/**
+ * M13b-F06（R38）：处置视图默认是「待处理队列」——UNREAD/READ/ACTED，与 /counts 的
+ * 待处理口径一致（source OPEN 且非 ARCHIVED）。归档即退场，「全部处置」显式回看历史。
+ */
+type DispositionView = InboxDispositionStatus | 'QUEUE' | 'ALL'
+const dispositionView = computed<DispositionView>(() => oneOf(route.query.disposition, ['QUEUE', 'ALL', ...inboxDispositionStatuses] as const, 'QUEUE'))
 const selectedItemId = computed(() => uuidQuery(route.query.inboxItem))
 const filter = computed<InboxFilter>(() => ({
   itemTypes: itemType.value === 'ALL' ? undefined : [itemType.value],
   sourceStatuses: [sourceStatus.value],
-  dispositionStatuses: dispositionStatus.value === 'ALL' ? undefined : [dispositionStatus.value],
+  dispositionStatuses: dispositionView.value === 'ALL'
+    ? undefined
+    : dispositionView.value === 'QUEUE'
+      ? ['UNREAD', 'READ', 'ACTED']
+      : [dispositionView.value],
 }))
 const detailResource = computed(() => selectedItemId.value ? store.state.inboxDetails[selectedItemId.value] ?? null : null)
 const targetResource = computed(() => selectedItemId.value ? store.state.inboxTargets[selectedItemId.value] ?? null : null)
@@ -71,7 +80,7 @@ watch(
     scope.value?.teamId,
     itemType.value,
     sourceStatus.value,
-    dispositionStatus.value,
+    dispositionView.value,
   ] as const,
   async ([phase]) => {
     const pageOwner = pageRequests.capture()
@@ -96,7 +105,7 @@ watch(
     let changed = false
     changed = normalizeQuery(query, 'inboxType', itemType.value, 'ALL') || changed
     changed = normalizeQuery(query, 'sourceStatus', sourceStatus.value, 'OPEN') || changed
-    changed = normalizeQuery(query, 'disposition', dispositionStatus.value, 'ALL') || changed
+    changed = normalizeQuery(query, 'disposition', dispositionView.value, 'QUEUE') || changed
     if (route.query.inboxItem != null && !selectedItemId.value) {
       delete query.inboxItem
       changed = true
@@ -134,8 +143,8 @@ function changeSourceStatus(value: InboxSourceStatus): void {
   replaceFilter('sourceStatus', value, 'OPEN')
 }
 
-function changeDispositionStatus(value: InboxDispositionStatus | 'ALL'): void {
-  replaceFilter('disposition', value, 'ALL')
+function changeDispositionStatus(value: InboxDispositionStatus | 'QUEUE' | 'ALL'): void {
+  replaceFilter('disposition', value, 'QUEUE')
 }
 
 function replaceFilter(key: string, value: string, defaultValue: string): void {
@@ -275,7 +284,7 @@ async function batchDisposition(itemIds: string[], status: InboxBatchStatus): Pr
       :command="store.state.command"
       :item-type="itemType"
       :source-status="sourceStatus"
-      :disposition-status="dispositionStatus"
+      :disposition-status="dispositionView"
       :online="online"
       :batch-report="batchReport"
       @select="selectItem"

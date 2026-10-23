@@ -54,6 +54,7 @@ describe('conversation store', () => {
       },
       getConversation: fixture.getConversation.bind(fixture),
       createConversation: fixture.createConversation.bind(fixture),
+      submitReadReceipt: fixture.submitReadReceipt.bind(fixture),
     }
     const store = createConversationStore(gateway)
 
@@ -90,6 +91,7 @@ describe('conversation store', () => {
         return fixture.getConversation(scope, conversationId, signal)
       },
       createConversation: fixture.createConversation.bind(fixture),
+      submitReadReceipt: fixture.submitReadReceipt.bind(fixture),
     }
     const store = createConversationStore(gateway)
 
@@ -117,6 +119,7 @@ describe('conversation store', () => {
       },
       getConversation: fixture.getConversation.bind(fixture),
       createConversation: fixture.createConversation.bind(fixture),
+      submitReadReceipt: fixture.submitReadReceipt.bind(fixture),
     }
     const store = createConversationStore(gateway)
 
@@ -128,6 +131,32 @@ describe('conversation store', () => {
 
     expect(platformSignal?.aborted).toBe(true)
     expect(store.state.items.map(item => item.id)).toEqual([conversationIds.security])
+  })
+
+  // M13b-F06（R12）：打开带未读的对话即提交回执（body-less，幂等键每次一换），成功后列表
+  // 徽标乐观清零；没有未读就不发——回执只增不减，无谓的命令只会消耗幂等键。
+  it('submits a read receipt when opening a conversation with unread messages and clears the badge locally', async () => {
+    const fixture = new FixtureConversationGateway()
+    fixture.conversations[fixtureIds.teamPlatform]!.find(
+      item => item.id === conversationIds.provider,
+    )!.unreadCount = 3
+    const store = createConversationStore(fixture)
+
+    await store.synchronize(platform, conversationIds.provider)
+
+    expect(fixture.readReceipts).toHaveLength(1)
+    expect(fixture.readReceipts[0]).toMatchObject({ conversationId: conversationIds.provider })
+    expect(fixture.readReceipts[0]!.idempotencyKey).toBeTruthy()
+    expect(store.state.items.find(item => item.id === conversationIds.provider)?.unreadCount).toBe(0)
+  })
+
+  it('skips the read receipt when the conversation is already fully read', async () => {
+    const fixture = new FixtureConversationGateway()
+    const store = createConversationStore(fixture)
+
+    await store.synchronize(platform, conversationIds.provider)
+
+    expect(fixture.readReceipts).toEqual([])
   })
 })
 

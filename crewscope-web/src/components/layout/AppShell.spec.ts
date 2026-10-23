@@ -2,6 +2,8 @@ import { mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { AUTH_PRINCIPAL } from '../../app/auth'
 import { SCOPE_STORE, createScopeStore } from '../../domains/scope/store'
+import { TEAM_OPS_STORE, type TeamOpsStore } from '../../domains/teamops/store'
+import type { InboxCounts } from '../../domains/teamops/types'
 import { bootstrapPrincipal } from '../../test/authFixtures'
 import { FixtureScopeGateway, fixtureIds } from '../../test/scopeFixtures'
 import AppShell from './AppShell.vue'
@@ -11,7 +13,7 @@ import AppShell from './AppShell.vue'
  * real height, so the shell must hand the workspace the remaining viewport instead of growing with
  * content. The class pair is the contract; every other page keeps the scrolling body.
  */
-async function harness(principalOverride?: typeof bootstrapPrincipal) {
+async function harness(principalOverride?: typeof bootstrapPrincipal, teamOps?: TeamOpsStore) {
   // RouterLink resolves every navigation name during render; unknown names throw, so register them all.
   const navigationNames = ['access-denied', 'account', 'activity', 'agent-settings', 'audit',
     'conversation', 'github-settings', 'inbox', 'invite', 'knowledge-base', 'knowledge-index', 'lark-settings', 'login',
@@ -39,6 +41,7 @@ async function harness(principalOverride?: typeof bootstrapPrincipal) {
       provide: {
         [SCOPE_STORE as symbol]: scopeStore,
         [AUTH_PRINCIPAL as symbol]: activePrincipal,
+        ...(teamOps ? { [TEAM_OPS_STORE as symbol]: teamOps } : {}),
       },
     },
   })
@@ -70,6 +73,42 @@ describe('AppShell', () => {
     // 顶栏仍是「导航 | 搜索 | 通知」的工具分组：搜索与通知入口都在。
     expect(wrapper.get('.command-search').attributes('aria-label')).toBe('打开命令面板，搜索工作、成员或 Agent')
     expect(wrapper.get('[aria-label="打开通知 Inbox"]')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  // M13b-F06（R24）：铃铛读 Inbox /counts 的未读数——徽标并入按钮 aria-label，本体装饰化；
+  // Scope 就绪即对齐激活域并读一次计数（Inbox 处置后的联动刷新由同一 store 承担）。
+  it('badges the bell with the Inbox unread count once the scope is ready', async () => {
+    const counts = (unread: number): InboxCounts => ({
+      total: unread + 2,
+      unread,
+      byType: {},
+    })
+    const teamOps = {
+      state: { inboxCounts: { phase: 'ready', value: counts(3), error: null } },
+      activateScope: vi.fn(),
+      loadInboxCounts: vi.fn(async () => {}),
+    } as unknown as TeamOpsStore
+    const wrapper = await harness(undefined, teamOps)
+
+    const bell = wrapper.get('.topbar-bell')
+    expect(bell.attributes('aria-label')).toBe('打开通知 Inbox，3 条未读')
+    expect(bell.get('.topbar-bell__badge').text()).toBe('3')
+    expect(teamOps.loadInboxCounts).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('keeps the bell unlabeled when there is nothing unread', async () => {
+    const teamOps = {
+      state: { inboxCounts: { phase: 'ready', value: { total: 2, unread: 0, byType: {} }, error: null } },
+      activateScope: vi.fn(),
+      loadInboxCounts: vi.fn(async () => {}),
+    } as unknown as TeamOpsStore
+    const wrapper = await harness(undefined, teamOps)
+
+    const bell = wrapper.get('.topbar-bell')
+    expect(bell.attributes('aria-label')).toBe('打开通知 Inbox')
+    expect(bell.find('.topbar-bell__badge').exists()).toBe(false)
     wrapper.unmount()
   })
 

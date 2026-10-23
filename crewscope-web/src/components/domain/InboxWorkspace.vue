@@ -70,7 +70,8 @@ const props = defineProps<{
   command: TeamOpsCommandState
   itemType: InboxItemType | 'ALL'
   sourceStatus: InboxSourceStatus
-  dispositionStatus: InboxDispositionStatus | 'ALL'
+  /** M13b-F06（R38）：QUEUE 是默认的「待处理队列」视图（UNREAD/READ/ACTED，与 /counts 同口径）。 */
+  dispositionStatus: InboxDispositionStatus | 'QUEUE' | 'ALL'
   online: boolean
   batchReport: InboxBatchReport | null
 }>()
@@ -80,7 +81,7 @@ const emit = defineEmits<{
   closeDetail: []
   changeType: [value: InboxItemType | 'ALL']
   changeSourceStatus: [value: InboxSourceStatus]
-  changeDispositionStatus: [value: InboxDispositionStatus | 'ALL']
+  changeDispositionStatus: [value: InboxDispositionStatus | 'QUEUE' | 'ALL']
   retry: []
   retryDetail: [itemId: string]
   retryTarget: [itemId: string]
@@ -93,12 +94,12 @@ const emit = defineEmits<{
 
 const detailHeading = useTemplateRef<HTMLElement>('detailHeading')
 const hasItems = computed(() => props.items.length > 0)
-/** 「全部类型 + 全部处置」是 Inbox 的两个可选筛选；来源状态是成员刻意选择的二值，不在这里重置。 */
-const hasOptionalFilter = computed(() => props.itemType !== 'ALL' || props.dispositionStatus !== 'ALL')
+/** 「全部类型 + 待处理队列之外」是 Inbox 的两个可选筛选；来源状态是成员刻意选择的二值，不在这里重置。 */
+const hasOptionalFilter = computed(() => props.itemType !== 'ALL' || props.dispositionStatus !== 'QUEUE')
 
 function clearOptionalFilters(): void {
   emit('changeType', 'ALL')
-  emit('changeDispositionStatus', 'ALL')
+  emit('changeDispositionStatus', 'QUEUE')
 }
 const initialLoading = computed(() => (props.phase === 'idle' || props.phase === 'loading') && !hasItems.value)
 const forbidden = computed(() => props.error?.kind === 'forbidden')
@@ -297,7 +298,7 @@ function rowSubtitle(item: InboxItem): string {
       <template #count>{{ items.length }} 项已加载<span v-if="selectedCount">，已选 {{ selectedCount }}</span></template>
       <template #filters>
         <label>来源状态<BaseSelect :model-value="sourceStatus" @update:model-value="emit('changeSourceStatus', $event as InboxSourceStatus)"><option v-for="status in inboxSourceStatuses" :key="status" :value="status">{{ status === 'OPEN' ? '仍需处理' : '来源已关闭' }}</option></BaseSelect></label>
-        <label>我的处置<BaseSelect :model-value="dispositionStatus" @update:model-value="emit('changeDispositionStatus', $event as InboxDispositionStatus | 'ALL')"><option value="ALL">全部处置</option><option v-for="status in inboxDispositionStatuses" :key="status" :value="status">{{ dispositionLabel(status) }}</option></BaseSelect></label>
+        <label>我的处置<BaseSelect :model-value="dispositionStatus" @update:model-value="emit('changeDispositionStatus', $event as InboxDispositionStatus | 'QUEUE' | 'ALL')"><option value="QUEUE">待处理队列</option><option value="ALL">全部处置</option><option v-for="status in inboxDispositionStatuses" :key="status" :value="status">{{ dispositionLabel(status) }}</option></BaseSelect></label>
       </template>
       <template #side>
         <BaseButton variant="ghost" size="small" :aria-label="`按打开时间${inboxSortLabel}`" @click="inboxSort.toggleSort('openedAt')">{{ inboxSortLabel }}</BaseButton>
@@ -334,7 +335,14 @@ function rowSubtitle(item: InboxItem): string {
         <StatePanel v-else-if="offline && !hasItems" state="offline" title="离线时没有可用 Inbox" description="联网后会回读当前成员的权威投影。" />
         <StatePanel v-else-if="cursorExpired && !hasItems" state="error" title="Inbox Cursor 已过期" description="刷新首屏后会从当前投影代际继续读取。" @retry="emit('retry')" />
         <StatePanel v-else-if="hardError && !hasItems" state="error" :description="error?.message" @retry="emit('retry')" />
-        <StatePanel v-else-if="!hasItems" state="empty" :title="`${typePresentation[itemType].label}暂无项目`" description="当前筛选下没有需要展示的成员 Inbox 事实。"><template #action><BaseButton v-if="hasOptionalFilter" variant="secondary" size="small" @click="clearOptionalFilters">清除类型与处置筛选</BaseButton></template></StatePanel>
+        <!-- M13b-F06（R38）：默认队列视图的空态是「清空队列」的收官反馈，不是筛选无果——
+             回看归档与历史处置的出口写在描述里。 -->
+        <StatePanel
+          v-else-if="!hasItems"
+          state="empty"
+          :title="dispositionStatus === 'QUEUE' && sourceStatus === 'OPEN' ? `${typePresentation[itemType].label}队列已清空` : `${typePresentation[itemType].label}暂无项目`"
+          :description="dispositionStatus === 'QUEUE' && sourceStatus === 'OPEN' ? '当前类别没有待处理的 Inbox 事实；归档与历史处置可在「我的处置」筛选里回看。' : '当前筛选下没有需要展示的成员 Inbox 事实。'"
+        ><template #action><BaseButton v-if="hasOptionalFilter" variant="secondary" size="small" @click="clearOptionalFilters">清除类型与处置筛选</BaseButton></template></StatePanel>
 
         <template v-else>
           <StatePanel v-if="offline" compact state="offline" title="正在展示最近同步的 Inbox" description="离线期间处置命令保持关闭。">

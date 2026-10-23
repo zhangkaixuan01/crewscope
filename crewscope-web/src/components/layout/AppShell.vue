@@ -38,6 +38,7 @@ import { IDENTITY_GATEWAY } from '../../domains/identity/gateway'
 import { AUTH_STORE } from '../../domains/identity/store'
 import { COLLABORATION_STORE } from '../../domains/collaboration/store'
 import { collaborationPhaseLabels } from '../../domains/collaboration/labels'
+import { TEAM_OPS_STORE } from '../../domains/teamops/store'
 import { CrewScopeApiError } from '../../api/client'
 import crewScopeMark from '../../design/crewscope-mark.svg'
 import ScopeSwitcher from '../domain/ScopeSwitcher.vue'
@@ -71,6 +72,11 @@ const authStore = inject(AUTH_STORE, null)
 const collaborationStore = inject(COLLABORATION_STORE, null)
 const collaborationPhase = computed(() => collaborationStore?.state.phase ?? 'idle')
 const collaborationLabel = computed(() => collaborationPhaseLabels[collaborationPhase.value])
+// M13b-F06（R24）：铃铛徽标读 Inbox /counts 的未读数。与 collaboration 同为可选注入——
+// story/spec 挂壳不装 teamops store 也能渲染；计数失败静默（无徽标即「未知」，不吵）。
+const teamOpsStore = inject(TEAM_OPS_STORE, null)
+const inboxUnread = computed(() => teamOpsStore?.state.inboxCounts.value?.unread ?? 0)
+const bellLabel = computed(() => inboxUnread.value > 0 ? `打开通知 Inbox，${inboxUnread.value} 条未读` : '打开通知 Inbox')
 const activeMode = computed(() => route.meta.mode)
 const activeSection = computed(() => route.meta.section)
 const modeTarget = (name: 'conversation' | 'today') => ({ name, query: route.query })
@@ -220,6 +226,22 @@ watch(
 function closeMobileNav(): void {
   mobileNavOpen.value = false
 }
+
+// M13b-F06（R24）：Scope 就绪即对齐 teamops store 的激活域并读一次 Inbox 计数——activateScope
+// 同域幂等，不会踩掉 Inbox 页已加载的事实；换 Team 时它重置计数，徽标跟随重拉。Inbox 页处置后
+// 的强制刷新落进同一个 store，徽标与页面同源联动。
+watch(
+  [() => scopeStore?.state.phase, () => scopeStore?.state.selectedTeamId, isOnline] as const,
+  ([phase, teamId, online]) => {
+    if (!teamOpsStore || phase !== 'ready' || !teamId || !online || !canReadScope.value) return
+    const scope = { organizationId: principal?.organizationId ?? '', teamId }
+    if (!scope.organizationId) return
+    teamOpsStore.activateScope(scope)
+    // loadResource 内部把失败落进 counts.error（不 reject）——徽标对失败静默。
+    void teamOpsStore.loadInboxCounts()
+  },
+  { immediate: true },
+)
 function onMobileTouchStart(event: TouchEvent): void { mobileTouchStartX.value = event.changedTouches[0]?.clientX ?? null }
 function onMobileTouchEnd(event: TouchEvent): void {
   const start = mobileTouchStartX.value
@@ -313,7 +335,11 @@ async function signOut(): Promise<void> {
                  dot — the label stays for screen readers (aria-live announces state changes). -->
             <span v-else class="collab-pill__label">{{ collaborationLabel }}</span>
           </span>
-          <button class="icon-button" type="button" aria-label="打开通知 Inbox" @click="router.push({ name: 'inbox', query: route.query })"><Bell :size="18" /></button>
+          <!-- M13b-F06（R24）：未读徽标并入按钮 aria-label；徽标本体装饰化，不拦截触控。 -->
+          <button class="icon-button topbar-bell" type="button" :aria-label="bellLabel" @click="router.push({ name: 'inbox', query: route.query })">
+            <Bell :size="18" />
+            <span v-if="inboxUnread > 0" class="topbar-bell__badge" aria-hidden="true">{{ inboxUnread > 99 ? '99+' : inboxUnread }}</span>
+          </button>
         </div>
         <UserAccountMenu
           class="mobile-profile"
@@ -405,6 +431,9 @@ async function signOut(): Promise<void> {
 .collab-pill__retry:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); border-radius: 4px; }
 @keyframes collab-pulse { from { opacity: .35; } to { opacity: 1; } }
 .icon-button { display: grid; width: var(--cs-density-control-height); height: var(--cs-density-control-height); flex: 0 0 var(--cs-density-control-height); place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
+/* M13b-F06（R24）：铃铛未读徽标——右上角悬浮计数，纯装饰不参与点击。 */
+.topbar-bell { position: relative; }
+.topbar-bell__badge { position: absolute; top: -7px; right: -7px; display: grid; min-width: 19px; height: 19px; place-items: center; padding: 0 var(--cs-space-4); border-radius: 999px; background: var(--cs-danger); color: var(--cs-text-on-semantic); font: var(--cs-weight-semibold) var(--cs-text-xs) var(--cs-font-sans); pointer-events: none; box-shadow: 0 0 0 2px var(--cs-surface); }
 .topbar-scope { display: none; }
 .mobile-profile { display: none; }
 /* fill 模式下 app-shell__body 是 flex column，header 是文档头而不是弹性区：没有这行

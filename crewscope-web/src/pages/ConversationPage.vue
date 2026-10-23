@@ -965,7 +965,7 @@ async function redirectIfForbidden(): Promise<void> {
               type="button"
               :data-conversation-id="conversation.id"
               :class="{ active: conversation.id === conversationStore.state.selectedConversationId }"
-              :aria-label="`打开对话 ${conversation.title}`"
+              :aria-label="`打开对话 ${conversation.title}${conversation.unreadCount > 0 ? `，${conversation.unreadCount} 条未读` : ''}`"
               @click="selectConversation(conversation.id)"
             >
               <span class="conversation-list__icon" :class="{ team: conversation.visibility === 'TEAM' }">
@@ -973,7 +973,11 @@ async function redirectIfForbidden(): Promise<void> {
                 <LockKeyhole v-else :size="15" aria-hidden="true" />
               </span>
               <span class="conversation-list__copy">
-                <strong>{{ conversation.title }}</strong>
+                <span class="conversation-list__title-row">
+                  <strong>{{ conversation.title }}</strong>
+                  <!-- M13b-F06（R12）：查看者视角未读徽标；计数并入按钮 aria-label，徽标本体对读屏隐藏。 -->
+                  <span v-if="conversation.unreadCount > 0" class="conversation-unread" aria-hidden="true">{{ conversation.unreadCount > 99 ? '99+' : conversation.unreadCount }}</span>
+                </span>
                 <small>
                   {{ conversation.visibility === 'TEAM' ? '团队可见' : '私有对话' }}
                   <template v-if="conversation.lastMessageSequence !== null"> · {{ conversation.lastMessageSequence }} 条消息</template>
@@ -1335,6 +1339,10 @@ async function redirectIfForbidden(): Promise<void> {
 .conversation-item:hover { background: var(--cs-surface-subtle); }.conversation-item.active { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); }
 .conversation-list__icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.conversation-list__icon.team { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
 .conversation-list__copy { min-width: 0; }.conversation-list__copy strong, .conversation-list__copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.conversation-list__copy strong { font-size: var(--cs-text-base); }.conversation-list__copy small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+/* M13b-F06（R12）：未读徽标与标题同行，标题保留收缩省略；徽标不收缩。 */
+.conversation-list__title-row { display: flex; min-width: 0; align-items: center; gap: var(--cs-space-8); }
+.conversation-list__title-row strong { flex: 1 1 auto; min-width: 0; }
+.conversation-unread { flex: 0 0 auto; display: inline-grid; min-width: 20px; height: 20px; place-items: center; padding: 0 var(--cs-space-4); border-radius: 999px; background: var(--cs-action-primary); color: var(--cs-action-primary-text); font: var(--cs-weight-semibold) var(--cs-text-xs) var(--cs-font-sans); }
 .conversation-list time { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.conversation-item > svg { color: var(--cs-text-muted); }.load-more-item { margin-top: var(--cs-space-8); }
 .conversation-detail { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }.conversation-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-24) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.conversation-detail__header h2 { margin: var(--cs-space-8) 0 var(--cs-space-4); border-radius: 4px; font-size: var(--cs-text-lg); }.conversation-detail__header h2:focus-visible { outline: 3px solid var(--cs-ring-brand); outline-offset: 3px; }.conversation-detail__header p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .conversation-kind { display: inline-flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }

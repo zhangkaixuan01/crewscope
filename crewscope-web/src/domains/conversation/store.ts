@@ -2,6 +2,7 @@ import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import { commandFailureMessage, createCommandIntents } from '../../api/commandIntent'
 import { acknowledgeCreation } from '../../api/creationRecovery'
+import { secureId } from '../../api/secureId'
 import type { ConversationGateway } from './gateway'
 import type {
   ConversationDetails,
@@ -170,6 +171,15 @@ export function createConversationStore(gateway: ConversationGateway): Conversat
       state.details = details
       state.detailPhase = 'ready'
       upsertSummary(details.conversation)
+      // M13b-F06（R12）：打开即读到消息尖端。回执只增不减，失败静默——未读没清，下次打开重试；
+      // 幂等键每次打开一换，服务端按 max 推进，重复无害。
+      if (details.conversation.unreadCount > 0) {
+        try {
+          await gateway.submitReadReceipt(scope, conversationId, secureId())
+          if (version !== detailVersion || activeScopeKey !== nextScopeKey) return
+          upsertSummary({ ...details.conversation, unreadCount: 0 })
+        } catch { /* 未读保持，下次打开重试 */ }
+      }
     } catch (error) {
       if (isAbort(error) || version !== detailVersion || activeScopeKey !== nextScopeKey) return
       state.detailPhase = 'error'

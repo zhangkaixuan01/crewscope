@@ -65,6 +65,33 @@ test('refreshes a strong-ETag conflict and preserves the member disposition afte
   await expect(page.getByText('已处理', { exact: true }).last()).toBeVisible()
 })
 
+// M13b-F06（R38）：默认「待处理队列」视图下归档即退场——条目离开队列、待处理计数与铃铛未读同步回落，
+// 刷新后依然不在（服务端 disposition 过滤）；历史处置从「已归档」筛选回看。
+test('archives an item out of the queue and keeps it out after reload (R38)', async ({ page }) => {
+  await page.goto(`/inbox?team=${ids.team}&project=${ids.project}&inboxItem=${ids.ownership}`)
+  await expect(page.getByText('4 项待处理事实')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Inbox 详情' })).toBeVisible()
+
+  await page.getByRole('button', { name: '归档', exact: true }).click()
+  const confirm = page.getByRole('alertdialog', { name: '归档这条 Inbox' })
+  await expect(confirm).toBeVisible()
+  await confirm.getByRole('button', { name: '归档', exact: true }).click()
+
+  // 归档条目退出队列视图（首条换成下一条待处理事实），服务端计数与铃铛未读同步降为 3。
+  await expect(page.getByText('结算看板主链路')).toHaveCount(0)
+  await expect(page.getByText('3 项待处理事实')).toBeVisible()
+  await expect(page.locator('.topbar-bell__badge')).toHaveText('3')
+
+  await page.reload()
+  await expect(page.getByText('3 项待处理事实')).toBeVisible()
+  await expect(page.getByText('结算看板主链路')).toHaveCount(0)
+
+  // 「已归档」筛选回看历史处置——退场不等于丢失。
+  await page.locator('.scan-toolbar select').nth(1).selectOption('ARCHIVED')
+  await expect(page).toHaveURL(/disposition=ARCHIVED/)
+  await expect(page.getByText('结算看板主链路')).toBeVisible()
+})
+
 test('keeps cached Inbox facts readable offline and opens only the server-authorized source route', async ({ page, context }) => {
   await page.goto(`/inbox?team=${ids.team}&project=${ids.project}&inboxItem=${ids.ownership}`)
   await expect(page.getByText('结算看板主链路')).toBeVisible()

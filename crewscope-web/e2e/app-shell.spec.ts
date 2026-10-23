@@ -1064,6 +1064,19 @@ test.beforeEach(async ({ page }) => {
       await fulfillReceipt(route, 0)
       return
     }
+    // M13b-F06（R24）：铃铛徽标的数据源。默认全零——全站视觉基线不含徽标；R24 专测在用例内覆盖。
+    if (path.endsWith('/inbox/counts') && request.method() === 'GET') {
+      const zeroByType = Object.fromEntries(['OWNERSHIP', 'EXECUTION', 'REVIEW', 'CONFIRMATION', 'EXCEPTION'].map(type => [type, { total: 0, unread: 0 }]))
+      await fulfillJson(route, { total: 0, unread: 0, byType: zeroByType })
+      return
+    }
+    const readReceiptMatch = path.match(/\/conversations\/([^/]+)\/read-receipts$/)
+    if (readReceiptMatch && request.method() === 'POST') {
+      // M13b-F06（R12）：回执是 body-less 命令——只验幂等键，返回受理回执。
+      expect(request.headers()['idempotency-key']).toBeTruthy()
+      await fulfillReceipt(route, 0)
+      return
+    }
     const conversationEventMatch = path.match(/\/conversations\/([^/]+)\/events$/)
     if (conversationEventMatch && request.method() === 'GET') {
       await fulfillSse(route, [])
@@ -1420,6 +1433,60 @@ test('Conversation restores its Team deep link and shares the selected scope wit
   // by the AppShell scope control, which is the one place the selected Team and WorkProject live.
   await expect(page.getByRole('heading', { name: '我的工作台', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /Platform Engineering/ })).toBeVisible()
+})
+
+// M13b-F06（R12）：列表徽标是查看者视角的未读收纳面；打开即提交 body-less 回执并乐观清零。
+test('badges unread conversations and submits a read receipt when one is opened (R12)', async ({ page }) => {
+  const receiptKeys: Array<string | undefined> = []
+  await page.route(/\/conversations\/[^/]+\/read-receipts$/, route => {
+    receiptKeys.push(route.request().headers()['idempotency-key'])
+    return fulfillReceipt(route, 0)
+  })
+  const unreadProvider = conversation(ids.conversation, ids.team, ids.workspace, '规划 GitHub Provider 接入', 'PRIVATE', 4, 3)
+  await page.route(new RegExp(`/conversations/${ids.conversation}$`), route => fulfillJson(route, {
+    conversation: unreadProvider,
+    participants: [
+      participant(crypto.randomUUID(), ids.conversation, ids.principal, ids.member, 'OWNER'),
+      participant(crypto.randomUUID(), ids.conversation, ids.personalAgent, null, 'AGENT'),
+    ],
+  }))
+  await page.route(/\/conversations(?:\?.*)?$/, route => fulfillJson(route, {
+    items: [
+      unreadProvider,
+      conversation(ids.secondConversation, ids.team, ids.workspace, '协作准备 M2 发布', 'TEAM', null),
+    ],
+    nextCursor: null,
+  }))
+
+  await page.goto(`/conversation?team=${ids.team}&project=${ids.project}`)
+  const provider = page.locator('.conversation-item').filter({ hasText: '规划 GitHub Provider 接入' })
+  const release = page.locator('.conversation-item').filter({ hasText: '协作准备 M2 发布' })
+  await expect(provider.locator('.conversation-unread')).toHaveText('3')
+  await expect(provider).toHaveAccessibleName(/打开对话 规划 GitHub Provider 接入，3 条未读/)
+  // 未读为零的对话不渲染徽标。
+  await expect(release.locator('.conversation-unread')).toHaveCount(0)
+
+  await provider.click()
+  await expect.poll(() => receiptKeys.length, '打开带未读的对话会提交恰好一次回执').toBe(1)
+  expect(receiptKeys[0]).toBeTruthy()
+  await expect(provider.locator('.conversation-unread'), '回执受理后徽标乐观清零').toHaveCount(0)
+})
+
+// M13b-F06（R24）：铃铛读 Inbox /counts 的未读数——徽标并入 aria-label，进入 Inbox 页同源联动。
+test('badges the topbar bell with the Inbox unread count (R24)', async ({ page }) => {
+  await page.route(/\/inbox\/counts$/, route => fulfillJson(route, {
+    total: 5,
+    unread: 3,
+    byType: Object.fromEntries(['OWNERSHIP', 'EXECUTION', 'REVIEW', 'CONFIRMATION', 'EXCEPTION'].map(type => [type, { total: type === 'OWNERSHIP' ? 3 : type === 'EXECUTION' ? 2 : 0, unread: type === 'OWNERSHIP' ? 2 : type === 'EXECUTION' ? 1 : 0 }])),
+  }))
+
+  await page.goto(`/today?team=${ids.team}&project=${ids.project}`)
+  const bell = page.locator('.topbar-bell')
+  await expect(bell).toHaveAccessibleName('打开通知 Inbox，3 条未读')
+  await expect(bell.locator('.topbar-bell__badge')).toHaveText('3')
+
+  await bell.click()
+  await expect(page).toHaveURL(/\/inbox\?/)
 })
 
 test('Conversation restores multiple visible Tasks and preserves Conversation, WorkItem and Task navigation', async ({ page }, testInfo) => {
@@ -4466,8 +4533,8 @@ function availableTransitions(status: string) {
   })
 }
 
-function conversation(id: string, teamId: string, workspaceId: string, title: string, visibility: string, lastMessageSequence: number | null) {
-  return { id, organizationId: ids.organization, teamId, workspaceId, ownerMemberId: ids.member, ownerPrincipalId: ids.principal, personalAgentPrincipalId: ids.personalAgent, title, visibility, status: 'ACTIVE', lastMessageSequence, version: 0, createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-08T03:00:00Z' }
+function conversation(id: string, teamId: string, workspaceId: string, title: string, visibility: string, lastMessageSequence: number | null, unreadCount = 0) {
+  return { id, organizationId: ids.organization, teamId, workspaceId, ownerMemberId: ids.member, ownerPrincipalId: ids.principal, personalAgentPrincipalId: ids.personalAgent, title, visibility, status: 'ACTIVE', lastMessageSequence, unreadCount, version: 0, createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-08T03:00:00Z' }
 }
 
 function participant(id: string, conversationId: string, principalId: string, teamMemberId: string | null, role: string) {

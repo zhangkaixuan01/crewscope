@@ -44,6 +44,22 @@ describe('HttpConversationGateway', () => {
     expect(request?.body).not.toContain('owner')
     expect(new Headers(request?.headers).get('Idempotency-Key')).toBe('conversation-command')
   })
+
+  // M13b-F06（R12/A07）：回执是 body-less 命令——URL 段、幂等键头、无 Content-Type。
+  it('submits a body-less read receipt with an Idempotency-Key', async () => {
+    const receipt = { commandId: 'command', domainEventId: 'event', committedVersion: 0, correlationId: 'correlation' }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(receipt, 202))
+    const gateway = new HttpConversationGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    await gateway.submitReadReceipt(scope, conversationIds.provider, 'read-receipt-key')
+
+    const request = fetcher.mock.calls[0]?.[1]
+    expect(fetcher.mock.calls[0]?.[0]).toBe(`/api/v1/organizations/${fixtureIds.organization}/teams/${fixtureIds.teamPlatform}/conversations/${conversationIds.provider}/read-receipts`)
+    expect(request?.method).toBe('POST')
+    expect(request?.body).toBeUndefined()
+    expect(new Headers(request?.headers).get('Idempotency-Key')).toBe('read-receipt-key')
+    expect(new Headers(request?.headers).get('Content-Type')).toBeNull()
+  })
 })
 
 function jsonResponse(body: unknown, status = 200): Response {

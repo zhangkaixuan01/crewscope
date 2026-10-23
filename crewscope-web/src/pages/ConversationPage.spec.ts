@@ -50,7 +50,7 @@ class FixtureTaskIntentGateway implements TaskIntentGateway {
   }
 }
 
-async function harness(): Promise<{
+async function harness(options: { conversations?: FixtureConversationGateway } = {}): Promise<{
   wrapper: VueWrapper
   taskIntentStore: ReturnType<typeof createTaskIntentStore>
   linkGateway: FixtureConversationWorkItemLinkGateway
@@ -89,7 +89,7 @@ async function harness(): Promise<{
       plugins: [router],
       provide: {
         [SCOPE_STORE as symbol]: scopeStore,
-        [CONVERSATION_STORE as symbol]: createConversationStore(new FixtureConversationGateway()),
+        [CONVERSATION_STORE as symbol]: createConversationStore(options.conversations ?? new FixtureConversationGateway()),
         [CONVERSATION_MESSAGE_STORE as symbol]: createConversationMessageStore(new FixtureConversationMessageGateway()),
         [CONVERSATION_REALTIME_STORE as symbol]: createConversationRealtimeStore(new FixtureConversationRealtimeGateway()),
         [TASK_INTENT_STORE as symbol]: taskIntentStore,
@@ -279,6 +279,26 @@ describe('ConversationPage', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { metaKey: true, code: 'KeyF' }))
     await nextTick()
     expect(workspace().classes()).not.toContain('conversation-workspace--focus')
+    wrapper.unmount()
+  })
+
+  // M13b-F06（R12）：未读徽标按查看者视角渲染；深链打开的那条因回执提交而乐观清零，
+  // 其余对话的徽标保留——列表是「还有哪些对话没读」的收纳面。
+  it('badges unread conversations and clears the opened one via its read receipt', async () => {
+    const fixture = new FixtureConversationGateway()
+    const conversations = fixture.conversations[fixtureIds.teamPlatform]!
+    conversations.find(item => item.id === conversationIds.provider)!.unreadCount = 3
+    conversations.find(item => item.id === conversationIds.release)!.unreadCount = 5
+    const { wrapper } = await harness({ conversations: fixture })
+
+    const items = wrapper.findAll('.conversation-item')
+    const opened = items.find(item => item.attributes('data-conversation-id') === conversationIds.provider)!
+    const unreadRow = items.find(item => item.attributes('data-conversation-id') === conversationIds.release)!
+    expect(opened.find('.conversation-unread').exists()).toBe(false)
+    expect(unreadRow.find('.conversation-unread').text()).toBe('5')
+    expect(unreadRow.attributes('aria-label')).toBe('打开对话 协作准备 M2 发布，5 条未读')
+    // 打开的对话提交了恰好一次回执（fixture 默认无关联，回执在详情 ready 后发出）。
+    expect(fixture.readReceipts.map(entry => entry.conversationId)).toEqual([conversationIds.provider])
     wrapper.unmount()
   })
 })

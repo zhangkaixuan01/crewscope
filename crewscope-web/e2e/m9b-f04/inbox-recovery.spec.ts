@@ -82,7 +82,9 @@ test('reports each batch outcome and never blind-retries an unknown one', async 
     { itemId: ids.read, behavior: 'accept' },
     { itemId: ids.archived, behavior: 'unavailable' },
   ]
-  await page.goto(`/inbox?team=${ids.team}`)
+  // M13b-F06（R38）：默认「待处理队列」视图下归档条目退场；本用例的三条 fixture 含 ARCHIVED，
+  // 从显式「全部处置」深链进入（产品保留的回看路径），列表断言保持原语义。
+  await page.goto(`/inbox?team=${ids.team}&disposition=ALL`)
   await expect(page.getByRole('button', { name: /查看 我的负责 详情/ })).toHaveCount(3)
 
   for (const checkbox of await page.locator('input[type="checkbox"]').all()) await checkbox.setChecked(true)
@@ -107,7 +109,8 @@ test('reports each batch outcome and never blind-retries an unknown one', async 
 
 test('batch archiving asks once for the whole selection', async ({ page }) => {
   const api = await mockInboxApi(page)
-  await page.goto(`/inbox?team=${ids.team}`)
+  // M13b-F06（R38）：同上——批量覆盖含 ARCHIVED 的 fixture，从「全部处置」视图进入。
+  await page.goto(`/inbox?team=${ids.team}&disposition=ALL`)
   await expect(page.getByRole('button', { name: /查看 我的负责 详情/ })).toHaveCount(3)
   for (const checkbox of await page.locator('input[type="checkbox"]').all()) await checkbox.setChecked(true)
 

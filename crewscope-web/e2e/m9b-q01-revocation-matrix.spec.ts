@@ -360,7 +360,7 @@ function conversationRow() {
   return {
     id: q01.conversation, organizationId: ids.organization, teamId: ids.teamPlatform, workspaceId: ids.workspace,
     ownerMemberId: ids.memberOwner, ownerPrincipalId: ids.principalOwner, personalAgentPrincipalId: null,
-    title: '在途任务的对话', visibility: 'TEAM', status: 'ACTIVE', lastMessageSequence: 1, version: 1,
+    title: '在途任务的对话', visibility: 'TEAM', status: 'ACTIVE', lastMessageSequence: 1, unreadCount: 0, version: 1,
     createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-08T03:00:00Z',
   }
 }

@@ -44,6 +44,30 @@ describe('InboxWorkspace', () => {
     expect(wrapper.emitted('changeDispositionStatus')?.[0]).toEqual(['READ'])
   })
 
+  // M13b-F06（R38）：默认处置视图是「待处理队列」（UNREAD/READ/ACTED，与 /counts 同口径）；
+  // 队列清空的空态是收官反馈，非筛选无果——回看历史处置的出口写在描述里。
+  it('M13b-F06 R38: offers the queue as a disposition view and celebrates the emptied queue', async () => {
+    const wrapper = mount(InboxWorkspace, { props: props({ dispositionStatus: 'QUEUE' as const }), global: { stubs: routerLinkStub } })
+
+    const view = wrapper.findAll<HTMLSelectElement>('.scan-toolbar select')[1]!
+    expect(view.element.selectedOptions[0]?.value).toBe('QUEUE')
+    await view.setValue('QUEUE')
+    expect(wrapper.emitted('changeDispositionStatus')?.[0]).toEqual(['QUEUE'])
+
+    await wrapper.setProps({ items: [], phase: 'ready' })
+    expect(wrapper.text()).toContain('我的负责队列已清空')
+    expect(wrapper.text()).toContain('归档与历史处置可在「我的处置」筛选里回看')
+
+    // 类型筛选（我的负责）仍偏离默认，「清除筛选」保留；纯默认队列（全部类型）下空态无此按钮。
+    expect(wrapper.text()).toContain('清除类型与处置筛选')
+    await wrapper.setProps({ itemType: 'ALL' })
+    expect(wrapper.text()).not.toContain('清除类型与处置筛选')
+
+    await wrapper.setProps({ sourceStatus: 'CLOSED' })
+    expect(wrapper.text()).toContain('全部暂无项目')
+    expect(wrapper.text()).not.toContain('队列已清空')
+  })
+
   it('M13b-F10 L01: states the total and the unread total exactly once — on the summary strip', async () => {
     const wrapper = mount(InboxWorkspace, { props: props(), global: { stubs: routerLinkStub } })
 
