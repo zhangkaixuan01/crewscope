@@ -446,7 +446,7 @@ async function signOut(): Promise<void> {
   .topbar { height: 52px; grid-template-columns: auto minmax(0, 1fr) auto auto auto; justify-items: end; gap: var(--cs-space-8); padding: 0 var(--cs-space-12); }
   /* M13b-F05（R37）: the pill shrinks to its dot — the label survives for screen readers inside
      the aria-live status, and the degraded retry keeps a capped, ellipsized text of its own. */
-  .collab-pill__label { position: absolute; width: 1px; height: 1px; min-width: 0; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .collab-pill__label { position: absolute; width: 1px; height: 1px; min-width: 0; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
   .collab-pill__retry { max-width: 12em; overflow: hidden; text-overflow: ellipsis; }
   .topbar-scope { display: block; justify-self: stretch; min-width: 0; }
   .mobile-profile { display: block; }

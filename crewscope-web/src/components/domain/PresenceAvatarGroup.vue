@@ -75,7 +75,7 @@ const rosterOpen = ref(false)
 .presence-group__toggle { display: inline-flex; align-items: center; justify-content: center; margin-left: var(--cs-space-8); min-width: 22px; min-height: 22px; padding: 0; border: 1px solid var(--cs-border); border-radius: 50%; background: var(--cs-surface); color: var(--cs-text-muted); cursor: pointer; }
 .presence-group__toggle:hover { color: var(--cs-text-secondary); border-color: var(--cs-border-strong); }
 .presence-group__toggle:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); }
-.presence-group__roster { position: absolute; top: calc(100% + var(--cs-space-8)); left: 0; z-index: 20; margin: 0; padding: var(--cs-space-8); min-width: max-content; list-style: none; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); box-shadow: var(--cs-shadow-overlay, var(--cs-shadow-hairline)); }
+.presence-group__roster { position: absolute; top: calc(100% + var(--cs-space-8)); left: 0; z-index: var(--cs-z-popover); margin: 0; padding: var(--cs-space-8); min-width: max-content; list-style: none; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); box-shadow: var(--cs-shadow-float); }
 .presence-group__roster-row { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-4) 0; }
 .presence-group__roster-name { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .presence-group__roster-connections { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
