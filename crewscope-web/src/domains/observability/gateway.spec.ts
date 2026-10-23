@@ -77,6 +77,34 @@ describe('HttpObservabilityGateway', () => {
     await expect(scientific.costMonth(scope, '2026-09')).rejects.toThrow(TypeError)
     await expect(badRole.costMonth(scope, '2026-09')).rejects.toThrow(TypeError)
   })
+
+  it('maps the budget face with per-currency amounts and fails closed on bad shapes (A06/R21)', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      usageMonth: '2026-10',
+      config: {
+        alertsEnabled: true,
+        monthlyTokenBudget: 2_000_000,
+        tokenWarningThreshold: 1_600_000,
+        warningRatio: 0.8,
+        monthlyAmountBudgets: { CNY: '500.00' },
+      },
+      usage: { totalTokens: 1_260_000, costsByCurrency: { CNY: '301.50', USD: '0.63' } },
+    }))
+    const gateway = new HttpObservabilityGateway(new CrewScopeApiClient('/api/v1', fetcher))
+
+    const budget = await gateway.budget(scope)
+
+    expect(String(fetcher.mock.calls[0]![0])).toContain('/observability/budget')
+    expect(budget.usageMonth).toBe('2026-10')
+    expect(budget.config.tokenWarningThreshold).toBe(1_600_000)
+    expect(budget.config.monthlyAmountBudgets).toEqual({ CNY: '500.00' })
+    expect(budget.usage.costsByCurrency).toEqual({ CNY: '301.50', USD: '0.63' })
+
+    const scientific = new HttpObservabilityGateway(new CrewScopeApiClient('/api/v1', vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ usageMonth: '2026-10', config: { monthlyAmountBudgets: { CNY: '5E2' } }, usage: {} }),
+    )))
+    await expect(scientific.budget(scope)).rejects.toThrow(TypeError)
+  })
 })
 
 function costMonth(month: string) {

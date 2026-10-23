@@ -4,7 +4,7 @@ import { computed, ref, useId, watch } from 'vue'
 import { useClipboard } from '../../composables/useClipboard'
 import { useDirtyForm } from '../../composables/useDirtyForm'
 import { useIdempotentCommand } from '../../composables/useIdempotentCommand'
-import { knowledgeCategoryLabels, knowledgeIndexStatusHints, knowledgeIndexStatusLabels } from '../../domains/knowledge/labels'
+import { knowledgeCategoryLabels, knowledgeIndexStatusHint, knowledgeIndexStatusLabels } from '../../domains/knowledge/labels'
 import {
   knowledgeCategories,
   type DistillKnowledgeInput,
@@ -18,14 +18,17 @@ import StatusBadge from '../base/StatusBadge.vue'
 import BaseReceiptPanel from '../shared/BaseReceiptPanel.vue'
 import ExecutionSourcePicker from './ExecutionSourcePicker.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   teamId: string
   submitting: boolean
   errorMessage: string | null
   receipt: KnowledgeDistillationReceipt | null
   /** M13b-F03（R14）：执行现场带入的执行（Task 详情「蒸馏为知识」）——直接进入已选态。 */
   presetExecution?: { taskExecutionId: string, objective?: string | null } | null
-}>()
+  /** R04: confirmed `false` swaps the receipt's PENDING hint for the disabled wording.
+   * The explicit default matters: an absent Boolean-typed prop would otherwise cast to false. */
+  indexEnabled?: boolean | null
+}>(), { indexEnabled: null })
 
 const emit = defineEmits<{
   close: []
@@ -214,7 +217,7 @@ function distillAnother(): void {
         replayed-note="此蒸馏命令此前已确认过，本次为幂等重放，没有重复创建内容。"
         open-label="打开条目"
         :open-available="receipt!.entryId != null"
-        :hint="receipt!.indexStatus ? (knowledgeIndexStatusHints[receipt!.indexStatus] || undefined) : undefined"
+        :hint="receipt!.indexStatus ? (knowledgeIndexStatusHint(receipt!.indexStatus, indexEnabled) || undefined) : undefined"
         @open="emit('openEntry', receipt!.entryId!)"
         @another="distillAnother"
       >

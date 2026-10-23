@@ -115,7 +115,8 @@ function clearFilters(): void {
 
     <template #empty-action>
       <BaseButton v-if="canManage" variant="secondary" size="small" @click="emit('create')">创建条目</BaseButton>
-      <BaseButton v-if="canManage" variant="secondary" size="small" @click="emit('distill')">从执行蒸馏</BaseButton>
+      <!-- M13b-F04（R29/R30）：蒸馏与后端一致是 member 级入口——空态不再是非管理的死胡同。 -->
+      <BaseButton variant="secondary" size="small" @click="emit('distill')">从执行蒸馏</BaseButton>
       <BaseButton v-if="statusFilter !== 'ALL' || categoryFilter !== 'ALL'" variant="ghost" size="small" @click="clearFilters">清除筛选</BaseButton>
     </template>
 

@@ -1,5 +1,5 @@
 import { nextTick } from 'vue'
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import { activateF05Identity, readF05Reading } from '../app/f05Storage'
@@ -54,6 +54,8 @@ async function harness(): Promise<{
   wrapper: VueWrapper
   taskIntentStore: ReturnType<typeof createTaskIntentStore>
   linkGateway: FixtureConversationWorkItemLinkGateway
+  taskStore: ReturnType<typeof createTaskStore>
+  router: ReturnType<typeof createRouter>
 }> {
   // Scoped reading state only persists inside an activated F05 identity (sign-in epoch).
   activateF05Identity(bootstrapPrincipal.accountId)
@@ -81,6 +83,7 @@ async function harness(): Promise<{
   // 默认无关联（保持既有用例的渲染面）；R02 用例确认后按需注入确认产物。
   const linkGateway = new FixtureConversationWorkItemLinkGateway()
   linkGateway.associations = []
+  const taskStore = createTaskStore(new FixtureTaskGateway())
   const wrapper = mount(ConversationPage, {
     global: {
       plugins: [router],
@@ -91,7 +94,7 @@ async function harness(): Promise<{
         [CONVERSATION_REALTIME_STORE as symbol]: createConversationRealtimeStore(new FixtureConversationRealtimeGateway()),
         [TASK_INTENT_STORE as symbol]: taskIntentStore,
         [CONVERSATION_WORK_ITEM_LINK_STORE as symbol]: createConversationWorkItemLinkStore(linkGateway),
-        [TASK_STORE as symbol]: createTaskStore(new FixtureTaskGateway()),
+        [TASK_STORE as symbol]: taskStore,
         [COLLABORATION_STORE as symbol]: createFixtureCollaborationStore(),
         [AUTH_PRINCIPAL as symbol]: bootstrapPrincipal,
       },
@@ -101,7 +104,7 @@ async function harness(): Promise<{
   // page's async restore chain settles before the test touches scroll state.
   await vi.waitFor(() => { expect(wrapper.find('.message-history').exists()).toBe(true) })
   await nextTick()
-  return { wrapper, taskIntentStore, linkGateway }
+  return { wrapper, taskIntentStore, linkGateway, taskStore, router }
 }
 
 /** jsdom reports 0 for every layout box; the virtual list measures rows, so give them a height. */
@@ -229,6 +232,27 @@ describe('ConversationPage', () => {
     await vi.waitFor(() => { expect(toast.toasts.value.map(item => item.message)).toContain('已确认任务提案并创建 WorkItem，可在「关联 WorkItem」中配置 Coding Task') })
     expect(toast.toasts.value[0]!.tone).toBe('success')
     expect((workItemSection().element as HTMLDetailsElement).open).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('links every associated task to its injection evidence anchor (R22)', async () => {
+    const { wrapper, taskStore, router } = await harness()
+    // 会话关联的任务到达后，右栏出现知识注入入口卡——不拉新数据，直接链到任务详情锚点。
+    await taskStore.loadByConversation(conversationIds.provider, false, true)
+    await nextTick()
+
+    const section = wrapper.findAll('details.conversation-structure')
+      .find(details => details.text().includes('知识注入'))!
+    expect(section.text()).toContain('注入与引用')
+    const entries = section.findAll('.conversation-injection-list button')
+    expect(entries.length).toBeGreaterThan(0)
+
+    await entries[0]!.trigger('click')
+    await flushPromises()
+    // 深链坐标：任务详情选中 + #ws-injection 锚（抽屉在详情就绪后定位该区）。
+    expect(router.currentRoute.value.name).toBe('work')
+    expect(router.currentRoute.value.query.task).toBeDefined()
+    expect(router.currentRoute.value.hash).toBe('#ws-injection')
     wrapper.unmount()
   })
 

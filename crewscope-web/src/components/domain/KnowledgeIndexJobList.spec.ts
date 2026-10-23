@@ -86,6 +86,7 @@ async function mounted(overrides: Record<string, unknown>) {
       phase: 'ready', items: [], nextAfter: null, loadingMore: false,
       errorMessage: null, errorStatus: null, online: true,
       sourceFilter: 'ALL', statusFilter: 'ALL', canManage: false, cancellingJobId: null,
+      entryFilterId: null, entryFilterLabel: null, entryTitles: {}, refreshingEntryId: null,
       ...overrides,
     },
     global: { plugins: [router] },

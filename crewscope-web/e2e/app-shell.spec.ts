@@ -276,6 +276,14 @@ test.beforeEach(async ({ page }) => {
     }
     // M10 knowledge reads mirror the A02 contract (§7): the listing cursor is `nextAfter`
     // (entryKey), the head ETag is the numeric version, and version ETags are content hashes.
+    if (request.method() === 'GET' && path.endsWith('/knowledge/config')) {
+      // M13b-A03：开关全开（R04 横幅静默）。
+      await fulfillJson(route, {
+        vectorEnabled: true, indexEnabled: true, indexWorkerEnabled: true,
+        retrievalEnabled: true, injectionEnabled: true, skillEnabled: true,
+      })
+      return
+    }
     if (request.method() === 'GET' && path.endsWith('/knowledge/entries')) {
       await fulfillJson(route, { items: knowledgeEntries(), nextAfter: null })
       return

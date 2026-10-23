@@ -2,6 +2,7 @@
 import type { ObservabilityGateway } from './gateway'
 import { createObservabilityStore } from './store'
 import type {
+  ObservabilityBudget,
   ObservabilityCostMonth,
   ObservabilityCostMonthDetail,
   ObservabilityQualityMonth,
@@ -95,6 +96,34 @@ describe('ObservabilityStore', () => {
     expect(gateway.listCostMonths).toHaveBeenCalledTimes(2)
   })
 
+  it('serves the budget from the ready cache and re-reads only when forced (R21)', async () => {
+    const gateway = fixtureGateway()
+    const store = createObservabilityStore(gateway)
+    store.activateScope(platform)
+
+    await store.loadBudget()
+    await store.loadBudget()
+
+    expect(gateway.budget).toHaveBeenCalledTimes(1)
+    expect(store.state.budget.phase).toBe('ready')
+    expect(store.state.budget.value?.usage.totalTokens).toBe(1_260_000)
+
+    await store.loadBudget(true)
+    expect(gateway.budget).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a budget failure scoped to its own resource', async () => {
+    const gateway = fixtureGateway({ budget: vi.fn(async () => { throw new TypeError('budget lost') }) })
+    const store = createObservabilityStore(gateway)
+    store.activateScope(platform)
+
+    await store.loadBudget()
+
+    expect(store.state.budget.phase).toBe('error')
+    expect(store.state.budget.errorMessage).toBe('暂时无法加载本月预算')
+    expect(store.state.months.phase).toBe('idle')
+  })
+
   it('aborts in-flight month reads and clears state on Scope change', async () => {
     const pending = deferred<ObservabilityCostMonthDetail>()
     const signals: AbortSignal[] = []
@@ -143,7 +172,21 @@ function fixtureGateway(overrides: Partial<ObservabilityGateway> = {}): Observab
       }],
     })),
     qualityMonth: vi.fn(async () => qualityMonth()),
+    budget: vi.fn(async () => budgetView()),
     ...overrides,
+  }
+}
+
+function budgetView(extra: Partial<ObservabilityBudget> = {}): ObservabilityBudget {
+  return {
+    usageMonth: '2026-10',
+    config: {
+      alertsEnabled: true, monthlyTokenBudget: 2_000_000,
+      tokenWarningThreshold: 1_600_000, warningRatio: 0.8,
+      monthlyAmountBudgets: { CNY: '500.00' },
+    },
+    usage: { totalTokens: 1_260_000, costsByCurrency: { CNY: '301.50' } },
+    ...extra,
   }
 }
 

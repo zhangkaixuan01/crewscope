@@ -126,6 +126,14 @@ test.beforeEach(async ({ page }) => {
       })
       return
     }
+    if (path.endsWith('/knowledge/config') && request.method() === 'GET') {
+      // M13b-A03：mock 世界里知识能力全开——R04 横幅不出现，PENDING 走“等待索引”文案。
+      await fulfillJson(route, {
+        vectorEnabled: true, indexEnabled: true, indexWorkerEnabled: true,
+        retrievalEnabled: true, injectionEnabled: true, skillEnabled: true,
+      })
+      return
+    }
     if (path.endsWith('/knowledge/entries') && request.method() === 'GET') {
       listingQueries.push(url.searchParams)
       const status = url.searchParams.get('status')

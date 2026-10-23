@@ -7,10 +7,16 @@ import { fixtureAuthStore } from '../test/authFixtures'
 import type { SettingsScope } from '../domains/settings/types'
 import type { KnowledgeIndexGateway } from '../domains/knowledge/index-store'
 import { createKnowledgeIndexStore, KNOWLEDGE_INDEX_STORE } from '../domains/knowledge/index-store'
+import type { KnowledgeGateway } from '../domains/knowledge/gateway'
+import { createKnowledgeStore, KNOWLEDGE_STORE } from '../domains/knowledge/store'
 import type {
+  KnowledgeCommandReceipt,
+  KnowledgeEntryFilter,
+  KnowledgeEntryPage,
   KnowledgeIndexJob,
   KnowledgeIndexJobFilter,
   KnowledgeIndexJobPage,
+  KnowledgeSwitchConfig,
   RebuildAccepted,
   RepositoryBuildAccepted,
   RepositoryBuildInput,
@@ -25,6 +31,8 @@ import type { VueWrapper } from '@vue/test-utils'
 import KnowledgeIndexPage from './KnowledgeIndexPage.vue'
 
 const jobAId = '00000000-0000-0000-0000-000000007401'
+// uuidQuery 要求 RFC 9562 version/variant 位——与知识页条目 fixture 同一 id 形态。
+const entryJobId = '00000000-0000-1000-8000-000000007101'
 
 /** L16：重建/自动刷新收进 overflow 菜单（弹层 v-if，收起时不在 DOM），先开菜单再取内容。
  * 幂等：banner 的关闭按钮不派发 pointerdown，jsdom 里菜单不会被外部点击关掉，重复 toggle 反而收起。 */
@@ -46,6 +54,34 @@ describe('KnowledgeIndexPage', () => {
 
     expect(wrapper.get('section[aria-label="索引作业列表"]').text()).toContain('绑定 00000000')
     expect(gateway.listCalls.at(-1)).toMatchObject({ source: 'REPOSITORY', status: 'EMBEDDING' })
+    wrapper.unmount()
+  })
+
+  it('narrows the listing to one entry through the deep-link filter and clears it (R16)', async () => {
+    const { wrapper, gateway, router } = await mountPage(manager, `entryId=${entryJobId}`)
+
+    // 过滤事实常显在筛选区，可一键清除。
+    expect(wrapper.get('.job-list__entry-filter').text()).toContain(entryJobId.slice(0, 8))
+    expect(gateway.listCalls.at(-1)).toMatchObject({ entryId: entryJobId })
+
+    await wrapper.get('button[aria-label="清除条目过滤"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.entryId).toBeUndefined()
+    expect(gateway.listCalls.at(-1)).not.toHaveProperty('entryId')
+    wrapper.unmount()
+  })
+
+  it('retries a failed knowledge-entry job per entry through the A04 command (R17)', async () => {
+    const { wrapper, gateway } = await mountPage(manager, '', { failedEntryJob: true })
+
+    await wrapper.findAll('button').find(button => button.text() === '重试索引')!.trigger('click')
+    await flushPromises()
+
+    // 每次点击是一条独立命令（新幂等键），成功后条目过滤队列立即重读。
+    expect(gateway.refreshCalls).toEqual([entryJobId])
+    expect(gateway.listCalls.length).toBeGreaterThan(1)
+    expect(wrapper.text()).toContain('已提交该条目的索引刷新命令')
     wrapper.unmount()
   })
 
@@ -179,6 +215,8 @@ describe('KnowledgeIndexPage', () => {
 interface FixtureOverrides {
   cancelStatus?: 'EMBEDDING'
   rebuildEnqueued?: number
+  /** R17: serves a failed knowledge-entry job instead of the default repository row. */
+  failedEntryJob?: boolean
 }
 
 async function mountPage(principal: AuthenticatedPrincipal, query: string, overrides: FixtureOverrides = {}) {
@@ -187,6 +225,8 @@ async function mountPage(principal: AuthenticatedPrincipal, query: string, overr
   await scopeStore.synchronize(fixtureIds.teamPlatform, fixtureIds.projectCrewScope)
   const gateway = new FixtureIndexPageGateway(overrides)
   const store = createKnowledgeIndexStore(gateway)
+  // R16：作业行的条目标题映射来自条目 store 的第一页——页面消费它，spec 只喂两个读面。
+  const knowledgeStore = createKnowledgeStore(new FixtureEntryTitleGateway())
   const codingStore = fixtureCodingStore()
   await router.push(`/knowledge/index?team=${fixtureIds.teamPlatform}${query ? `&${query}` : ''}`)
   await router.isReady()
@@ -197,6 +237,7 @@ async function mountPage(principal: AuthenticatedPrincipal, query: string, overr
         [AUTH_PRINCIPAL as symbol]: principal,
         [SCOPE_STORE as symbol]: scopeStore,
         [KNOWLEDGE_INDEX_STORE as symbol]: store,
+        [KNOWLEDGE_STORE as symbol]: knowledgeStore,
         [CODING_STORE as symbol]: codingStore,
       },
       stubs: { teleport: true, AppShell: { template: '<main><slot name="actions"/><slot/></main>' } },
@@ -207,12 +248,45 @@ async function mountPage(principal: AuthenticatedPrincipal, query: string, overr
   return { wrapper, gateway, store, router, scopeStore }
 }
 
+/** R16：条目标题映射的读面——作业页只读条目第一页与开关，其余方法不可达。 */
+class FixtureEntryTitleGateway implements KnowledgeGateway {
+  async listEntries(_scope: SettingsScope, _filter?: KnowledgeEntryFilter, _after?: string | null, _limit?: number, _signal?: AbortSignal): Promise<KnowledgeEntryPage> {
+    return { items: [], nextAfter: null }
+  }
+
+  async switchConfig(): Promise<KnowledgeSwitchConfig> {
+    return {
+      vectorEnabled: true, indexEnabled: true, indexWorkerEnabled: true,
+      retrievalEnabled: true, injectionEnabled: true, skillEnabled: true,
+    }
+  }
+
+  async refreshEntryIndex(): Promise<KnowledgeCommandReceipt> { throw new Error('not used by the index page title map') }
+  async listJobs(): Promise<never> { throw new Error('not used by the index page title map') }
+  async getEntry(): Promise<never> { throw new Error('not used by the index page title map') }
+  async listVersions(): Promise<never> { throw new Error('not used by the index page title map') }
+  async getVersion(): Promise<never> { throw new Error('not used by the index page title map') }
+  async getEffectiveVersion(): Promise<never> { throw new Error('not used by the index page title map') }
+  async createEntry(): Promise<never> { throw new Error('not used by the index page title map') }
+  async saveDraft(): Promise<never> { throw new Error('not used by the index page title map') }
+  async publishEntry(): Promise<never> { throw new Error('not used by the index page title map') }
+  async rollbackEntry(): Promise<never> { throw new Error('not used by the index page title map') }
+  async retireEntry(): Promise<never> { throw new Error('not used by the index page title map') }
+  async deleteEntry(): Promise<never> { throw new Error('not used by the index page title map') }
+  async distill(): Promise<never> { throw new Error('not used by the index page title map') }
+  async getJob(): Promise<never> { throw new Error('not used by the index page title map') }
+  async cancelJob(): Promise<never> { throw new Error('not used by the index page title map') }
+  async rebuild(): Promise<never> { throw new Error('not used by the index page title map') }
+  async enqueueRepositoryBuild(): Promise<never> { throw new Error('not used by the index page title map') }
+}
+
 class FixtureIndexPageGateway implements KnowledgeIndexGateway {
   listCalls: Array<KnowledgeIndexJobFilter | undefined> = []
   cancelCalls: string[] = []
   buildInputs: RepositoryBuildInput[] = []
   rebuildCalls = 0
   rebuildEnqueued: number
+  refreshCalls: string[] = []
 
   constructor(private readonly overrides: FixtureOverrides) {
     this.rebuildEnqueued = overrides.rebuildEnqueued ?? 1
@@ -220,7 +294,9 @@ class FixtureIndexPageGateway implements KnowledgeIndexGateway {
 
   async listJobs(_scope: SettingsScope, filter?: KnowledgeIndexJobFilter): Promise<KnowledgeIndexJobPage> {
     this.listCalls.push(filter)
-    return { items: [job()], nextAfter: null }
+    return { items: [this.overrides.failedEntryJob
+      ? job({ source: 'KNOWLEDGE_ENTRY', status: 'FAILED', entryId: entryJobId, indexKey: null, failureCode: 'INTERNAL' })
+      : job()], nextAfter: null }
   }
 
   async cancelJob(_scope: SettingsScope, jobId: string): Promise<KnowledgeIndexJob> {
@@ -242,6 +318,16 @@ class FixtureIndexPageGateway implements KnowledgeIndexGateway {
   async enqueueRepositoryBuild(_scope: SettingsScope, input: RepositoryBuildInput): Promise<RepositoryBuildAccepted> {
     this.buildInputs.push(input)
     return { enqueued: 1, job: job({ status: 'QUEUED' }) }
+  }
+
+  async refreshEntryIndex(_scope: SettingsScope, entryId: string, _idempotencyKey: string): Promise<KnowledgeCommandReceipt> {
+    this.refreshCalls.push(entryId)
+    return {
+      commandId: '00000000-0000-0000-0000-000000007701',
+      domainEventId: '00000000-0000-0000-0000-000000007702',
+      committedVersion: 5,
+      correlationId: '00000000-0000-0000-0000-000000007703',
+    }
   }
 }
 

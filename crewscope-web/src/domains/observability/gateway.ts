@@ -11,6 +11,7 @@ import {
   type ObservabilityCostSource,
   type ObservabilityCostStatus,
   type ObservabilityCurrencyAmount,
+  type ObservabilityBudget,
   type ObservabilityQualityMonth,
   type ObservabilityRoleSubtotal,
   type ObservabilityScope,
@@ -23,6 +24,8 @@ export interface ObservabilityGateway {
   listCostMonths(scope: ObservabilityScope, after?: string | null, limit?: number, signal?: AbortSignal): Promise<ObservabilityCostMonthsPage>
   costMonth(scope: ObservabilityScope, month: string, signal?: AbortSignal): Promise<ObservabilityCostMonthDetail>
   qualityMonth(scope: ObservabilityScope, month: string, signal?: AbortSignal): Promise<ObservabilityQualityMonth>
+  /** The current month's budgets and usage from the alert chain's own source (M13b-A06). */
+  budget(scope: ObservabilityScope, signal?: AbortSignal): Promise<ObservabilityBudget>
 }
 
 /**
@@ -51,6 +54,27 @@ export class HttpObservabilityGateway implements ObservabilityGateway {
     const value = record(await this.client.get(`${root(scope)}/cost/months/${segment(month(monthValue, 'month'))}`, { signal }))
     const detailMonth = month(typeof value.month === 'string' ? value.month : monthValue, 'detail month')
     return { month: detailMonth, rows: Array.isArray(value.rows) ? value.rows.map(mapModelRow) : fail('detail rows') }
+  }
+
+  async budget(scope: ObservabilityScope, signal?: AbortSignal): Promise<ObservabilityBudget> {
+    const value = record(await this.client.get(`${root(scope)}/budget`, { signal }))
+    const config = record(value.config, 'budget config')
+    const usage = record(value.usage, 'budget usage')
+    return {
+      usageMonth: month(value.usageMonth, 'budget usageMonth'),
+      config: {
+        alertsEnabled: booleanFlag(config.alertsEnabled, 'budget config.alertsEnabled'),
+        monthlyTokenBudget: integer(config.monthlyTokenBudget, 'budget config.monthlyTokenBudget'),
+        tokenWarningThreshold: integer(config.tokenWarningThreshold, 'budget config.tokenWarningThreshold'),
+        // A06 的 warningRatio 是预算配置的具体值（非空），不同于质量页可空分母的 rate。
+        warningRatio: rate(config.warningRatio, 'budget config.warningRatio') ?? fail('budget config.warningRatio'),
+        monthlyAmountBudgets: amounts(config.monthlyAmountBudgets, 'budget config.monthlyAmountBudgets'),
+      },
+      usage: {
+        totalTokens: integer(usage.totalTokens, 'budget usage.totalTokens'),
+        costsByCurrency: amounts(usage.costsByCurrency, 'budget usage.costsByCurrency'),
+      },
+    }
   }
 
   async qualityMonth(scope: ObservabilityScope, monthValue: string, signal?: AbortSignal): Promise<ObservabilityQualityMonth> {
@@ -150,6 +174,23 @@ function amount(value: unknown): string | null {
   if (value == null) return null
   if (typeof value !== 'string' || !/^(0|[1-9]\d*)(\.\d+)?$/.test(value)) fail('amount')
   return value
+}
+
+function booleanFlag(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') fail(field)
+  return value
+}
+
+/** Currency-keyed amount maps; codes stay verbatim (server-owned ISO 4217 set). */
+function amounts(value: unknown, field: string): Record<string, string> {
+  const source = record(value, field)
+  const mapped: Record<string, string> = {}
+  for (const code of Object.keys(source)) {
+    const parsed = amount(source[code])
+    if (parsed === null) fail(`${field}.${code}`)
+    mapped[code] = parsed
+  }
+  return mapped
 }
 
 /** Null when the denominator is empty; otherwise a rate at scale 4 within [0, 1]. */

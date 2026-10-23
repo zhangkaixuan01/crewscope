@@ -94,7 +94,9 @@ export interface InboxBatchReport {
   status: InboxBatchStatus
   results: InboxBatchEntryResult[]
 }
-export const inboxSourceTypes = ['RESPONSIBILITY_ASSIGNMENT', 'REVIEW_REQUEST', 'ACTION_CONFIRMATION', 'TASK_EXECUTION', 'ACTION_DELIVERY', 'NOTIFICATION_DELIVERY'] as const
+/** M13b-F04（R21）: `BUDGET` joins the closed set — the backend's seventh Inbox source family
+ * (budget reminders, M10-F03); before this the gateway would fail closed on any budget item. */
+export const inboxSourceTypes = ['RESPONSIBILITY_ASSIGNMENT', 'REVIEW_REQUEST', 'ACTION_CONFIRMATION', 'TASK_EXECUTION', 'ACTION_DELIVERY', 'NOTIFICATION_DELIVERY', 'BUDGET'] as const
 export type InboxSourceType = typeof inboxSourceTypes[number]
 export const inboxCloseReasons = [
   'RESPONSIBILITY_RELEASED',

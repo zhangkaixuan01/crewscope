@@ -30,6 +30,21 @@ const ready = computed(() => resource.value?.phase === 'ready')
 const feedback = computed(() => (store.state.feedback.key === currentKey.value ? store.state.feedback : null))
 const pendingReference = computed(() => (feedback.value?.phase === 'pending' ? feedback.value.reference : null))
 
+/**
+ * M13b-F04（R20）: lightweight own-view aggregate over the loaded attempts. The quadruple is the
+ * dedup key — the server keys feedback per execution×quadruple×member, so one source sealed in
+ * two attempts counts once. Cross-execution aggregation needs a backend facet (登记，不做).
+ */
+const markedCount = computed(() => {
+  const marked = new Set<string>()
+  for (const attempt of attempts.value) {
+    for (const row of attempt.references) {
+      if (row.notApplicable) marked.add(`${row.type}:${row.sourceId}:${row.version}:${row.contentHash}`)
+    }
+  }
+  return marked.size
+})
+
 watch(() => [props.taskId, props.executionId] as const, ([taskId, executionId]) => {
   if (executionId !== null) void store.load(taskId, executionId)
 }, { immediate: true })
@@ -70,6 +85,8 @@ function mark(reference: InjectionFeedbackInput): void {
           :class="{ 'injection-banner--error': feedback?.phase === 'error' }"
           :role="feedback?.phase === 'error' ? 'alert' : 'status'"
         >{{ feedback?.errorMessage ?? feedback?.message }}</p>
+
+        <p v-if="markedCount > 0" class="injection-panel__note">本次执行你已标记 {{ markedCount }} 条不适用。</p>
 
         <div class="injection-panel__attempts">
           <InjectionAttemptBlock

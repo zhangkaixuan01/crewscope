@@ -3,6 +3,7 @@ import { CrewScopeApiError } from '../../api/client'
 import type { ObservabilityGateway } from './gateway'
 import {
   isObservabilityMonth,
+  type ObservabilityBudget,
   type ObservabilityCostMonth,
   type ObservabilityCostMonthDetail,
   type ObservabilityQualityMonth,
@@ -30,10 +31,18 @@ export interface ObservabilityMonthResource<T> {
   errorStatus: number | null
 }
 
+export interface ObservabilityBudgetResource {
+  phase: ObservabilityPhase
+  value: ObservabilityBudget | null
+  errorMessage: string | null
+  errorStatus: number | null
+}
+
 export interface ObservabilityStoreState {
   months: ObservabilityMonthsResource
   detail: ObservabilityMonthResource<ObservabilityCostMonthDetail>
   quality: ObservabilityMonthResource<ObservabilityQualityMonth>
+  budget: ObservabilityBudgetResource
 }
 
 export interface ObservabilityStore {
@@ -42,6 +51,8 @@ export interface ObservabilityStore {
   loadMonths(more?: boolean, force?: boolean): Promise<void>
   /** Loads one month's detail and quality in one pass; the listing stays untouched. */
   loadMonth(month: string): Promise<void>
+  /** Loads the current month's budget face (M13b-A06); ready cache unless forced. */
+  loadBudget(force?: boolean): Promise<void>
   reset(): void
 }
 
@@ -132,6 +143,25 @@ export function createObservabilityStore(gateway: ObservabilityGateway): Observa
     qualityRequest.finish()
   }
 
+  async function loadBudget(force = false): Promise<void> {
+    const scope = requireScope()
+    if (!force && ['ready'].includes(state.budget.phase)) return
+    const request = requests.begin('budget')
+    state.budget.phase = 'loading'
+    state.budget.errorMessage = null
+    state.budget.errorStatus = null
+    try {
+      const value = await gateway.budget(scope, request.signal)
+      if (!request.isCurrent()) return
+      state.budget.value = value
+      state.budget.phase = 'ready'
+    } catch (error) {
+      if (!isAbort(error) && request.isCurrent()) setError(state.budget, error, '暂时无法加载本月预算')
+    } finally {
+      request.finish()
+    }
+  }
+
   function reset(): void {
     activeScope = null
     activeScopeKey = null
@@ -148,6 +178,7 @@ export function createObservabilityStore(gateway: ObservabilityGateway): Observa
     state.months = next.months
     state.detail = next.detail
     state.quality = next.quality
+    state.budget = next.budget
   }
 
   return {
@@ -155,6 +186,7 @@ export function createObservabilityStore(gateway: ObservabilityGateway): Observa
     activateScope,
     loadMonths,
     loadMonth,
+    loadBudget,
     reset,
   }
 }
@@ -176,6 +208,7 @@ function initialState(): ObservabilityStoreState {
     months: { phase: 'idle', value: null, errorMessage: null, errorStatus: null, nextAfter: null, loadingMore: false },
     detail: { phase: 'idle', month: null, value: null, errorMessage: null, errorStatus: null },
     quality: { phase: 'idle', month: null, value: null, errorMessage: null, errorStatus: null },
+    budget: { phase: 'idle', value: null, errorMessage: null, errorStatus: null },
   }
 }
 

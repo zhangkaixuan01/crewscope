@@ -16,16 +16,25 @@ const props = defineProps<{
   /** Managers alone see the technical block — claimedBy/lease/createdBy are recovery facts. */
   canManage: boolean
   cancelling: boolean
+  /** M13b-A04/R16: entryId → readable title (draft title or entryKey) from the entry listing. */
+  entryTitle?: string | null
+  /** The store refresh slot: only the row it names shows its pending spinner. */
+  refreshing: boolean
 }>()
 
 const emit = defineEmits<{
   cancel: [jobId: string]
+  retryEntry: [entryId: string]
 }>()
 
 const expanded = ref(false)
 
 /** Only a still-QUEUED job can be cancelled (contract §2: everything else answers 409). */
 const cancellable = computed(() => props.job.status === 'QUEUED')
+
+/** R17: a failed knowledge-entry job retries per entry (A04); repository builds re-enqueue
+ * through the build dialog, so no row-level retry is offered for them. */
+const retryable = computed(() => props.job.status === 'FAILED' && props.job.source === 'KNOWLEDGE_ENTRY' && props.job.entryId !== null)
 
 function statusTone(status: KnowledgeIndexJobStatus): 'neutral' | 'info' | 'success' | 'warning' | 'danger' {
   if (status === 'READY') return 'success'
@@ -35,10 +44,12 @@ function statusTone(status: KnowledgeIndexJobStatus): 'neutral' | 'info' | 'succ
   return 'info'
 }
 
-/** KNOWLEDGE_ENTRY names its entry, REPOSITORY its binding and commit — never a canonical key. */
+/** KNOWLEDGE_ENTRY names its entry (R16: by title when the listing knows it, else the short
+ * id), REPOSITORY its binding and commit — never a canonical key. */
 const target = computed(() => {
   if (props.job.source === 'KNOWLEDGE_ENTRY') {
-    return props.job.entryId ? `条目 ${props.job.entryId.slice(0, 8)}` : '条目 —'
+    if (!props.job.entryId) return '条目 —'
+    return props.entryTitle ? `条目 ${props.entryTitle}` : `条目 ${props.job.entryId.slice(0, 8)}`
   }
   const key = props.job.indexKey
   return key ? `绑定 ${key.bindingId.slice(0, 8)} @ ${key.commit.slice(0, 8)}` : '仓库 —'
@@ -68,6 +79,13 @@ const target = computed(() => {
           :loading="cancelling"
           @click="emit('cancel', job.id)"
         >取消作业</BaseButton>
+        <BaseButton
+          v-if="canManage && retryable"
+          variant="ghost"
+          size="small"
+          :loading="refreshing"
+          @click="emit('retryEntry', job.entryId!)"
+        >重试索引</BaseButton>
         <button
           type="button"
           class="job-item__toggle"

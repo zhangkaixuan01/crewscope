@@ -128,7 +128,7 @@ export function createCrewScopeRouter(
         path: '/knowledge/index',
         name: 'knowledge-index',
         component: () => import('../pages/KnowledgeIndexPage.vue'),
-        meta: { mode: 'control', section: 'knowledge', title: '索引作业', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'source', 'status'] },
+        meta: { mode: 'control', section: 'knowledge', title: '索引作业', requiredPermission: permissions.scopeRead, queryWhitelist: ['team', 'source', 'status', 'entryId'] },
       },
       {
         path: '/skills',

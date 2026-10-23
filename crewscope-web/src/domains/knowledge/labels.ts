@@ -4,6 +4,7 @@ import type {
   KnowledgeIndexJobSource,
   KnowledgeIndexJobStatus,
   KnowledgeIndexStatus,
+  KnowledgeSwitchConfig,
 } from './types'
 
 /**
@@ -39,6 +40,35 @@ export const knowledgeIndexStatusLabels: Record<KnowledgeIndexStatus, string> = 
 export const knowledgeIndexStatusHints: Partial<Record<KnowledgeIndexStatus, string>> = {
   PENDING: '索引状态与保存状态无关：内容已保存，等待后台建立索引',
   FAILED: '最近一次索引作业失败，内容仍已保存；可在索引作业面重试',
+}
+
+/**
+ * R04: with the index switch off the projection stays PENDING forever — the hint must say the
+ * capability is off, not "waiting". Single authoritative wording for every PENDING badge site.
+ */
+export const knowledgeIndexDisabledHint = '索引功能未启用，请联系管理员'
+
+/**
+ * Resolves the badge hint for an index status under a known switch state. `indexEnabled` null
+ * (switch unknown: load pending, failed, or older backend) reads as enabled — the banner and the
+ * disabled wording only ever appear on a confirmed `false` (M13b-A03 contract §5).
+ */
+export function knowledgeIndexStatusHint(
+  status: KnowledgeIndexStatus,
+  indexEnabled: boolean | null | undefined,
+): string | undefined {
+  if (status === 'PENDING' && indexEnabled === false) return knowledgeIndexDisabledHint
+  return knowledgeIndexStatusHints[status]
+}
+
+/** Chinese capability names for the R04 switch banner — booleans only, never env names (§5). */
+export const knowledgeSwitchLabels: Record<keyof KnowledgeSwitchConfig, string> = {
+  vectorEnabled: '向量存储',
+  indexEnabled: '知识索引',
+  indexWorkerEnabled: '索引后台作业',
+  retrievalEnabled: '知识检索',
+  injectionEnabled: '知识注入',
+  skillEnabled: '技能能力',
 }
 
 /** M10-I01c job vocabulary (repository-index contract §1): two sources, seven states. */

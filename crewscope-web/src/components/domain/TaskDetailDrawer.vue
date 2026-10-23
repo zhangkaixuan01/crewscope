@@ -11,7 +11,8 @@ import {
   Sparkles,
   TriangleAlert,
 } from '@lucide/vue'
-import { computed, nextTick, ref, useTemplateRef } from 'vue'
+import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useClipboard } from '../../composables/useClipboard'
 import { useNetworkStatus } from '../../app/network'
 import { useTaskStore } from '../../domains/task/store'
@@ -259,6 +260,14 @@ function locateSection(sectionId: string): void {
     target?.focus({ preventScroll: true })
   })
 }
+
+// M13b-F04（R22）：对话面的「知识注入」入口卡带 #ws-injection 深链进来；页面级 scrollBehavior
+// 恒回顶（hash 不滚），抽屉自己在详情就绪后定位目标区。锚消费一次即静默——留在 URL 里无害。
+const route = useRoute()
+watch(() => details.value?.id, id => {
+  if (!id || !route.hash.startsWith('#ws-')) return
+  locateSection(route.hash.slice(1))
+})
 
 function locateReviewFinding(location: ReviewFindingEvidence): void {
   reviewLocation.value = { ...location }

@@ -13,6 +13,7 @@ import type {
   KnowledgeEntryFilter,
   KnowledgeEntryPage,
   KnowledgeEntrySummary,
+  KnowledgeSwitchConfig,
   KnowledgeVersion,
   KnowledgeVersionPage,
   UpdateKnowledgeDraftInput,
@@ -187,6 +188,45 @@ describe('KnowledgeStore', () => {
     expect(store.state.versionHistory[entryId]).toBeUndefined()
   })
 
+  it('rolls back with the head ETag and invalidates pointer facts and version details (R28)', async () => {
+    const gateway = new FixtureKnowledgeGateway()
+    // fixture 头默认 effectiveRevision 1；成功链需要指针落在别处（r2）才能把 r1 当目标。
+    vi.spyOn(gateway, 'getEntry').mockImplementation(async (_scope, id) => ({ value: { ...entryWithId(id), effectiveRevision: 2 }, etag: '"3"' }))
+    const store = createKnowledgeStore(gateway)
+    store.activateScope(platformScope)
+    await store.loadEntry(entryId)
+    await store.loadVersions(entryId)
+    await store.loadEffectiveVersion(entryId)
+    await store.loadVersion(entryId, 1)
+
+    expect(await store.rollbackEntry(entryId, 1, 'rollback-key')).toBe(true)
+
+    expect(gateway.rollbackCalls).toEqual([{ entryId, toRevision: 1, idempotencyKey: 'rollback-key' }])
+    expect(gateway.seenEtag).toBe('"3"')
+    expect(store.state.command.phase).toBe('success')
+    expect(store.state.command.operation).toBe('rollback')
+    expect(store.state.effectiveVersions[entryId]).toBeUndefined()
+    expect(store.state.versionHistory[entryId]).toBeUndefined()
+    expect(store.state.versionDetails[`${entryId}:1`]).toBeUndefined()
+  })
+
+  it('refuses a no-op rollback locally with the 422 wording before any request (R28)', async () => {
+    const gateway = new FixtureKnowledgeGateway()
+    const write = vi.spyOn(gateway, 'rollbackEntry')
+    const store = createKnowledgeStore(gateway)
+    store.activateScope(platformScope)
+    // fixture 头的 effectiveRevision 是 1：对它回滚就是 knowledge_version_unchanged。
+    await store.loadEntry(entryId)
+
+    expect(await store.rollbackEntry(entryId, 1, 'rollback-key')).toBe(false)
+
+    expect(write).not.toHaveBeenCalled()
+    expect(store.state.command.phase).toBe('error')
+    expect(store.state.command.operation).toBe('rollback')
+    expect(store.state.command.errorStatus).toBe(422)
+    expect(store.state.command.errorMessage).toBe('r1 已是当前生效版本，无需回滚。')
+  })
+
   it('does not dispatch a head command after its continuation went stale', async () => {
     const gateway = new FixtureKnowledgeGateway()
     const detail = deferred<Etagged<KnowledgeEntrySummary>>()
@@ -275,6 +315,14 @@ class FixtureKnowledgeGateway implements KnowledgeGateway {
     return receipt()
   }
 
+  rollbackCalls: Array<{ entryId: string, toRevision: number, idempotencyKey: string }> = []
+
+  async rollbackEntry(_scope: SettingsScope, entryId: string, toRevision: number, etag: string, idempotencyKey: string): Promise<KnowledgeCommandReceipt> {
+    this.rollbackCalls.push({ entryId, toRevision, idempotencyKey })
+    this.seenEtag = etag
+    return receipt()
+  }
+
   async retireEntry(_scope: SettingsScope, _entryId: string, etag: string): Promise<KnowledgeCommandReceipt> {
     this.seenEtag = etag
     return receipt()
@@ -298,10 +346,19 @@ class FixtureKnowledgeGateway implements KnowledgeGateway {
 
   // The I01c job plane belongs to the index store (F01b); this fixture must only satisfy the shape.
   async listJobs(): Promise<never> { throw new Error('not used by the entry store') }
+  async refreshEntryIndex(): Promise<KnowledgeCommandReceipt> { return receipt() }
   async getJob(): Promise<never> { throw new Error('not used by the entry store') }
   async cancelJob(): Promise<never> { throw new Error('not used by the entry store') }
   async rebuild(): Promise<never> { throw new Error('not used by the entry store') }
   async enqueueRepositoryBuild(): Promise<never> { throw new Error('not used by the entry store') }
+
+  // M13b-A03（R04）：开关默认全开；store 测试只关心读取与 scope 重置语义。
+  async switchConfig(): Promise<KnowledgeSwitchConfig> {
+    return {
+      vectorEnabled: true, indexEnabled: true, indexWorkerEnabled: true,
+      retrievalEnabled: true, injectionEnabled: true, skillEnabled: true,
+    }
+  }
 }
 
 function entry(entryKey: string): KnowledgeEntrySummary {

@@ -7,6 +7,7 @@ import type { SettingsScope } from '../domains/settings/types'
 import type { ObservabilityGateway } from '../domains/observability/gateway'
 import { createObservabilityStore, OBSERVABILITY_STORE } from '../domains/observability/store'
 import type {
+  ObservabilityBudget,
   ObservabilityCostMonth,
   ObservabilityCostMonthDetail,
   ObservabilityCostMonthsPage,
@@ -98,11 +99,57 @@ describe('ObservabilityPage', () => {
     expect(wrapper.text()).toContain('本月还没有模型用量事实')
     wrapper.unmount()
   })
+
+  it('renders the budget card with both tracks and the quota cross-link (R21)', async () => {
+    const { wrapper } = await mountPage('')
+
+    const card = wrapper.get('[aria-labelledby="budget-heading"]')
+    // Token track: usage / budget plus the warning line wording; amounts stay plain strings.
+    expect(card.text()).toContain('Token 预算（2026-10）')
+    expect(card.text()).toContain('1,260,000 / 2,000,000 token')
+    expect(card.text()).toContain('警戒线 1,600,000 token（预算的 80%）')
+    expect(card.text()).toContain('预算是提醒线，不是硬限制')
+    // Amount tracks: budgeted CNY and spent-but-unbudgeted USD both speak their state.
+    expect(card.text()).toContain('CNY 金额预算')
+    expect(card.text()).toContain('301.50 / 500.00 CNY')
+    expect(card.text()).toContain('0.63 USD（未设置预算）')
+    // Cross-link: the budget reminder face points at its configuration.
+    expect(card.get('a.budget-link').attributes('href')).toContain('/settings/quota')
+    wrapper.unmount()
+  })
+
+  it('badges the token track at the warning and over-budget lines (R21)', async () => {
+    const warned = await mountPage('', { budget: { usage: { totalTokens: 1_700_000, costsByCurrency: {} } } })
+    expect(warned.wrapper.get('[aria-labelledby="budget-heading"]').text()).toContain('已达警戒线')
+    expect(warned.wrapper.get('[aria-labelledby="budget-heading"]').text()).not.toContain('已超预算')
+    warned.wrapper.unmount()
+
+    const over = await mountPage('', { budget: { usage: { totalTokens: 2_100_000, costsByCurrency: {} } } })
+    expect(over.wrapper.get('[aria-labelledby="budget-heading"]').text()).toContain('已超预算')
+    over.wrapper.unmount()
+  })
+
+  it('words an unconfigured budget honestly without faking limits (R21)', async () => {
+    const { wrapper } = await mountPage('', {
+      budget: {
+        config: { alertsEnabled: false, monthlyTokenBudget: 0, tokenWarningThreshold: 0, warningRatio: 0.8, monthlyAmountBudgets: {} },
+        usage: { totalTokens: 1_260_000, costsByCurrency: {} },
+      },
+    })
+
+    const card = wrapper.get('[aria-labelledby="budget-heading"]')
+    expect(card.text()).toContain('预算提醒未开启')
+    expect(card.text()).toContain('1,260,000 token（未设置预算）')
+    expect(card.text()).not.toContain('警戒线')
+    wrapper.unmount()
+  })
 })
 
 interface FixtureOverrides {
   emptyMonths?: boolean
   zeroUnpriced?: boolean
+  /** R21: merged over the default budget view (over-budget tokens, CNY+USD tracks). */
+  budget?: Partial<ObservabilityBudget>
 }
 
 async function mountPage(query: string, overrides: FixtureOverrides = {}) {
@@ -149,6 +196,19 @@ class FixtureObservabilityGateway implements ObservabilityGateway {
       month,
       executionAttempts: { total: 20, completed: 15, failed: 4, cancelled: 1, successRate: 0.75 },
       reviewFirstPass: { enteredReview: 8, firstPassApproved: 6, firstPassRate: 0.75 },
+    }
+  }
+
+  async budget(_scope: SettingsScope): Promise<ObservabilityBudget> {
+    return {
+      usageMonth: '2026-10',
+      config: {
+        alertsEnabled: true, monthlyTokenBudget: 2_000_000,
+        tokenWarningThreshold: 1_600_000, warningRatio: 0.8,
+        monthlyAmountBudgets: { CNY: '500.00' },
+      },
+      usage: { totalTokens: 1_260_000, costsByCurrency: { CNY: '301.50', USD: '0.63' } },
+      ...this.overrides.budget,
     }
   }
 }

@@ -8,6 +8,7 @@ import {
   injectionTrimReasonLabel,
 } from '../../domains/injection/labels'
 import { SKILL_KEY_PATTERN } from '../../domains/skill/types'
+import { uuidQuery } from '../../utils/queryParams'
 import type {
   InjectionAttempt,
   InjectionFeedbackInput,
@@ -45,6 +46,16 @@ function toInput(row: InjectionReference): InjectionFeedbackInput {
   return { type: row.type, sourceId: row.sourceId, version: row.version, contentHash: row.contentHash }
 }
 
+/** The scope coordinates every deep link must carry along to survive the receiving page. */
+function scopeQuery(): Record<string, string> {
+  const query: Record<string, string> = {}
+  for (const key of ['team', 'project'] as const) {
+    const value = route.query[key]
+    if (typeof value === 'string' && value) query[key] = value
+  }
+  return query
+}
+
 /**
  * Manifest rows carry skillKey·revision, never a skill id (F02 D5). Team rows deep-link into the
  * catalog's version tab and let the page resolve the key itself. The built-in bundle's row is
@@ -58,12 +69,22 @@ function isTeamSkillRow(row: Pick<InjectionReference, 'type' | 'sourceId'>): boo
 
 function skillTarget(row: Pick<InjectionReference, 'type' | 'sourceId' | 'version'>): RouteLocationRaw | null {
   if (!isTeamSkillRow(row)) return null
-  const query: Record<string, string> = {}
-  for (const key of ['team', 'project'] as const) {
-    const value = route.query[key]
-    if (typeof value === 'string' && value) query[key] = value
-  }
-  return { name: 'skill-catalog', query: { ...query, skillKey: row.sourceId, revision: String(row.version), tab: 'versions' } }
+  return { name: 'skill-catalog', query: { ...scopeQuery(), skillKey: row.sourceId, revision: String(row.version), tab: 'versions' } }
+}
+
+/**
+ * M13b-F04（R18）: a KNOWLEDGE_ENTRY row addresses the entry by id (contract §3 — unlike skills,
+ * which ride the key) and carries the sealed revision, so the deep link lands on the entry's
+ * version tab with that revision selected. An id that fails the strict UUID shape stays plain
+ * rather than deep-linking into a guaranteed no-selection miss.
+ */
+function knowledgeTarget(row: Pick<InjectionReference, 'type' | 'sourceId' | 'version'>): RouteLocationRaw | null {
+  if (row.type !== 'KNOWLEDGE_ENTRY' || uuidQuery(row.sourceId) === null) return null
+  return { name: 'knowledge-base', query: { ...scopeQuery(), entry: row.sourceId, revision: String(row.version), tab: 'versions' } }
+}
+
+function referenceTarget(row: Pick<InjectionReference, 'type' | 'sourceId' | 'version'>): RouteLocationRaw | null {
+  return skillTarget(row) ?? knowledgeTarget(row)
 }
 </script>
 
@@ -105,7 +126,7 @@ function skillTarget(row: Pick<InjectionReference, 'type' | 'sourceId' | 'versio
         <li v-for="row in injected" :key="`${row.type}:${row.sourceId}:${row.version}:${row.contentHash}`">
           <StatusBadge tone="info">{{ injectionReferenceTypeLabels[row.type] }}</StatusBadge>
           <span v-if="isTeamSkillRow(row)" class="attempt-block__team">团队 Skill</span>
-          <span class="mono attempt-block__source"><template v-if="skillTarget(row)"><RouterLink :to="skillTarget(row)!">{{ row.sourceId }}</RouterLink></template><template v-else>{{ row.sourceId }}</template> · v{{ row.version }}</span>
+          <span class="mono attempt-block__source"><template v-if="referenceTarget(row)"><RouterLink :to="referenceTarget(row)!">{{ row.sourceId }}</RouterLink></template><template v-else>{{ row.sourceId }}</template> · v{{ row.version }}</span>
           <span class="mono attempt-block__hash">{{ row.contentHash.slice(0, 8) }}</span>
           <BaseButton
             v-if="!row.notApplicable"
@@ -128,7 +149,7 @@ function skillTarget(row: Pick<InjectionReference, 'type' | 'sourceId' | 'versio
         <li v-for="row in candidates" :key="`${row.type}:${row.sourceId}:${row.version}:${row.contentHash}`">
           <StatusBadge tone="neutral">{{ injectionReferenceTypeLabels[row.type] }}</StatusBadge>
           <span v-if="isTeamSkillRow(row)" class="attempt-block__team">团队 Skill</span>
-          <span class="mono attempt-block__source"><template v-if="skillTarget(row)"><RouterLink :to="skillTarget(row)!">{{ row.sourceId }}</RouterLink></template><template v-else>{{ row.sourceId }}</template> · v{{ row.version }}</span>
+          <span class="mono attempt-block__source"><template v-if="referenceTarget(row)"><RouterLink :to="referenceTarget(row)!">{{ row.sourceId }}</RouterLink></template><template v-else>{{ row.sourceId }}</template> · v{{ row.version }}</span>
           <span class="mono attempt-block__hash">{{ row.contentHash.slice(0, 8) }}</span>
         </li>
       </ul>
@@ -143,7 +164,7 @@ function skillTarget(row: Pick<InjectionReference, 'type' | 'sourceId' | 'versio
         <li v-for="row in attempt.claimed" :key="`${row.type}:${row.sourceId}:${row.version}:${row.contentHash}`">
           <StatusBadge tone="success">{{ injectionReferenceTypeLabels[row.type] }}</StatusBadge>
           <span v-if="isTeamSkillRow(row)" class="attempt-block__team">团队 Skill</span>
-          <span class="mono attempt-block__source"><template v-if="skillTarget(row)"><RouterLink :to="skillTarget(row)!">{{ row.sourceId }}</RouterLink></template><template v-else>{{ row.sourceId }}</template> · v{{ row.version }}</span>
+          <span class="mono attempt-block__source"><template v-if="referenceTarget(row)"><RouterLink :to="referenceTarget(row)!">{{ row.sourceId }}</RouterLink></template><template v-else>{{ row.sourceId }}</template> · v{{ row.version }}</span>
           <span class="mono attempt-block__hash">{{ row.contentHash.slice(0, 8) }}</span>
         </li>
       </ul>

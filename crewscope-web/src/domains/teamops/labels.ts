@@ -66,6 +66,7 @@ export const inboxSourceTypeLabels: Record<InboxSourceType, string> = {
   TASK_EXECUTION: 'Task 执行',
   ACTION_DELIVERY: '外部交付',
   NOTIFICATION_DELIVERY: '通知投递',
+  BUDGET: '预算提醒',
 }
 
 /** Whether the source aggregate still needs anything, independent of the member's own disposition. */

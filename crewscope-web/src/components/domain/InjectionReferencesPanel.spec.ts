@@ -98,6 +98,29 @@ describe('InjectionReferencesPanel', () => {
     expect(banner.text()).toBe('已标记为不适用')
   })
 
+  it('aggregates the marked rows of one execution across attempts, deduped by quadruple (R20)', async () => {
+    // One source sealed in two attempts is one feedback row on the server — the count says 2, not 3.
+    const gateway = new FixtureInjectionGateway()
+    const shared = { type: 'MEMORY_PREFERENCE' as const, sourceId: 'pref-1', version: 2, contentHash: 'b'.repeat(64) }
+    gateway.list = vi.fn(async () => view({
+      attempts: [
+        attempt({ references: [reference(shared), reference({ sourceId: 'entry-2', notApplicable: true })] }),
+        attempt({ attempt: 2, references: [reference({ ...shared, notApplicable: true })] }),
+      ],
+    }))
+    const aggregate = await mountPanel(gateway)
+    expect(aggregate.get('.injection-panel__note').text()).toBe('本次执行你已标记 2 条不适用。')
+
+    // An all-unmarked execution keeps the count row out — zero is not a fact worth announcing.
+    const clean = await mountPanel(new FixtureInjectionGateway())
+    expect(clean.text()).not.toContain('本次执行你已标记')
+    // And the in-place patch after a fresh mark surfaces the count immediately.
+    const live = await mountPanel(new FixtureInjectionGateway())
+    await live.findAll('button').find(item => item.text().includes('标记不适用'))!.trigger('click')
+    await flushPromises()
+    expect(live.text()).toContain('本次执行你已标记 1 条不适用')
+  })
+
   it('wording a 422 outside-manifest as an alert scoped to the union of INJECTED sets', async () => {
     const gateway = new FixtureInjectionGateway()
     gateway.submitFeedback = vi.fn(async () => { throw apiError(422, 'feedback_reference_outside_manifest') })

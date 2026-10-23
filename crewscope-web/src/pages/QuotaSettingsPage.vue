@@ -292,6 +292,10 @@ function formatTokens(value: number): string {
               <p class="quota-note">
                 预占按受理时任务预算上限记账，任务终态不释放；实际用量是跨团队的月度聚合，两者口径不同，不做归因对账。
               </p>
+              <!-- M13b-F04（R21）: cross-link — the budget reminder face lives beside the usage it tracks. -->
+              <p class="quota-note">
+                预算提醒线（警戒比例）的消耗视图在<RouterLink class="quota-link" :to="{ name: 'observability' }">成本质量</RouterLink>页的本月预算卡。
+              </p>
             </template>
           </template>
         </section>
@@ -335,6 +339,7 @@ function formatTokens(value: number): string {
 .quota-metric dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .quota-metric dd { margin: 0; font-size: var(--cs-text-base); }
 .quota-note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.quota-link { color: var(--cs-text-brand); }
 
 /* M12b-F01：悬停反馈补齐——此前这些可点元素对指针移动完全沉默。 */
 .quota-month-nav__item:hover:not(:disabled) { background: var(--cs-surface-subtle); border-color: var(--cs-border-accent); }

@@ -174,6 +174,8 @@ export interface KnowledgeIndexJobPage {
 export interface KnowledgeIndexJobFilter {
   source?: KnowledgeIndexJobSource
   status?: KnowledgeIndexJobStatus
+  /** M13b-A04/R16: narrows the listing to one entry's jobs (the entry-side deep-link filter). */
+  entryId?: string
 }
 
 /** `POST /rebuilds` 202 — a closed refresh gate answers zero, a skip rather than an error. */
@@ -195,3 +197,17 @@ export interface RepositoryBuildInput {
 
 /** Contract §2: the commit must be a 40- or 64-character hex string. */
 export const COMMIT_PATTERN = /^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$/
+
+/**
+ * M13b-A03 `GET /knowledge/config` — the six deployment switches as booleans only
+ * (contract §5: no environment-variable names surface). Member-level read: the banner
+ * and the PENDING hint key off `indexEnabled` alone, never off an env name.
+ */
+export interface KnowledgeSwitchConfig {
+  vectorEnabled: boolean
+  indexEnabled: boolean
+  indexWorkerEnabled: boolean
+  retrievalEnabled: boolean
+  injectionEnabled: boolean
+  skillEnabled: boolean
+}

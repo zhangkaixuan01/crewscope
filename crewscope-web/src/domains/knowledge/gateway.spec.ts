@@ -54,7 +54,7 @@ describe('HttpKnowledgeGateway', () => {
     await expect(gateway.getEffectiveVersion(scope, entryId)).rejects.toThrow('denied')
   })
 
-  it('sends If-Match and Idempotency-Key for PATCH, publish, retire and DELETE commands', async () => {
+  it('sends If-Match and Idempotency-Key for PATCH, publish, retire, rollback and DELETE commands', async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => json(receiptPayload(), 202))
     const gateway = gatewayWith(fetcher)
 
@@ -62,6 +62,7 @@ describe('HttpKnowledgeGateway', () => {
     await gateway.publishEntry(scope, entryId, '"4"', 'publish-key')
     await gateway.retireEntry(scope, entryId, '"5"', 'retire-key')
     await gateway.deleteEntry(scope, entryId, '"6"', 'delete-key')
+    await gateway.rollbackEntry(scope, entryId, 2, '"7"', 'rollback-key')
 
     const calls = fetcher.mock.calls
     expect(new Headers(calls[0]?.[1]?.headers).get('If-Match')).toBe('"3"')
@@ -72,6 +73,12 @@ describe('HttpKnowledgeGateway', () => {
     expect(String(calls[2]?.[0])).toContain('/retire')
     expect(calls[3]?.[1]?.method).toBe('DELETE')
     expect(new Headers(calls[3]?.[1]?.headers).get('If-Match')).toBe('"6"')
+    // M13b-A05: rollback targets the head with the requested revision as the only body field.
+    expect(String(calls[4]?.[0])).toContain(`/knowledge/entries/${entryId}/rollback`)
+    expect(calls[4]?.[1]?.method).toBe('POST')
+    expect(new Headers(calls[4]?.[1]?.headers).get('If-Match')).toBe('"7"')
+    expect(new Headers(calls[4]?.[1]?.headers).get('Idempotency-Key')).toBe('rollback-key')
+    expect(JSON.parse(String(calls[4]?.[1]?.body))).toEqual({ toRevision: 2 })
     // A draft PATCH keeps an absent category instead of echoing a stale one.
     expect(String(calls[0]?.[1]?.body)).not.toContain('category')
   })
@@ -120,17 +127,33 @@ describe('HttpKnowledgeGateway', () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => json({ items: [jobPayload({ claimToken: 'worker-internal' })], nextAfter: '00000000-0000-0000-0000-000000007402' }))
     const gateway = gatewayWith(fetcher)
 
-    const page = await gateway.listJobs(scope, { source: 'REPOSITORY', status: 'QUEUED' }, '00000000-0000-0000-0000-000000007401', 25)
+    const page = await gateway.listJobs(scope, { source: 'REPOSITORY', status: 'QUEUED', entryId }, '00000000-0000-0000-0000-000000007401', 25)
 
     // The control plane lives under /knowledge/index, beside the entries collection.
     expect(String(fetcher.mock.calls[0]?.[0])).toContain('/knowledge/index/jobs?')
     expect(String(fetcher.mock.calls[0]?.[0])).toContain('source=REPOSITORY')
     expect(String(fetcher.mock.calls[0]?.[0])).toContain('status=QUEUED')
+    // M13b-A04/R16: the entry deep-link filter rides the same query string.
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain(`entryId=${entryId}`)
     expect(String(fetcher.mock.calls[0]?.[0])).toContain('limit=25')
     expect(page.nextAfter).toBe('00000000-0000-0000-0000-000000007402')
     expect(page.items[0]?.status).toBe('EMBEDDING')
     expect(page.items[0]?.indexKey?.modelRevision).toBe(3)
     expect(JSON.stringify(page)).not.toContain('worker-internal')
+  })
+
+  it('sends the per-entry index refresh with an Idempotency-Key and no If-Match (A04/R17)', async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => json(receiptPayload(), 202))
+    const gateway = gatewayWith(fetcher)
+
+    const receipt = await gateway.refreshEntryIndex(scope, entryId, 'retry-key-1')
+
+    const [url, init] = fetcher.mock.calls[0] as [RequestInfo, RequestInit]
+    expect(String(url)).toContain(`/knowledge/entries/${entryId}/index-refresh`)
+    const headers = init?.headers as Headers
+    expect(headers.get('Idempotency-Key')).toBe('retry-key-1')
+    expect(headers.get('If-Match')).toBeNull()
+    expect(receipt.correlationId).toBe('00000000-0000-0000-0000-000000007303')
   })
 
   it('sends the three control commands without Idempotency-Key or If-Match (structural idempotency)', async () => {
@@ -177,6 +200,25 @@ describe('HttpKnowledgeGateway', () => {
     const gateway = gatewayWith(vi.fn(async () => json({ items: [jobPayload({ status: 'PAUSED' })], nextAfter: null })))
 
     await expect(gateway.listJobs(scope, {})).rejects.toThrow('job status')
+  })
+
+  it('maps the six deployment switches from /knowledge/config and fails closed on non-booleans', async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL) => json({
+      vectorEnabled: true, indexEnabled: false, indexWorkerEnabled: false,
+      retrievalEnabled: true, injectionEnabled: true, skillEnabled: false,
+    }))
+    const gateway = gatewayWith(fetcher)
+
+    const config = await gateway.switchConfig(scope)
+
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain('/knowledge/config')
+    expect(config).toEqual({
+      vectorEnabled: true, indexEnabled: false, indexWorkerEnabled: false,
+      retrievalEnabled: true, injectionEnabled: true, skillEnabled: false,
+    })
+
+    const broken = gatewayWith(vi.fn(async () => json({ vectorEnabled: 'yes' })))
+    await expect(broken.switchConfig(scope)).rejects.toThrow('switch config')
   })
 })
 

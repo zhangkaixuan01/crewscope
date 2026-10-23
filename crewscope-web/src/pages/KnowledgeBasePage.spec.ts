@@ -16,6 +16,7 @@ import type {
   KnowledgeEntryFilter,
   KnowledgeEntryPage,
   KnowledgeEntrySummary,
+  KnowledgeSwitchConfig,
   KnowledgeVersion,
   KnowledgeVersionPage,
   UpdateKnowledgeDraftInput,
@@ -101,7 +102,8 @@ describe('KnowledgeBasePage', () => {
     expect(wrapper.text()).not.toContain('创建条目')
     expect(wrapper.text()).not.toContain('发布当前草稿')
     expect(wrapper.text()).not.toContain('删除条目')
-    expect(wrapper.text()).not.toContain('从执行蒸馏')
+    // R29：蒸馏是 member 级入口（与后端门槛一致），不再藏在 knowledge:manage 后面。
+    expect(wrapper.text()).toContain('从执行蒸馏')
     wrapper.unmount()
   })
 
@@ -122,6 +124,30 @@ describe('KnowledgeBasePage', () => {
     wrapper.unmount()
   })
 
+  it('walks the rollback flow through the confirmed alertdialog (R28)', async () => {
+    // 生效指针在 r2：历史行 r1 是合法回滚目标，r2 行不出现回滚钮。
+    const { wrapper, gateway, store } = await mountPage(manager, `entry=${entryId}&tab=versions`, {
+      versions: [version(2), version(1)],
+    })
+    const rollbackButtons = wrapper.findAll('button').filter(button => button.text() === '回滚到此版本')
+    expect(rollbackButtons).toHaveLength(1)
+
+    await rollbackButtons[0]!.trigger('click')
+    const dialog = wrapper.get('[role="alertdialog"]')
+    expect(dialog.text()).toContain('回滚到 r1？')
+    // 回滚不是删除：确认对话框直给，不设毁损 checkbox。
+    expect(dialog.find('input[type="checkbox"]').exists()).toBe(false)
+
+    await dialog.findAll('button').find(button => button.text() === '确认回滚')!.trigger('click')
+    await flushPromises()
+
+    expect(gateway.rollbackCalls).toEqual([{ entryId, toRevision: 1 }])
+    expect(store.state.command.operation).toBe('rollback')
+    expect(store.state.command.phase).toBe('success')
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('surfaces the authoritative PENDING wording next to the badge', async () => {
     const { wrapper } = await mountPage(manager, `entry=${entryId}`, { indexStatus: 'PENDING' })
 
@@ -129,6 +155,49 @@ describe('KnowledgeBasePage', () => {
     expect(wrapper.text()).toContain('索引状态与保存状态无关：内容已保存，等待后台建立索引')
     expect(wrapper.text()).not.toContain('未保存')
     wrapper.unmount()
+  })
+
+  it('lists the disabled capabilities in a banner and stays silent when all switches are on (R04)', async () => {
+    const allOn = await mountPage(manager, '')
+    expect(allOn.wrapper.find('.knowledge-switch-banner').exists()).toBe(false)
+    allOn.wrapper.unmount()
+
+    const { wrapper } = await mountPage(manager, '', { switches: { retrievalEnabled: false, injectionEnabled: false } })
+
+    const banner = wrapper.get('.knowledge-switch-banner')
+    expect(banner.text()).toContain('知识检索、知识注入')
+    expect(banner.text()).toContain('请联系管理员')
+    // 契约 §5：横幅只承载能力名，不暴露环境变量名。
+    expect(banner.text()).not.toMatch(/CREWSCOPE_|_ENABLED/)
+    wrapper.unmount()
+  })
+
+  it('rewords the PENDING hint as capability-off when the index switch is confirmed off (R04)', async () => {
+    const { wrapper } = await mountPage(manager, `entry=${entryId}`, { indexStatus: 'PENDING', switches: { indexEnabled: false } })
+
+    expect(wrapper.text()).toContain('索引功能未启用，请联系管理员')
+    expect(wrapper.text()).not.toContain('等待后台建立索引')
+    wrapper.unmount()
+  })
+
+  it('polls the listing while a PENDING badge exists and stops once every badge resolves (R15)', async () => {
+    vi.useFakeTimers()
+    const { wrapper, gateway } = await mountPage(manager, '', { indexStatus: 'PENDING' })
+    await flushPromises()
+    const callsAfterLoad = gateway.listCalls.length
+
+    // 仍有待索引徽章：15s 后再读一次列表（refresh 返回 true 续排）。
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(gateway.listCalls.length).toBe(callsAfterLoad + 1)
+
+    // 徽章全绿后：本轮 reload 返回 false 自然停摆，之后不再有新请求。
+    gateway.settleIndexes()
+    await vi.advanceTimersByTimeAsync(15_000)
+    const settled = gateway.listCalls.length
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(gateway.listCalls.length).toBe(settled)
+    wrapper.unmount()
+    vi.useRealTimers()
   })
 
   it('creates an entry through the dialog and refreshes the listing', async () => {
@@ -171,7 +240,11 @@ describe('KnowledgeBasePage', () => {
   })
 })
 
-async function mountPage(principal: AuthenticatedPrincipal, query: string, overrides: { indexStatus?: 'PENDING' } = {}) {
+async function mountPage(
+  principal: AuthenticatedPrincipal,
+  query: string,
+  overrides: { indexStatus?: 'PENDING', switches?: Partial<KnowledgeSwitchConfig>, versions?: KnowledgeVersion[] } = {},
+) {
   const router = createCrewScopeRouter(createMemoryHistory(), fixtureAuthStore(principal))
   const scopeStore = createScopeStore(new FixtureScopeGateway(), principal)
   await scopeStore.synchronize(fixtureIds.teamPlatform, fixtureIds.projectCrewScope)
@@ -215,19 +288,28 @@ class FixtureKnowledgeGateway implements KnowledgeGateway {
   createInputs: CreateKnowledgeEntryInput[] = []
   deleted = false
   draftFailure: CrewScopeApiError | null = null
+  configCalls = 0
+  private current: 'PENDING' | 'INDEXED'
 
-  constructor(private readonly overrides: { indexStatus?: 'PENDING' } = {}) {}
+  constructor(private readonly overrides: { indexStatus?: 'PENDING', switches?: Partial<KnowledgeSwitchConfig>, versions?: KnowledgeVersion[] } = {}) {
+    this.current = overrides.indexStatus ?? 'INDEXED'
+  }
+
+  /** R15: simulates the background index catching up — the next listing reads green. */
+  settleIndexes(): void {
+    this.current = 'INDEXED'
+  }
 
   async listEntries(_scope: SettingsScope, filter?: KnowledgeEntryFilter, _after?: string | null, _limit?: number, _signal?: AbortSignal): Promise<KnowledgeEntryPage> {
     this.listCalls.push(filter)
-    return { items: [entry({ indexStatus: this.overrides.indexStatus ?? 'INDEXED' })], nextAfter: null }
+    return { items: [entry({ indexStatus: this.current })], nextAfter: null }
   }
 
   async getEntry(_scope: SettingsScope, _entryId: string, _signal?: AbortSignal): Promise<Etagged<KnowledgeEntrySummary>> {
     this.entryReads += 1
     return {
       value: entry({
-        indexStatus: this.overrides.indexStatus ?? 'INDEXED',
+        indexStatus: this.current,
         status: this.deleted ? 'DELETED' : 'PUBLISHED',
       }),
       etag: '"3"',
@@ -235,7 +317,7 @@ class FixtureKnowledgeGateway implements KnowledgeGateway {
   }
 
   async listVersions(_scope: SettingsScope, _entryId: string, _after?: number | null, _limit?: number, _signal?: AbortSignal): Promise<KnowledgeVersionPage> {
-    return { items: [version(1)], nextAfter: null }
+    return { items: this.overrides.versions ?? [version(1)], nextAfter: null }
   }
 
   async getVersion(_scope: SettingsScope, _entryId: string, _revision: number, _signal?: AbortSignal): Promise<Etagged<KnowledgeVersion>> {
@@ -265,6 +347,15 @@ class FixtureKnowledgeGateway implements KnowledgeGateway {
     return receipt()
   }
 
+  rollbackCalls: Array<{ entryId: string, toRevision: number }> = []
+
+  async rollbackEntry(_scope: SettingsScope, entryId: string, toRevision: number, _etag: string, _idempotencyKey: string): Promise<KnowledgeCommandReceipt> {
+    this.rollbackCalls.push({ entryId, toRevision })
+    return receipt()
+  }
+
+  async refreshEntryIndex(): Promise<KnowledgeCommandReceipt> { return receipt() }
+
   async retireEntry(_scope: SettingsScope, _entryId: string, _etag: string, _idempotencyKey: string): Promise<KnowledgeCommandReceipt> {
     return receipt()
   }
@@ -292,6 +383,16 @@ class FixtureKnowledgeGateway implements KnowledgeGateway {
   async cancelJob(): Promise<never> { throw new Error('not used by the knowledge base page') }
   async rebuild(): Promise<never> { throw new Error('not used by the knowledge base page') }
   async enqueueRepositoryBuild(): Promise<never> { throw new Error('not used by the knowledge base page') }
+
+  // M13b-A03（R04）：默认全开——横幅与禁用文案只在确认关闭时出现。
+  async switchConfig(): Promise<KnowledgeSwitchConfig> {
+    this.configCalls += 1
+    return {
+      vectorEnabled: true, indexEnabled: true, indexWorkerEnabled: true,
+      retrievalEnabled: true, injectionEnabled: true, skillEnabled: true,
+      ...this.overrides.switches,
+    }
+  }
 }
 
 function entry(overrides: Partial<KnowledgeEntrySummary> = {}): KnowledgeEntrySummary {

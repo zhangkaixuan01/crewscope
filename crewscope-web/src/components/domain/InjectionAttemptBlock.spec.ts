@@ -9,6 +9,7 @@ const testRouter = createRouter({
   routes: [
     { path: '/work', name: 'work', component: { template: '<div />' } },
     { path: '/skills', name: 'skill-catalog', component: { template: '<div />' } },
+    { path: '/knowledge', name: 'knowledge-base', component: { template: '<div />' } },
   ],
 })
 
@@ -136,6 +137,32 @@ describe('InjectionAttemptBlock', () => {
     expect(wrapper.findAll('a')).toHaveLength(0)
     expect(wrapper.text()).toContain('java-spring-v1_crewscope-java-spring-v1')
     expect(wrapper.text()).not.toContain('团队 Skill')
+  })
+
+  it('deep-links every KNOWLEDGE_ENTRY row to the entry version tab by id (R18)', () => {
+    // Contract §3: a knowledge row addresses the entry by id and carries the sealed revision —
+    // the link lands on the version tab with that revision selected, in every zone.
+    const entryId = '00000000-0000-1000-8000-000000007101'
+    const wrapper = mountBlock({
+      attempt: attempt({
+        references: [
+          reference({ sourceId: entryId, version: 3 }),
+          reference({ stage: 'CANDIDATE', sourceId: entryId, version: 3 }),
+        ],
+        claimed: [key({ sourceId: entryId, version: 3 })],
+      }),
+      pendingReference: null,
+    })
+
+    const links = wrapper.findAll('a').filter(item => item.text() === entryId)
+    expect(links).toHaveLength(3)
+    for (const link of links) {
+      expect(link.attributes('href')).toBe(`/knowledge?team=t-1&entry=${entryId}&revision=3&tab=versions`)
+    }
+
+    // An id outside the strict UUID shape stays plain text — never a guaranteed no-selection miss.
+    const plain = mountBlock({ attempt: attempt(), pendingReference: null })
+    expect(plain.findAll('a')).toHaveLength(0)
   })
 })
 

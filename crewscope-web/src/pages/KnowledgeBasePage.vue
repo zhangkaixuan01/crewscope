@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { BookPlus, RefreshCw, Sparkles } from '@lucide/vue'
-import { computed, inject, ref } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { oneOf, revisionQuery, uuidQuery } from '../utils/queryParams'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
@@ -14,15 +14,18 @@ import AppShell from '../components/layout/AppShell.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import ActionConfirmDialog from '../components/shared/ActionConfirmDialog.vue'
 import { idleVersionPage, useEntryLibraryPage } from '../composables/useEntryLibraryPage'
+import { useAutoRefresh } from '../composables/useAutoRefresh'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 import { useKnowledgeStore } from '../domains/knowledge/store'
 import type { KnowledgeVersionPageResource } from '../domains/knowledge/store'
+import { knowledgeSwitchLabels } from '../domains/knowledge/labels'
 import type {
   CreateKnowledgeEntryInput,
   DistillKnowledgeInput,
   KnowledgeCategory,
   KnowledgeEntryFilter,
   KnowledgeEntryStatus,
+  KnowledgeSwitchConfig,
   UpdateKnowledgeDraftInput,
 } from '../domains/knowledge/types'
 import { knowledgeCategories, knowledgeEntryStatuses } from '../domains/knowledge/types'
@@ -41,6 +44,8 @@ const createOpen = ref(false)
 const distillOpen = ref(false)
 const distillReceipt = ref(store.distillationReceipt())
 const deleteTarget = ref<string | null>(null)
+/** M13b-F04（R28/A05）：回滚意图——与删除同款的确认对话框模式，影响说明讲清「追加新修订」。 */
+const rollbackIntent = ref<{ entryId: string, toRevision: number, effectiveRevision: number } | null>(null)
 
 const scope = computed<SettingsScope | null>(() => principal && scopeStore.state.selectedTeamId
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
@@ -83,9 +88,43 @@ const deleting = computed(() => store.state.command.phase === 'pending' && store
 const deleteError = computed(() => commandForSelection.value?.phase === 'error' && commandForSelection.value.operation === 'delete'
   ? store.state.command.errorMessage
   : null)
+// R28：回滚产出新修订而非毁损——plain 确认即可，毁损 checkbox 只留给删除。
+const rollingBack = computed(() => store.state.command.phase === 'pending' && store.state.command.operation === 'rollback' && store.state.command.resourceId === (entry.value?.id ?? null))
+const rollbackError = computed(() => commandForSelection.value?.phase === 'error' && commandForSelection.value.operation === 'rollback'
+  ? store.state.command.errorMessage
+  : null)
 const draftScope = computed(() => principal && scope.value
   ? { accountId: principal.accountId, principalId: principal.id, organizationId: principal.organizationId, teamId: scope.value.teamId }
   : null)
+
+// M13b-A03（R04）：开关是 member 级只读事实——确认有关闭项才横幅，未知（未载/失败）不渲染。
+// config 由 store.activateScope 顺带读取（scope 级事实），页面只消费。
+const switchConfig = computed<KnowledgeSwitchConfig | null>(() => store.state.config.value)
+const indexEnabled = computed<boolean | null>(() => switchConfig.value?.indexEnabled ?? null)
+const disabledSwitchNames = computed<string[]>(() => {
+  const config = switchConfig.value
+  if (!config) return []
+  return (Object.keys(knowledgeSwitchLabels) as (keyof KnowledgeSwitchConfig)[])
+    .filter(key => !config[key])
+    .map(key => knowledgeSwitchLabels[key])
+})
+
+// M13b-F04（R15）：列表里仍有待索引徽章时 15s 轮询，让徽章在后台索引追上后自然转绿；
+// 徽章全绿后 refresh 返回 false 自然停摆，不制造空转流量。
+const badgePolling = useAutoRefresh(async () => {
+  const alive = await library.reload()
+  // scope 切换中的重载不算「无待索引」——交给 active 闸与下一次 watch 触发。
+  if (!alive) return true
+  return store.state.entries.value?.some(entry => entry.indexStatus === 'PENDING') ?? false
+}, {
+  interval: 15_000,
+  active: () => Boolean(scope.value && online.value),
+})
+// 任何事实刷新之后（初始加载、发布/蒸馏成功的 force reload、手动刷新），只要还有
+// 待索引徽章就把轮询（重新）排上——新 PENDING 即重启，无需在每个命令回调里点名。
+watch(() => store.state.entries.value, entries => {
+  if (entries?.some(entry => entry.indexStatus === 'PENDING')) badgePolling.start()
+})
 
 /** Shared library lifecycle (M12b-F04): catalog/selection loads, query coordination, commands. */
 const library = useEntryLibraryPage<string>({
@@ -161,6 +200,26 @@ async function confirmDelete(): Promise<void> {
   if (done) cancelDelete()
 }
 
+function requestRollback(revision: number): void {
+  if (!selectedEntryId.value) return
+  rollbackIntent.value = {
+    entryId: selectedEntryId.value,
+    toRevision: revision,
+    effectiveRevision: entry.value?.effectiveRevision ?? revision,
+  }
+}
+
+function cancelRollback(): void {
+  rollbackIntent.value = null
+}
+
+async function confirmRollback(): Promise<void> {
+  const intent = rollbackIntent.value
+  if (!intent) return
+  const done = await library.runCommand('rollback', intent.entryId, key => store.rollbackEntry(intent.entryId, intent.toRevision, key))
+  if (done) cancelRollback()
+}
+
 async function createEntry(input: CreateKnowledgeEntryInput, idempotencyKey: string): Promise<void> {
   const pageOwner = pageRequests.captureSelection()
   const success = await store.createEntry(input, idempotencyKey)
@@ -198,10 +257,19 @@ function openDistilledEntry(entryId: string): void {
     <template #actions>
       <BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scopeMissing ? 'knowledge-scope-reason' : undefined" @click="library.reload"><RefreshCw :size="14" />刷新</BaseButton>
       <BaseButton v-if="canManage" variant="secondary" size="small" :disabled="!online" @click="createOpen = true"><BookPlus :size="14" />创建条目</BaseButton>
-      <BaseButton v-if="canManage" variant="secondary" size="small" :disabled="!online" @click="openDistill"><Sparkles :size="14" />从执行蒸馏</BaseButton>
+      <BaseButton variant="secondary" size="small" :disabled="!online" @click="openDistill"><Sparkles :size="14" />从执行蒸馏</BaseButton>
     </template>
 
     <StatePanel v-if="scopeMissing" id="knowledge-scope-reason" state="empty" title="请选择 Team" description="知识库始终属于明确的 Organization 与 Team。" />
+
+    <!-- R04：横幅只列能力名（契约 §5：不暴露 env 名）；全开或开关未知时不渲染。 -->
+    <p
+      v-if="scopeStore.state.phase === 'ready' && scope && disabledSwitchNames.length > 0"
+      class="knowledge-switch-banner"
+      role="note"
+    >
+      以下知识能力未启用：{{ disabledSwitchNames.join('、') }}。未启用的能力不会处理内容；如需启用，请联系管理员。
+    </p>
 
     <div v-if="scopeStore.state.phase === 'ready' && scope" class="knowledge-workspace" :class="{ 'has-detail': Boolean(selectedEntryId) }">
       <KnowledgeEntryList
@@ -238,6 +306,7 @@ function openDistilledEntry(entryId: string): void {
         :scope="draftScope!"
         :can-manage="canManage"
         :online="online"
+        :index-enabled="indexEnabled"
         @close="library.closeDetail"
         @save="input => saveDraft(selectedEntryId!, input)"
         @publish="publish(selectedEntryId!)"
@@ -248,8 +317,23 @@ function openDistilledEntry(entryId: string): void {
         @load-more-versions="library.loadMoreVersions"
         @retry-entry="library.retryDetail"
         @retry-versions="library.retryVersions"
+        @rollback="requestRollback"
       />
     </div>
+
+    <ActionConfirmDialog
+      v-if="rollbackIntent !== null"
+      :heading="`回滚到 r${rollbackIntent.toRevision}？`"
+      :impact="`回滚不是删除：会产出一个新的不可变修订，其内容与哈希与 r${rollbackIntent.toRevision} 完全相同（相邻修订同哈希属正常形态），生效指针移过去后，检索与注入立即改用该内容；当前生效的 r${rollbackIntent.effectiveRevision} 之后的中间修订全部保留在历史中。`"
+      mode="plain"
+      confirm-label="确认回滚"
+      width="min(500px, 100%)"
+      close-label="关闭回滚确认"
+      :submitting="rollingBack"
+      :error-message="rollbackError"
+      @cancel="cancelRollback"
+      @confirm="confirmRollback"
+    />
 
     <ActionConfirmDialog
       v-if="deleteTarget !== null"
@@ -281,6 +365,7 @@ function openDistilledEntry(entryId: string): void {
       :submitting="distillPending"
       :error-message="distillError"
       :receipt="distillReceipt"
+      :index-enabled="indexEnabled"
       @close="closeDistill"
       @distill="distill"
       @open-entry="openDistilledEntry"
@@ -291,6 +376,7 @@ function openDistilledEntry(entryId: string): void {
 <style scoped>
 /* M13b-F09（S4）：未选中不再保留 44% 空栏——默认单栏列表，选中后右侧 340px 详情，≤900 下移。 */
 .knowledge-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cs-space-16); align-items: start; }.knowledge-workspace.has-detail { grid-template-columns: minmax(0, 1fr) 340px; }
+.knowledge-switch-banner { margin: 0 0 var(--cs-space-16); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 @media (max-width: 900px) {
   .knowledge-workspace { grid-template-columns: 1fr; }
 }

@@ -5,6 +5,7 @@ import { nextTick, watch } from 'vue'
 import type { SettingsScope } from '../settings/types'
 import { createKnowledgeIndexStore, type KnowledgeIndexGateway } from './index-store'
 import type {
+  KnowledgeCommandReceipt,
   KnowledgeIndexJob,
   KnowledgeIndexJobFilter,
   KnowledgeIndexJobPage,
@@ -182,6 +183,27 @@ describe('KnowledgeIndexStore', () => {
     expect(store.state.command.phase).toBe('idle')
     expect(() => store.loadJobs({})).rejects.toThrow('Scope is not active')
   })
+
+  it('submits the per-entry index refresh with the caller key and invalidates the listing (A04/R17)', async () => {
+    const gateway = new FixtureIndexGateway()
+    const keys: string[] = []
+    vi.spyOn(gateway, 'refreshEntryIndex').mockImplementation(async (_scope, _entryId, key) => {
+      keys.push(key)
+      return receipt()
+    })
+    const store = createKnowledgeIndexStore(gateway)
+    store.activateScope(platformScope)
+    await store.loadJobs({})
+
+    expect(await store.refreshEntry('00000000-0000-0000-0000-000000007101', 'key-1')).toBe(true)
+
+    expect(keys).toEqual(['key-1'])
+    expect(store.state.command.operation).toBe('refresh-entry')
+    // The receipt is always a 202 answer — the wording states the skip possibility honestly.
+    expect(store.state.command.message).toContain('已提交该条目的索引刷新命令')
+    // The entry-filtered listing must re-read to surface what actually queued.
+    expect(store.state.jobs.phase).toBe('idle')
+  })
 })
 
 class FixtureIndexGateway implements KnowledgeIndexGateway {
@@ -189,6 +211,7 @@ class FixtureIndexGateway implements KnowledgeIndexGateway {
   async cancelJob(_scope: SettingsScope, _jobId: string): Promise<KnowledgeIndexJob> { throw new Error('not stubbed') }
   async rebuild(_scope: SettingsScope): Promise<RebuildAccepted> { throw new Error('not stubbed') }
   async enqueueRepositoryBuild(_scope: SettingsScope, _input: RepositoryBuildInput): Promise<RepositoryBuildAccepted> { throw new Error('not stubbed') }
+  async refreshEntryIndex(_scope: SettingsScope, _entryId: string, _idempotencyKey: string): Promise<KnowledgeCommandReceipt> { throw new Error('not stubbed') }
 }
 
 const jobAId = '00000000-0000-0000-0000-000000007401'
@@ -222,6 +245,15 @@ function buildInput(): RepositoryBuildInput {
     projectId: fixtureIds.projectCrewScope,
     bindingId: '00000000-0000-0000-0000-000000007501',
     commit: 'a'.repeat(40),
+  }
+}
+
+function receipt(): KnowledgeCommandReceipt {
+  return {
+    commandId: '00000000-0000-0000-0000-000000007601',
+    domainEventId: '00000000-0000-0000-0000-000000007602',
+    committedVersion: 5,
+    correlationId: '00000000-0000-0000-0000-000000007603',
   }
 }
 

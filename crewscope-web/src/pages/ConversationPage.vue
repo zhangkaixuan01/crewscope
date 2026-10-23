@@ -798,6 +798,22 @@ function openAssociatedTask(association: TaskAssociationSummary): void {
   })
 }
 
+/** M13b-F04（R22）：对话面的知识注入入口——注入证据封存在任务详情的「注入与引用」区，
+ * 深链带 #ws-injection 锚，抽屉在详情就绪后定位该区（页面级 scrollBehavior 不滚 hash）。 */
+function openTaskInjectionEvidence(association: TaskAssociationSummary): void {
+  void router.push({
+    name: 'work',
+    query: {
+      ...route.query,
+      conversation: selected.value?.id,
+      project: association.task.projectId,
+      workItem: association.task.workItemId,
+      task: association.task.id,
+    },
+    hash: '#ws-injection',
+  })
+}
+
 function openTaskWorkItem(association: TaskAssociationSummary): void {
   void router.push({
     name: 'work',
@@ -1108,6 +1124,16 @@ async function redirectIfForbidden(): Promise<void> {
                   @retry="retryTasks"
                 />
               </details>
+              <!-- M13b-F04（R22）：注入证据入口卡——不拉新数据，直接链到各关联任务详情的锚点。 -->
+              <details v-if="taskAssociations.length" class="conversation-structure">
+                <summary>知识注入 <span>{{ taskAssociations.length }} 项任务</span></summary>
+                <p class="conversation-injection-note">每次执行送入模型的知识、技能与记忆证据，封存在对应任务详情的「注入与引用」区。</p>
+                <ul class="conversation-injection-list">
+                  <li v-for="association in taskAssociations" :key="association.task.id">
+                    <button type="button" @click="openTaskInjectionEvidence(association)">{{ association.task.objective }}</button>
+                  </li>
+                </ul>
+              </details>
               <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{ messageAnnouncement }}</p>
               <div
                 v-if="messageStore.state.phase === 'empty' && messageStore.state.pending.length === 0 && !visibleInvocationMessage && !visibleStreamedReply && !agentBusy"
@@ -1333,6 +1359,10 @@ async function redirectIfForbidden(): Promise<void> {
  * maths in useVirtualList already subtracts it — here they only occupy pure height. */
 .virtual-spacer { pointer-events: none; }
 .conversation-structure { max-width: 900px; margin: 0 auto var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-glass); }
+.conversation-injection-note { margin: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.conversation-injection-list { display: grid; gap: var(--cs-space-4); margin: 0 var(--cs-space-8) var(--cs-space-8); padding: 0; list-style: none; }
+.conversation-injection-list button { padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); text-align: left; cursor: pointer; }
+.conversation-injection-list button:hover { background: var(--cs-surface-subtle); border-color: var(--cs-border-accent); }
 .conversation-structure summary { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-8) var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }
 .conversation-structure summary span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }
 .conversation-structure > :deep(*) { margin-inline: var(--cs-space-8); }

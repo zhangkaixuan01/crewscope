@@ -42,6 +42,20 @@ test.beforeEach(async ({ page }) => {
     if (path === '/api/v1/auth/session') return json(route, authenticatedSession(ids.organization, ids.principal, ids.team))
     if (path.endsWith('/teams')) return json(route, [team()])
     if (path.endsWith(`/${ids.team}/work-projects`)) return json(route, { items: [project()], nextCursor: null })
+    // M13b-A06（R21）：预算卡是独立资源——当前月（时钟冻结在 2026-10）+ 提醒线措辞。
+    if (path.endsWith('/observability/budget')) {
+      return json(route, {
+        usageMonth: '2026-10',
+        config: {
+          alertsEnabled: true,
+          monthlyTokenBudget: 2_000_000,
+          tokenWarningThreshold: 1_700_000,
+          warningRatio: 0.85,
+          monthlyAmountBudgets: { CNY: '1000.00' },
+        },
+        usage: { totalTokens: 1_800_000, costsByCurrency: { CNY: '0.050000000000', USD: '0.528000000000' } },
+      })
+    }
     if (path.endsWith('/observability/cost/months')) {
       listingQueries.push(url.searchParams)
       const after = url.searchParams.get('after')
@@ -84,6 +98,21 @@ test('renders the source lanes, per-currency amounts, price revisions and the un
   await expect(page.getByText('目录 2 · 价格 3')).toBeVisible()
   await expect(page.getByText('（未回显 2）')).toBeVisible()
   await expect(page.getByText('未计价')).toBeVisible()
+})
+
+test('surfaces the current-month budget card with the reminder-line wording (R21)', async ({ page }) => {
+  await page.goto(`/observability?team=${ids.team}`)
+
+  // 预算卡钉在当前月（2026-10），不跟随下方的历史月份导航。
+  const card = page.getByRole('region', { name: '本月预算与消耗' })
+  await expect(card.getByText('Token 预算（2026-10）')).toBeVisible()
+  await expect(card.getByText('1,800,000 / 2,000,000 token')).toBeVisible()
+  await expect(card.getByText('已达警戒线')).toBeVisible()
+  await expect(card.getByText('警戒线 1,700,000 token（预算的 85%）；预算是提醒线，不是硬限制。')).toBeVisible()
+  // 金额轨：有预算的币种先、花了但没预算的币种诚实标注。
+  await expect(card.getByText('0.050000000000 / 1000.00 CNY')).toBeVisible()
+  await expect(card.getByText('0.528000000000 USD（未设置预算）')).toBeVisible()
+  await expect(card.getByRole('link', { name: '配额设置' })).toHaveAttribute('href', /\/settings\/quota/)
 })
 
 test('pages earlier months through the keyset cursor', async ({ page }) => {

@@ -102,6 +102,29 @@ export interface ObservabilityQualityMonth {
   reviewFirstPass: ObservabilityReviewFirstPass
 }
 
+/**
+ * The budget read face (M13b-A06): the configured budgets and thresholds exactly as the alert
+ * scan interprets them, next to the current month's usage from the same source. Amounts arrive
+ * as per-currency `toPlainString()` text like every other cost payload; a zero token budget or
+ * a missing currency budget means "not configured" — the budget is a reminder line, never a
+ * quota (backend wording, TeamBudgetAlertSettings).
+ */
+export interface ObservabilityBudget {
+  usageMonth: string
+  config: {
+    alertsEnabled: boolean
+    monthlyTokenBudget: number
+    /** The warning line in tokens, already budget × warningRatio on the server. */
+    tokenWarningThreshold: number
+    warningRatio: number
+    monthlyAmountBudgets: Record<string, string>
+  }
+  usage: {
+    totalTokens: number
+    costsByCurrency: Record<string, string>
+  }
+}
+
 /** The reporting month shape every path variable accepts — `YYYY-MM`. */
 export const OBSERVABILITY_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/
 

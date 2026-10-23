@@ -17,7 +17,7 @@ import BaseSelect, { type BaseSelectOption } from '../base/BaseSelect.vue'
 import BaseListShell from '../shared/BaseListShell.vue'
 import KnowledgeIndexJobItem from './KnowledgeIndexJobItem.vue'
 
-/** Index-jobs twin of the list shell: source/status filters and the cancellable job rows. */
+/** Index-jobs twin of the list shell: source/status/entry filters and the job rows. */
 const props = defineProps<{
   phase: KnowledgeIndexPhase
   items: KnowledgeIndexJob[]
@@ -28,17 +28,27 @@ const props = defineProps<{
   online: boolean
   sourceFilter: KnowledgeIndexJobSource | 'ALL'
   statusFilter: KnowledgeIndexJobStatus | 'ALL'
+  /** M13b-A04/R16: the entry deep-link filter — null means unfiltered. */
+  entryFilterId: string | null
+  /** Readable label for the entry filter chip (title or entryKey; falls back to the short id). */
+  entryFilterLabel: string | null
+  /** entryId → readable title for KNOWLEDGE_ENTRY rows (R16). */
+  entryTitles: Record<string, string>
   /** Commands and the technical block are manager-only (plan D5); the read surface stays complete. */
   canManage: boolean
   /** The store cancel slot: only the row it names shows its pending spinner. */
   cancellingJobId: string | null
+  /** The store refresh slot: only the entry it names shows its pending spinner. */
+  refreshingEntryId: string | null
 }>()
 
 const emit = defineEmits<{
   changeSource: [value: KnowledgeIndexJobSource | 'ALL']
   changeStatus: [value: KnowledgeIndexJobStatus | 'ALL']
+  clearEntryFilter: []
   loadMore: []
   cancel: [jobId: string]
+  retryEntry: [entryId: string]
   retry: []
 }>()
 
@@ -56,6 +66,7 @@ const statusOptions: BaseSelectOption[] = [
 function clearFilters(): void {
   emit('changeSource', 'ALL')
   emit('changeStatus', 'ALL')
+  if (props.entryFilterId) emit('clearEntryFilter')
 }
 </script>
 
@@ -97,11 +108,16 @@ function clearFilters(): void {
           aria-label="按状态筛选"
           @update:model-value="emit('changeStatus', $event as KnowledgeIndexJobStatus | 'ALL')"
         />
+        <!-- R16：条目深链过滤的事实条——常显过滤中状态并可一键清除。 -->
+        <p v-if="entryFilterId" class="job-list__entry-filter">
+          只看条目：{{ entryFilterLabel ?? entryFilterId.slice(0, 8) }}
+          <button type="button" aria-label="清除条目过滤" @click="emit('clearEntryFilter')">×</button>
+        </p>
       </header>
     </template>
 
     <template #empty-action>
-      <BaseButton v-if="sourceFilter !== 'ALL' || statusFilter !== 'ALL'" variant="ghost" size="small" @click="clearFilters">清除筛选</BaseButton>
+      <BaseButton v-if="sourceFilter !== 'ALL' || statusFilter !== 'ALL' || entryFilterId" variant="ghost" size="small" @click="clearFilters">清除筛选</BaseButton>
     </template>
 
     <template #items>
@@ -111,7 +127,10 @@ function clearFilters(): void {
         :job="job"
         :can-manage="canManage"
         :cancelling="cancelling && cancellingJobId === job.id"
+        :entry-title="job.entryId ? entryTitles[job.entryId] ?? null : null"
+        :refreshing="refreshingEntryId !== null && refreshingEntryId === job.entryId"
         @cancel="emit('cancel', $event)"
+        @retry-entry="emit('retryEntry', $event)"
       />
     </template>
   </BaseListShell>
@@ -119,5 +138,8 @@ function clearFilters(): void {
 
 <style scoped>
 .job-list__filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-8); }
+.job-list__entry-filter { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--cs-space-4); margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.job-list__entry-filter button { display: grid; width: 22px; height: 22px; place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: transparent; color: inherit; cursor: pointer; }
+.job-list__entry-filter button:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); }
 @media (max-width: 767px) { .job-list__filters { grid-template-columns: 1fr; } }
 </style>

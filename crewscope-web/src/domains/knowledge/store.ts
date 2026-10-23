@@ -10,6 +10,7 @@ import type {
   KnowledgeDistillationReceipt,
   KnowledgeEntryFilter,
   KnowledgeEntrySummary,
+  KnowledgeSwitchConfig,
   KnowledgeVersion,
   UpdateKnowledgeDraftInput,
 } from './types'
@@ -39,7 +40,7 @@ export interface KnowledgeVersionPageResource extends KnowledgeResource<Knowledg
 
 export interface KnowledgeCommandState {
   phase: 'idle' | 'pending' | 'success' | 'error' | 'conflict'
-  operation: 'create' | 'save-draft' | 'publish' | 'retire' | 'delete' | 'distill' | null
+  operation: 'create' | 'save-draft' | 'publish' | 'retire' | 'delete' | 'rollback' | 'distill' | null
   resourceId: string | null
   receipt: KnowledgeCommandReceipt | null
   errorMessage: string | null
@@ -55,6 +56,8 @@ export interface KnowledgeStoreState {
   versionHistory: Record<string, KnowledgeVersionPageResource>
   versionDetails: Record<string, KnowledgeResource<Etagged<KnowledgeVersion>>>
   effectiveVersions: Record<string, KnowledgeResource<Etagged<KnowledgeVersion>>>
+  /** M13b-A03 deployment switches; null value = unknown (load pending or failed) — never "off". */
+  config: KnowledgeResource<KnowledgeSwitchConfig>
   command: KnowledgeCommandState
 }
 
@@ -66,10 +69,14 @@ export interface KnowledgeStore {
   loadVersions(entryId: string, more?: boolean, force?: boolean): Promise<void>
   loadVersion(entryId: string, revision: number, force?: boolean): Promise<void>
   loadEffectiveVersion(entryId: string, force?: boolean): Promise<void>
+  /** M13b-A03 switch read (R04 banner + PENDING hint); idempotent within a scope. */
+  loadConfig(force?: boolean): Promise<void>
   createEntry(input: CreateKnowledgeEntryInput, idempotencyKey: string): Promise<boolean>
   saveDraft(entryId: string, input: UpdateKnowledgeDraftInput, idempotencyKey: string): Promise<boolean>
   publishEntry(entryId: string, idempotencyKey: string): Promise<boolean>
   retireEntry(entryId: string, idempotencyKey: string): Promise<boolean>
+  /** M13b-A05: rolls the effective pointer back to `toRevision` by appending a new revision. */
+  rollbackEntry(entryId: string, toRevision: number, idempotencyKey: string): Promise<boolean>
   deleteEntry(entryId: string, idempotencyKey: string): Promise<boolean>
   distill(input: DistillKnowledgeInput, idempotencyKey: string): Promise<boolean>
   /** Distillation receipts ride the shared command slot; panels down-cast by `operation === 'distill'`. */
@@ -102,6 +109,9 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
     activeScopeKey = nextKey
     requests.invalidate()
     replaceState(initialState())
+    // R04: the switch facts are scope-level reads — fire them with activation so the banner
+    // and the PENDING hint never depend on a separate page-side watch ordering.
+    void loadConfig()
   }
 
   async function loadEntries(filter: KnowledgeEntryFilter, more = false, force = false): Promise<void> {
@@ -198,6 +208,26 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
     )
   }
 
+  async function loadConfig(force = false): Promise<void> {
+    const scope = requireScope()
+    if (!force && state.config.phase === 'ready') return
+    const request = requests.begin('config')
+    state.config.phase = 'loading'
+    state.config.errorMessage = null
+    state.config.errorStatus = null
+    try {
+      const value = await gateway.switchConfig(scope, request.signal)
+      if (!request.isCurrent()) return
+      state.config.value = value
+      state.config.phase = 'ready'
+    } catch (error) {
+      // Unknown switches read as "enabled": the banner stays hidden rather than crying wolf.
+      if (!isAbort(error) && request.isCurrent()) setError(state.config, error, '暂时无法读取知识能力开关')
+    } finally {
+      request.finish()
+    }
+  }
+
   async function loadEffectiveVersion(entryId: string, force = false): Promise<void> {
     const scope = requireScope()
     const existing = state.effectiveVersions[entryId]
@@ -267,6 +297,34 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
       entryId,
       () => gateway.retireEntry(scope, entryId, etag, idempotencyKey),
       () => invalidatePointerFacts(entryId),
+    )
+  }
+
+  /** M13b-F04（R28/A05）：回滚=追加内容与目标修订相同的新不可变修订并移动生效指针。
+   * 目标即当前生效修订时命令必然 422 knowledge_version_unchanged——已加载的 head 上直接
+   * 拒并说清楚；未加载或竞态窗口交给服务端兜底（通用错误链呈现服务端事实）。 */
+  async function rollbackEntry(entryId: string, toRevision: number, idempotencyKey: string): Promise<boolean> {
+    const scope = requireScope()
+    const head = state.entryDetails[entryId]?.value?.value ?? null
+    if (head && head.effectiveRevision === toRevision) {
+      if (state.command.phase === 'pending') return false
+      state.command = {
+        phase: 'error', operation: 'rollback', resourceId: entryId, receipt: null,
+        errorMessage: `r${toRevision} 已是当前生效版本，无需回滚。`,
+        errorStatus: 422, currentVersion: null, retryable: false,
+      }
+      return false
+    }
+    const etag = await requireHeadEtag(entryId)
+    if (etag === null) return false
+    return runCommand(
+      'rollback',
+      entryId,
+      () => gateway.rollbackEntry(scope, entryId, toRevision, etag, idempotencyKey),
+      () => {
+        invalidatePointerFacts(entryId)
+        deleteVersionDetails(entryId)
+      },
     )
   }
 
@@ -410,6 +468,7 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
     state.versionHistory = next.versionHistory
     state.versionDetails = next.versionDetails
     state.effectiveVersions = next.effectiveVersions
+    state.config = next.config
     state.command = next.command
   }
 
@@ -421,10 +480,12 @@ export function createKnowledgeStore(gateway: KnowledgeGateway): KnowledgeStore 
     loadVersions,
     loadVersion,
     loadEffectiveVersion,
+    loadConfig,
     createEntry,
     saveDraft,
     publishEntry,
     retireEntry,
+    rollbackEntry,
     deleteEntry,
     distill,
     distillationReceipt,
@@ -452,6 +513,7 @@ function initialState(): KnowledgeStoreState {
     versionHistory: {},
     versionDetails: {},
     effectiveVersions: {},
+    config: resourceState<KnowledgeSwitchConfig>(),
     command: commandState(),
   }
 }

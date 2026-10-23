@@ -2,8 +2,9 @@
 import { GitBranchPlus, ListRestart, MoreHorizontal, RefreshCw, X } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { normalizeQuery, oneOf } from '../utils/queryParams'
+import { normalizeQuery, oneOf, uuidQuery } from '../utils/queryParams'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
+import { secureId } from '../api/secureId'
 import { useNetworkStatus } from '../app/network'
 import AppShell from '../components/layout/AppShell.vue'
 import BaseButton from '../components/base/BaseButton.vue'
@@ -16,6 +17,7 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import { useAutoRefresh } from '../composables/useAutoRefresh'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 import { useKnowledgeIndexStore } from '../domains/knowledge/index-store'
+import { useKnowledgeStore } from '../domains/knowledge/store'
 import {
   knowledgeIndexJobSources,
   knowledgeIndexJobStatuses,
@@ -34,6 +36,8 @@ const router = useRouter()
 const principal = inject(AUTH_PRINCIPAL)
 const scopeStore = useScopeStore()
 const store = useKnowledgeIndexStore()
+// M13b-A04/R16：作业行要显示条目标题——作业 DTO 无可读字段，复用条目 store 的第一页做本地映射。
+const knowledgeStore = useKnowledgeStore()
 const online = useNetworkStatus()
 
 const buildOpen = ref(false)
@@ -57,13 +61,29 @@ const canManage = computed(() => Boolean(principal && can(principal, permissions
 
 const sourceFilter = computed<KnowledgeIndexJobSource | 'ALL'>(() => oneOf(route.query.source, ['ALL', ...knowledgeIndexJobSources] as const, 'ALL'))
 const statusFilter = computed<KnowledgeIndexJobStatus | 'ALL'>(() => oneOf(route.query.status, ['ALL', ...knowledgeIndexJobStatuses] as const, 'ALL'))
+/** R16: the entry-side deep link (?entryId=) narrows the listing to one entry's jobs. */
+const entryFilterId = computed(() => uuidQuery(route.query.entryId))
 const filter = computed<KnowledgeIndexJobFilter>(() => ({
   ...(sourceFilter.value === 'ALL' ? {} : { source: sourceFilter.value }),
   ...(statusFilter.value === 'ALL' ? {} : { status: statusFilter.value }),
+  ...(entryFilterId.value ? { entryId: entryFilterId.value } : {}),
 }))
+
+/** entryId → readable title (draft title or entryKey — the L04 list-primary-text rule). */
+const entryTitles = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {}
+  for (const entry of knowledgeStore.state.entries.value ?? []) {
+    map[entry.id] = entry.draft?.title?.trim() || entry.entryKey
+  }
+  return map
+})
+const entryFilterLabel = computed(() => entryFilterId.value ? entryTitles.value[entryFilterId.value] ?? null : null)
 
 const cancellingJobId = computed(() =>
   store.state.command.phase === 'pending' && store.state.command.operation === 'cancel' ? store.state.command.jobId : null)
+/** The refresh slot names the entry (not the job) — the retried row spins while the 202 lands. */
+const refreshingEntryId = computed(() =>
+  store.state.command.phase === 'pending' && store.state.command.operation === 'refresh-entry' ? store.state.command.jobId : null)
 const rebuildPending = computed(() => store.state.command.phase === 'pending' && store.state.command.operation === 'rebuild')
 const buildPending = computed(() => store.state.command.phase === 'pending' && store.state.command.operation === 'repository-build')
 const buildError = computed(() => buildOpen.value && store.state.command.operation === 'repository-build' && store.state.command.phase === 'error'
@@ -87,6 +107,7 @@ watch(
     scope.value?.teamId,
     sourceFilter.value,
     statusFilter.value,
+    entryFilterId.value,
   ] as const,
   async ([phase]) => {
     const pageOwner = pageRequests.capture()
@@ -95,6 +116,10 @@ watch(
     buildOpen.value = false
     if (phase !== 'ready' || !scope.value) return
     store.activateScope(scope.value)
+    // R16: the title map rides the entry store's first page (already loaded when coming from
+    // the knowledge page; loaded here when the index page is entered cold).
+    knowledgeStore.activateScope(scope.value)
+    void knowledgeStore.loadEntries({}, false, true)
     await store.loadJobs(filter.value, false, true)
     if (!pageOwner.isCurrent()) return
     lastRefreshedAt.value = new Date().toISOString()
@@ -104,13 +129,14 @@ watch(
 )
 
 watch(
-  () => [scopeStore.state.phase, route.query.source, route.query.status] as const,
+  () => [scopeStore.state.phase, route.query.source, route.query.status, route.query.entryId] as const,
   ([phase]) => {
     if (phase !== 'ready') return
     const query = { ...route.query }
     let changed = false
     changed = normalizeQuery(query, 'source', sourceFilter.value, 'ALL') || changed
     changed = normalizeQuery(query, 'status', statusFilter.value, 'ALL') || changed
+    changed = normalizeQuery(query, 'entryId', entryFilterId.value ?? '', '') || changed
     if (changed) void router.replace({ query })
   },
   { immediate: true },
@@ -125,6 +151,12 @@ function changeSource(value: KnowledgeIndexJobSource | 'ALL'): void {
 
 function changeStatus(value: KnowledgeIndexJobStatus | 'ALL'): void {
   replaceFilter('status', value, 'ALL')
+}
+
+function clearEntryFilter(): void {
+  const query = { ...route.query }
+  delete query.entryId
+  void router.replace({ query })
 }
 
 function replaceFilter(key: string, value: string, defaultValue: string): void {
@@ -182,6 +214,16 @@ async function cancelJob(jobId: string): Promise<void> {
   if (store.state.command.phase === 'error' && store.state.command.errorStatus === 404) await refresh()
 }
 
+/** R17: a failed knowledge-entry job retries per entry (A04) — each click is a fresh command. */
+async function retryEntry(entryId: string): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
+  if (!online.value) return
+  const success = await store.refreshEntry(entryId, secureId())
+  if (!pageOwner.isCurrent()) return
+  // The store invalidates the listing; pull the entry-filtered queue in immediately.
+  if (success) await refresh()
+}
+
 function closeBuild(): void {
   buildOpen.value = false
   store.clearCommand()
@@ -228,12 +270,18 @@ function closeBuild(): void {
         :online="online"
         :source-filter="sourceFilter"
         :status-filter="statusFilter"
+        :entry-filter-id="entryFilterId"
+        :entry-filter-label="entryFilterLabel"
+        :entry-titles="entryTitles"
         :can-manage="canManage"
         :cancelling-job-id="cancellingJobId"
+        :refreshing-entry-id="refreshingEntryId"
         @change-source="changeSource"
         @change-status="changeStatus"
+        @clear-entry-filter="clearEntryFilter"
         @load-more="loadMoreJobs"
         @cancel="cancelJob"
+        @retry-entry="retryEntry"
         @retry="refresh"
       />
     </div>

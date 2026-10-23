@@ -83,6 +83,13 @@ export async function mockApi(page: Page): Promise<void> {
     if (path.endsWith('/members')) return json(route, [])
     if (path.endsWith('/work-desk')) return json(route, workDesk())
     // Knowledge pages use `nextAfter` (entryKey/jobId cursor), not the generic `nextCursor` shape above.
+    if (/\/knowledge\/config$/.test(path)) {
+      // M13b-A03：走查世界开关全开（R04 横幅静默）；泛化 `{}` 会被布尔白名单拒收。
+      return json(route, {
+        vectorEnabled: true, indexEnabled: true, indexWorkerEnabled: true,
+        retrievalEnabled: true, injectionEnabled: true, skillEnabled: true,
+      })
+    }
     if (/\/knowledge\/entries$/.test(path)) return json(route, { items: [], nextAfter: null })
     if (/\/knowledge\/index\/jobs$/.test(path)) return json(route, { items: [], nextAfter: null })
     // The skill catalog pages with the same `nextAfter` shape (skillKey cursor) — before the generic `s$` fallback.

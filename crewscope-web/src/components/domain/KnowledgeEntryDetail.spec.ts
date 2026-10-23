@@ -26,6 +26,20 @@ describe('KnowledgeEntryDetail', () => {
     expect(wrapper.text()).toContain('deploy-runbook')
   })
 
+  it('surfaces the distillation origin unfolded for every reader (R19)', () => {
+    // The origin is product meaning, not an admin-only audit fact — a reader sees it too.
+    const reader = mounted({
+      canManage: false,
+      entryResource: detail(entry({ origin: { taskExecutionId: '00000000-0000-1000-8000-000000007201', attempt: 2 } })),
+    })
+
+    expect(reader.text()).toContain('蒸馏自执行 00000000 · 第 2 次尝试')
+    expect(reader.text()).not.toContain('审计信息')
+
+    // Manually authored entries carry no origin — no fabricated attribution row.
+    expect(mounted().text()).not.toContain('蒸馏自执行')
+  })
+
   it('renders the loading and error states with retry', () => {
     const loading = mounted({ entryResource: resource<Etagged<KnowledgeEntrySummary>>({ phase: 'loading' }) })
     expect(loading.text()).toContain('正在读取条目详情')

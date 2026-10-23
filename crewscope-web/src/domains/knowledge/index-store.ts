@@ -30,7 +30,7 @@ export interface KnowledgeIndexJobPageResource {
  */
 export interface KnowledgeIndexCommandState {
   phase: 'idle' | 'pending' | 'success' | 'error'
-  operation: 'rebuild' | 'repository-build' | 'cancel' | null
+  operation: 'rebuild' | 'repository-build' | 'cancel' | 'refresh-entry' | null
   jobId: string | null
   message: string | null
   errorMessage: string | null
@@ -50,6 +50,8 @@ export interface KnowledgeIndexStore {
   rebuild(): Promise<boolean>
   enqueueRepositoryBuild(input: RepositoryBuildInput): Promise<boolean>
   cancelJob(jobId: string): Promise<boolean>
+  /** M13b-A04/R17: per-entry index retry from a failed job row (Idempotency-Key, no If-Match). */
+  refreshEntry(entryId: string, idempotencyKey: string): Promise<boolean>
   clearCommand(): void
   reset(): void
 }
@@ -59,7 +61,7 @@ export const KNOWLEDGE_INDEX_STORE: InjectionKey<KnowledgeIndexStore> = Symbol('
 /** The store consumes only the I01c control plane; the entry surface stays with `store.ts`. */
 export type KnowledgeIndexGateway = Pick<
   KnowledgeGateway,
-  'listJobs' | 'cancelJob' | 'rebuild' | 'enqueueRepositoryBuild'
+  'listJobs' | 'cancelJob' | 'rebuild' | 'enqueueRepositoryBuild' | 'refreshEntryIndex'
 >
 
 const PAGE_SIZE = 50
@@ -140,6 +142,16 @@ export function createKnowledgeIndexStore(gateway: KnowledgeIndexGateway): Knowl
     }, undefined)
   }
 
+  async function refreshEntry(entryId: string, idempotencyKey: string): Promise<boolean> {
+    const scope = requireScope()
+    return runCommand('refresh-entry', entryId, async () => {
+      await gateway.refreshEntryIndex(scope, entryId, idempotencyKey)
+      // The 202 is always a receipt (A04 contract): a closed gate or a live job is a skip,
+      // indistinguishable here — the entry-filtered listing shows what actually queued.
+      return '已提交该条目的索引刷新命令；若索引开关未开启或已有进行中的作业，服务端会跳过'
+    }, () => { state.jobs = jobPageResource() })
+  }
+
   async function runCommand(
     operation: NonNullable<KnowledgeIndexCommandState['operation']>,
     jobId: string | null,
@@ -213,6 +225,7 @@ export function createKnowledgeIndexStore(gateway: KnowledgeIndexGateway): Knowl
     rebuild,
     enqueueRepositoryBuild,
     cancelJob,
+    refreshEntry,
     clearCommand,
     reset,
   }

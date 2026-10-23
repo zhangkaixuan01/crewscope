@@ -44,6 +44,7 @@ const scope = computed<SettingsScope | null>(() => principal && scopeStore.state
 const scopeMissing = computed(() => scopeStore.state.phase === 'ready' && !scope.value)
 
 const months = computed(() => store.state.months.value ?? [])
+const budget = computed(() => store.state.budget.value)
 /** Deep-linked month wins while it exists on the page; otherwise the newest month leads. */
 const selectedMonth = computed(() => {
   const deep = queryMonth()
@@ -67,6 +68,7 @@ watch(
     if (phase !== 'ready' || !scope.value) return
     store.activateScope(scope.value)
     void store.loadMonths(false, true)
+    void store.loadBudget()
   },
   { immediate: true },
 )
@@ -90,6 +92,7 @@ async function refresh(): Promise<void> {
   const pageOwner = pageRequests.capture()
   if (!scope.value) return
   await store.loadMonths(false, true)
+  await store.loadBudget(true)
   if (!pageOwner.isCurrent()) return
   if (selectedMonth.value) await store.loadMonth(selectedMonth.value)
 }
@@ -106,6 +109,34 @@ function changeRole(value: ObservabilityUsageRole | 'ALL'): void {
   else query.role = value
   void router.replace({ query })
 }
+
+/** M13b-F04（R21）: the token track's reminder states — the budget is a reminder line, never a
+ * quota (backend TeamBudgetAlertSettings wording), so exceeding it warns, it does not block. */
+const tokenOverBudget = computed(() => {
+  const value = budget.value
+  return Boolean(value && value.config.monthlyTokenBudget > 0 && value.usage.totalTokens > value.config.monthlyTokenBudget)
+})
+const tokenOverWarning = computed(() => {
+  const value = budget.value
+  return Boolean(value && value.config.monthlyTokenBudget > 0
+    && !tokenOverBudget.value && value.usage.totalTokens >= value.config.tokenWarningThreshold)
+})
+
+/** Amount tracks per currency: budgeted currencies first, then spent-but-unbudgeted ones. */
+const amountTracks = computed(() => {
+  const value = budget.value
+  if (!value) return []
+  const tracks: Array<{ currency: string, used: string, limit: string | null }> = []
+  const budgeted = Object.keys(value.config.monthlyAmountBudgets)
+  for (const currency of [...budgeted, ...Object.keys(value.usage.costsByCurrency).filter(code => !budgeted.includes(code))]) {
+    tracks.push({
+      currency,
+      used: value.usage.costsByCurrency[currency] ?? '0',
+      limit: value.config.monthlyAmountBudgets[currency] ?? null,
+    })
+  }
+  return tracks
+})
 
 function sourceTokens(source: ObservabilityCostSource): { tokens: number, facts: number } | null {
   const subtotal = selectedSummary.value?.roles[source]
@@ -146,6 +177,39 @@ function queryText(value: unknown): string | null {
     <StatePanel v-if="scopeMissing" id="observability-scope-reason" state="empty" title="请选择 Team" description="用量与成本始终属于明确的 Organization 与 Team。" />
 
     <div v-if="scopeStore.state.phase === 'ready' && scope" class="observability-workspace">
+      <!-- M13b-F04（R21）: the budget face is its own resource — it reads the current month the
+           alert chain sees, so it never follows the historical month navigation below. -->
+      <section class="panel" aria-labelledby="budget-heading">
+        <h2 id="budget-heading" class="panel__title">本月预算与消耗</h2>
+        <StatePanel v-if="store.state.budget.phase === 'loading'" state="loading" title="正在加载本月预算" />
+        <StatePanel v-else-if="store.state.budget.phase === 'error'" compact state="error" :title="store.state.budget.errorMessage ?? '暂时无法加载本月预算'" />
+        <template v-else-if="budget">
+          <p v-if="!budget.config.alertsEnabled" class="panel__note">预算提醒未开启——预算数字只作展示，不会发送提醒。</p>
+          <dl class="metric-grid">
+            <div class="metric">
+              <dt>Token 预算（{{ budget.usageMonth }}）</dt>
+              <dd v-if="budget.config.monthlyTokenBudget > 0">
+                {{ formatTokens(budget.usage.totalTokens) }} / {{ formatTokens(budget.config.monthlyTokenBudget) }} token
+                <StatusBadge v-if="tokenOverBudget" tone="danger">已超预算</StatusBadge>
+                <StatusBadge v-else-if="tokenOverWarning" tone="warning">已达警戒线</StatusBadge>
+              </dd>
+              <dd v-else>{{ formatTokens(budget.usage.totalTokens) }} token（未设置预算）</dd>
+              <p v-if="budget.config.monthlyTokenBudget > 0" class="budget-hint">
+                警戒线 {{ formatTokens(budget.config.tokenWarningThreshold) }} token（预算的 {{ Math.round(budget.config.warningRatio * 100) }}%）；预算是提醒线，不是硬限制。
+              </p>
+            </div>
+            <div v-for="track in amountTracks" :key="track.currency" class="metric">
+              <dt>{{ track.currency }} 金额预算</dt>
+              <dd v-if="track.limit !== null && Number(track.limit) > 0">{{ track.used }} / {{ track.limit }} {{ track.currency }}</dd>
+              <dd v-else>{{ track.used }} {{ track.currency }}（未设置预算）</dd>
+            </div>
+          </dl>
+          <p class="panel__note">
+            预算与提醒在<RouterLink class="budget-link" :to="{ name: 'quota-settings' }">配额设置</RouterLink>中配置；实际用量口径见下方各月成本。
+          </p>
+        </template>
+      </section>
+
       <StatePanel v-if="store.state.months.phase === 'loading'" state="loading" title="正在加载用量月份" />
       <StatePanel v-else-if="store.state.months.phase === 'error'" state="error" :title="store.state.months.errorMessage ?? '暂时无法加载用量月份'">
         <template #action><BaseButton variant="secondary" size="small" @click="refresh">重试</BaseButton></template>
@@ -280,6 +344,8 @@ function queryText(value: unknown): string | null {
 .panel { display: grid; gap: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); padding: var(--cs-space-16); }
 .panel__title { margin: 0; font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); }
 .panel__note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.budget-hint { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.budget-link { color: var(--cs-text-brand); }
 .unpriced-hint { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--cs-space-12); margin: 0; }
 .metric { display: grid; gap: var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); padding: var(--cs-space-12); }

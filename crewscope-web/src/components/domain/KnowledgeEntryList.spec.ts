@@ -54,11 +54,15 @@ describe('KnowledgeEntryList', () => {
     expect(wrapper.emitted('create')).toHaveLength(1)
   })
 
-  it('offers only filter clearing to readers on a filtered empty listing', async () => {
+  it('keeps distillation open to readers on a filtered empty listing, creation gated (R29/R30)', async () => {
     const wrapper = await mounted({ phase: 'empty', items: [], statusFilter: 'PUBLISHED' })
 
     expect(wrapper.text()).not.toContain('创建条目')
-    await wrapper.get('button').trigger('click')
+    expect(wrapper.text()).toContain('从执行蒸馏')
+    const buttons = wrapper.findAll('button')
+    await buttons.find(button => button.text() === '从执行蒸馏')!.trigger('click')
+    expect(wrapper.emitted('distill')).toHaveLength(1)
+    await buttons.find(button => button.text() === '清除筛选')!.trigger('click')
     expect(wrapper.emitted('changeStatus')?.[0]).toEqual(['ALL'])
     expect(wrapper.emitted('changeCategory')?.[0]).toEqual(['ALL'])
   })

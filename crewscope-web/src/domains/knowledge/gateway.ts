@@ -27,6 +27,7 @@ import type {
   KnowledgeOrigin,
   KnowledgeVersion,
   KnowledgeVersionPage,
+  KnowledgeSwitchConfig,
   RebuildAccepted,
   RepositoryBuildAccepted,
   RepositoryBuildInput,
@@ -44,6 +45,8 @@ export interface KnowledgeGateway {
   createEntry(scope: SettingsScope, input: CreateKnowledgeEntryInput, idempotencyKey: string): Promise<KnowledgeCommandReceipt>
   saveDraft(scope: SettingsScope, entryId: string, input: UpdateKnowledgeDraftInput, etag: string, idempotencyKey: string): Promise<KnowledgeCommandReceipt>
   publishEntry(scope: SettingsScope, entryId: string, etag: string, idempotencyKey: string): Promise<KnowledgeCommandReceipt>
+  /** M13b-A05: rolls the effective pointer back by appending a new immutable revision. */
+  rollbackEntry(scope: SettingsScope, entryId: string, toRevision: number, etag: string, idempotencyKey: string): Promise<KnowledgeCommandReceipt>
   retireEntry(scope: SettingsScope, entryId: string, etag: string, idempotencyKey: string): Promise<KnowledgeCommandReceipt>
   deleteEntry(scope: SettingsScope, entryId: string, etag: string, idempotencyKey: string): Promise<KnowledgeCommandReceipt>
   /** Reads `Idempotency-Replayed` so the receipt panel can distinguish a replay (contract §11.1). */
@@ -55,6 +58,13 @@ export interface KnowledgeGateway {
   cancelJob(scope: SettingsScope, jobId: string): Promise<KnowledgeIndexJob>
   rebuild(scope: SettingsScope): Promise<RebuildAccepted>
   enqueueRepositoryBuild(scope: SettingsScope, input: RepositoryBuildInput): Promise<RepositoryBuildAccepted>
+  /** M13b-A03 deployment switches — booleans only, member-level, no env names (contract §5). */
+  switchConfig(scope: SettingsScope, signal?: AbortSignal): Promise<KnowledgeSwitchConfig>
+  /**
+   * M13b-A04 per-entry index retry: Idempotency-Key required, no If-Match (the head aggregate
+   * is untouched) — the 202 receipt is the reply; a closed gate or live job stays a 202 skip.
+   */
+  refreshEntryIndex(scope: SettingsScope, entryId: string, idempotencyKey: string): Promise<KnowledgeCommandReceipt>
 }
 
 /** M10-A02 HTTP adapter that admits only the contract's closed DTO whitelist (§7). */
@@ -154,6 +164,15 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
     return mapReceipt(value)
   }
 
+  async rollbackEntry(scope: SettingsScope, entryId: string, toRevision: number, etag: string, idempotencyKey: string): Promise<KnowledgeCommandReceipt> {
+    const value = await this.client.post<KnowledgeCommandReceipt>(
+      `${root(scope)}/${segment(entryId)}/rollback`,
+      { toRevision },
+      { expectedVersion: etagVersion(etag, 'Knowledge'), idempotencyKey },
+    )
+    return mapReceipt(value)
+  }
+
   async retireEntry(scope: SettingsScope, entryId: string, etag: string, idempotencyKey: string): Promise<KnowledgeCommandReceipt> {
     const value = await this.client.post<KnowledgeCommandReceipt>(
       `${root(scope)}/${segment(entryId)}/retire`,
@@ -206,6 +225,7 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
     const search = new URLSearchParams({ limit: String(limit) })
     if (filter.source) search.set('source', filter.source)
     if (filter.status) search.set('status', filter.status)
+    if (filter.entryId) search.set('entryId', filter.entryId)
     if (after) search.set('after', after)
     const value = await this.client.get<{ items: unknown[]; nextAfter: string | null }>(
       `${indexRoot(scope)}/jobs?${search}`,
@@ -235,6 +255,20 @@ export class HttpKnowledgeGateway implements KnowledgeGateway {
     )
     return { enqueued: value.enqueued, job: value.job ? mapJob(value.job) : null }
   }
+
+  async switchConfig(scope: SettingsScope, signal?: AbortSignal): Promise<KnowledgeSwitchConfig> {
+    const value = await this.client.get<unknown>(`${configRoot(scope)}`, { signal })
+    return mapSwitchConfig(value)
+  }
+
+  async refreshEntryIndex(scope: SettingsScope, entryId: string, idempotencyKey: string): Promise<KnowledgeCommandReceipt> {
+    const value = await this.client.post<KnowledgeCommandReceipt>(
+      `${root(scope)}/${segment(entryId)}/index-refresh`,
+      undefined,
+      { idempotencyKey },
+    )
+    return mapReceipt(value)
+  }
 }
 
 function root(scope: SettingsScope): string {
@@ -249,6 +283,11 @@ function distillationsRoot(scope: SettingsScope): string {
 /** M10-I01c control plane base: /knowledge/index, beside (never under) the entries collection. */
 function indexRoot(scope: SettingsScope): string {
   return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/knowledge/index`
+}
+
+/** M13b-A03 switch read lives at /knowledge/config, a sibling of the entries collection. */
+function configRoot(scope: SettingsScope): string {
+  return `/organizations/${segment(scope.organizationId)}/teams/${segment(scope.teamId)}/knowledge/config`
 }
 
 
@@ -322,6 +361,24 @@ function mapOrigin(value: KnowledgeOrigin): KnowledgeOrigin {
 
 function mapReceipt(value: KnowledgeCommandReceipt): KnowledgeCommandReceipt {
   return { ...pick(value, ['commandId', 'domainEventId', 'committedVersion', 'correlationId']) }
+}
+
+function mapSwitchConfig(value: unknown): KnowledgeSwitchConfig {
+  const config = value as Record<string, unknown>
+  return {
+    vectorEnabled: switchFlag(config, 'vectorEnabled'),
+    indexEnabled: switchFlag(config, 'indexEnabled'),
+    indexWorkerEnabled: switchFlag(config, 'indexWorkerEnabled'),
+    retrievalEnabled: switchFlag(config, 'retrievalEnabled'),
+    injectionEnabled: switchFlag(config, 'injectionEnabled'),
+    skillEnabled: switchFlag(config, 'skillEnabled'),
+  }
+}
+
+function switchFlag(config: Record<string, unknown>, field: string): boolean {
+  const flag = config[field]
+  if (typeof flag !== 'boolean') throw new TypeError('Knowledge switch config is invalid')
+  return flag
 }
 
 function category(value: string): KnowledgeCategory {
