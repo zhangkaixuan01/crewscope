@@ -173,7 +173,7 @@ function requiredStore(value: TeamObserverStore | undefined): TeamObserverStore 
       </div>
     </div>
 
-    <StatePanel v-else-if="store.state.phase === 'idle'" state="empty" title="尚未生成团队摘要" description="Team Observer 会从当前 Team 的授权投影读取事实，并提供可重新授权的站内证据链接。">
+    <StatePanel v-else-if="store.state.phase === 'idle'" state="empty" title="尚未生成团队摘要" description="Team Observer 会从当前 Team 的授权信息读取事实，并提供可重新授权的站内证据链接。">
       <template v-if="variant === 'summary'" #action><BaseButton size="small" :disabled="!online" @click="submit">生成团队摘要</BaseButton></template>
     </StatePanel>
     <StatePanel v-else-if="store.state.phase === 'cancelled'" state="empty" title="本次调用已取消" description="可以调整问题后重新生成；取消不会修改任何团队事实。"><template v-if="variant === 'summary'" #action><BaseButton size="small" :disabled="!online" @click="submit">重新生成摘要</BaseButton></template></StatePanel>

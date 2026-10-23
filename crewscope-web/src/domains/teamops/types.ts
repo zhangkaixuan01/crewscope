@@ -86,6 +86,8 @@ export type InboxBatchStatus = Exclude<InboxDispositionStatus, 'UNREAD'>
 export type InboxBatchOutcome = 'success' | 'rejected' | 'conflict' | 'unknown'
 export interface InboxBatchEntryResult {
   itemId: string
+  /** M13b-F08（R26）：批量结果逐条显示可读标题（与列表行首同源），不再露出 itemId 前缀。 */
+  title: string
   outcome: InboxBatchOutcome
   message: string | null
 }

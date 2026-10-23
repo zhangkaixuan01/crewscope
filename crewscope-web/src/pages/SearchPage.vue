@@ -135,10 +135,11 @@ function displayMeta(item: SearchResultItem): string {
   const labels: Record<string, string> = {
     ACTIVE: '进行中', ARCHIVED: '已归档', DISABLED: '已停用', OPEN: '待处理', COMPLETED: '已完成',
     FAILED: '失败', WAITING: '等待中', TEAM: '团队', PRIVATE: '私有', MEMBER: '成员', PERSONAL: '个人',
-    SPECIALIST: 'Specialist', LOCAL_MANAGED: '受管本地仓库',
+    SPECIALIST: '专家型', LOCAL_MANAGED: '受管本地仓库',
   }
   const subtitle = item.subtitle ? (labels[item.subtitle] ?? item.subtitle) : null
-  const status = labels[item.status] ?? '状态已更新'
+  // M13b-F08（A17 部分）：未知状态如实说「未知」，不再用「已更新」伪装成一次已知的状态迁移。
+  const status = labels[item.status] ?? '状态未知'
   return subtitle ? `${subtitle} · ${status}` : status
 }
 function queryString(value: unknown): string { return typeof value === 'string' ? value : '' }

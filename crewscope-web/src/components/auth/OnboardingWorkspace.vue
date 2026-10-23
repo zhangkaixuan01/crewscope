@@ -70,7 +70,7 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
       v-else-if="phase === 'complete'"
       kicker="团队已准备好"
       title="你的工作入口已经就绪"
-      description="Team、Owner 权限、共享工作空间和默认 Personal Agent 已通过服务端投影确认。"
+      description="Team、Owner 权限、共享工作空间和默认 Personal Agent 已由服务端逐一确认。"
       size="wide"
       focus-on-mount
     >
@@ -141,7 +141,7 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
           <template #leading><UsersRound :size="16" /></template>
         </AuthField>
         <section class="onboarding__creation" aria-label="将要创建的内容">
-          <h3>服务端将原子准备</h3>
+          <h3>服务端将一次性准备好</h3>
           <ul>
             <li><span><UsersRound :size="15" />团队工作空间</span><small>成员与任务的共享边界</small></li>
             <li><span><Bot :size="15" />你的 Personal Agent</span><small>默认对话式执行入口</small></li>
@@ -154,7 +154,7 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
       </form>
 
       <section v-else-if="busy" class="onboarding__progress" aria-live="polite" aria-label="团队初始化进度">
-        <p>{{ phase === 'submitting' ? '正在提交原子初始化请求…' : '正在确认服务端初始化结果…' }}</p>
+        <p>{{ phase === 'submitting' ? '正在提交初始化请求…' : '正在确认服务端初始化结果…' }}</p>
         <!-- L10：只列出已确认与正在确认的步骤，不预告尚未发生的结果。 -->
         <ul>
           <li v-if="currentStage === 'team' || teamDone" :class="{ active: currentStage === 'team', done: teamDone }"><span />创建 Team 与 Owner 成员关系</li>

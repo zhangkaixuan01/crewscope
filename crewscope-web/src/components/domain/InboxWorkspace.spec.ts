@@ -188,16 +188,19 @@ describe('InboxWorkspace', () => {
     const report: InboxBatchReport = {
       status: 'READ',
       results: [
-        { itemId: 'a0000000-0000-4000-8000-000000000001', outcome: 'success', message: null },
-        { itemId: 'a0000000-0000-4000-8000-000000000002', outcome: 'conflict', message: '处置版本已更新' },
-        { itemId: 'a0000000-0000-4000-8000-000000000003', outcome: 'unknown', message: null },
-        { itemId: 'a0000000-0000-4000-8000-000000000004', outcome: 'rejected', message: '无权处置' },
+        { itemId: 'a0000000-0000-4000-8000-000000000001', title: '结算看板主链路', outcome: 'success', message: null },
+        { itemId: 'a0000000-0000-4000-8000-000000000002', title: '执行看板迁移', outcome: 'conflict', message: '处置版本已更新' },
+        { itemId: 'a0000000-0000-4000-8000-000000000003', title: '我的负责', outcome: 'unknown', message: null },
+        { itemId: 'a0000000-0000-4000-8000-000000000004', title: '我的执行', outcome: 'rejected', message: '无权处置' },
       ],
     }
     const wrapper = mount(InboxWorkspace, { props: props({ batchReport: report }), global: { stubs: routerLinkStub } })
 
     expect(wrapper.get('[aria-label="批量处置结果"]').text()).toContain('批量标记已读结果')
     expect(wrapper.get('[aria-label="批量处置结果"]').text()).toContain('成功 1 · 已拒绝 1 · 版本冲突 1 · 结果未知 1')
+    // M13b-F08（R26）：逐条以可读标题标识事实，UUID 前缀不再出现。
+    expect(wrapper.get('[aria-label="批量处置结果"]').text()).toContain('结算看板主链路')
+    expect(wrapper.get('[aria-label="批量处置结果"]').text()).not.toContain('a0000000')
     expect(wrapper.get('[aria-label="批量处置结果"]').text()).toContain('先刷新确认本次结果')
     expect(wrapper.get('[aria-label="批量处置结果"]').text()).toContain('回读列表后请基于当前状态重新确认')
 

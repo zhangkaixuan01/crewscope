@@ -12,7 +12,7 @@ describe('OnboardingWorkspace', () => {
     expect(input.attributes('autocomplete')).toBe('organization')
     expect(input.attributes('maxlength')).toBe('200')
     expect(wrapper.get('[aria-label="将要创建的内容"]').text()).toContain('Personal Agent')
-    expect(wrapper.text()).toContain('服务端将原子准备')
+    expect(wrapper.text()).toContain('服务端将一次性准备好')
     wrapper.unmount()
   })
 

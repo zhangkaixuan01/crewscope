@@ -1,4 +1,4 @@
-import { CalendarDays, Gauge, Inbox, LayoutDashboard, MessageSquare, Network, Search, Settings2, UsersRound, Bot, KeyRound, GitFork, ScanSearch, ShieldCheck } from '@lucide/vue'
+import { BookOpen, CalendarDays, ChartColumn, Gauge, Inbox, Layers, LayoutDashboard, ListTree, MessageSquare, Network, Search, Settings2, UsersRound, Bot, KeyRound, GitFork, ScanSearch, ShieldCheck } from '@lucide/vue'
 import type { Router } from 'vue-router'
 import type { AuthenticatedPrincipal } from './auth'
 import { permissions } from './auth'
@@ -12,6 +12,11 @@ export function registerDefaultActions(registry: ActionRegistry, router: Router,
     action('nav.work', '打开工作项', '管理当前 WorkProject 的工作项', '导航', 'g w', LayoutDashboard, 'work', permissions.workRead),
     action('nav.inbox', '打开 Inbox', '查看待处理的通知与决策', '导航', 'g i', Inbox, 'inbox', permissions.scopeRead),
     action('nav.team-observer', '打开团队观测', '查看团队执行摘要', '导航', 'g o', ScanSearch, 'team-observer', permissions.scopeRead),
+    // M13b-F08（R50）：命令面板补齐知识闭环四页——与侧栏同词表同图标，快捷键 g k/n/l/q 未占用。
+    action('nav.knowledge-base', '打开知识库', '浏览注入的知识条目与版本', '导航', 'g k', BookOpen, 'knowledge-base', permissions.scopeRead),
+    action('nav.knowledge-index', '打开索引作业', '查看索引构建作业与重试', '导航', 'g n', Layers, 'knowledge-index', permissions.scopeRead),
+    action('nav.skill-catalog', '打开 Skill 目录', '浏览蒸馏沉淀的 Skill', '导航', 'g l', ListTree, 'skill-catalog', permissions.scopeRead),
+    action('nav.observability', '打开成本质量', '查看用量、预算与质量观测', '导航', 'g q', ChartColumn, 'observability', permissions.scopeRead),
     action('nav.members', '打开团队成员', '查看 Team Membership', '导航', 'g m', UsersRound, 'team-members', permissions.teamMembersRead),
     action('nav.audit', '打开审计中心', '查看可追溯审计事实', '导航', 'g a', ShieldCheck, 'audit', permissions.auditRead),
     action('nav.setup', '打开配置中心', '查看 Team 就绪状态', '导航', 'g s', Settings2, 'setup', permissions.scopeRead),

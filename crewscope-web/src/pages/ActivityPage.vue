@@ -3,7 +3,7 @@ import BaseSelect from '../components/base/BaseSelect.vue'
 import ScanToolbar from '../components/base/ScanToolbar.vue'
 import { RefreshCw, X } from '@lucide/vue'
 import { computed, inject, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { queryValue } from '../utils/queryParams'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
@@ -22,6 +22,7 @@ import RelativeTime from '../components/base/RelativeTime.vue'
 import {
   activityCategoryLabels,
   activityRealtimePhaseLabels,
+  activityReferenceTypeLabels,
   activitySubjectTypeLabels,
   auditActorTypeLabels,
 } from '../domains/teamops/labels'
@@ -133,6 +134,20 @@ function updateActor(value: string | number | null): void {
   void router.replace({ query })
 }
 function displayTime(value: string): string { return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
+
+/**
+ * M13b-F08（R27）：详情面板的 Subject 行与流内卡片同源——关联对象是可点链接，不再露出
+ * subject.id 的裸 UUID；没有 references 时只保留类型标签。
+ */
+function referenceTarget(reference: ActivityItem['references'][number], eventId: string): RouteLocationRaw {
+  const query = { ...route.query }
+  if (reference.type === 'WORK_ITEM') return { name: 'work', query: { ...query, workItem: reference.id } }
+  if (reference.type === 'CONVERSATION') return { name: 'conversation', query: { ...query, conversation: reference.id } }
+  return { name: 'activity', query: { ...query, event: eventId } }
+}
+function referenceLabel(type: string): string {
+  return enumLabel(type, activityReferenceTypeLabels)
+}
 function actorName(principalId: string | null, type: string): string {
   const typeLabel = enumLabel(type, auditActorTypeLabels)
   return principalId ? principalDisplayName(principalNames.value, principalId, typeLabel) : typeLabel
@@ -187,7 +202,7 @@ function actorName(principalId: string | null, type: string): string {
           <StatePanel v-if="!selectedDetail || selectedDetail.phase === 'loading'" compact state="loading" />
           <StatePanel v-else-if="selectedDetail.phase === 'error'" compact :state="selectedDetail.error?.kind === 'forbidden' ? 'forbidden' : 'error'" :description="selectedDetail.error?.message" @retry="store.loadActivityDetail(selectedEventId, null, true)" />
           <template v-else-if="selectedDetail.value">
-            <dl><div><dt>Event</dt><dd class="mono">{{ selectedDetail.value.eventId }}</dd></div><div><dt>类型</dt><dd>{{ selectedDetail.value.eventType }}</dd></div><div><dt>Category</dt><dd>{{ enumLabel(selectedDetail.value.category, activityCategoryLabels) }}</dd></div><div><dt>Actor</dt><dd>{{ actorName(selectedDetail.value.actor.principalId, selectedDetail.value.actor.type) }}</dd></div><div><dt>Subject</dt><dd>{{ enumLabel(selectedDetail.value.subject.type, activitySubjectTypeLabels) }} <span class="mono">{{ selectedDetail.value.subject.id }}</span></dd></div><div><dt>发生时间</dt><dd>{{ displayTime(selectedDetail.value.occurredAt) }}</dd></div></dl>
+            <dl><div><dt>Event</dt><dd class="mono">{{ selectedDetail.value.eventId }}</dd></div><div><dt>类型</dt><dd>{{ selectedDetail.value.eventType }}</dd></div><div><dt>Category</dt><dd>{{ enumLabel(selectedDetail.value.category, activityCategoryLabels) }}</dd></div><div><dt>Actor</dt><dd>{{ actorName(selectedDetail.value.actor.principalId, selectedDetail.value.actor.type) }}</dd></div><div><dt>Subject</dt><dd>{{ enumLabel(selectedDetail.value.subject.type, activitySubjectTypeLabels) }}<template v-for="reference in selectedDetail.value.references" :key="`${reference.type}:${reference.id}`"> <RouterLink :to="referenceTarget(reference, selectedDetail.value.eventId)">{{ referenceLabel(reference.type) }}</RouterLink></template></dd></div><div><dt>发生时间</dt><dd>{{ displayTime(selectedDetail.value.occurredAt) }}</dd></div></dl>
             <section><h3>公开摘要</h3><p v-if="Object.keys(selectedDetail.value.payload.values).length === 0">此事件没有公开摘要字段。</p><dl v-else><div v-for="(value, key) in selectedDetail.value.payload.values" :key="key"><dt>{{ key }}</dt><dd>{{ value }}</dd></div></dl></section>
           </template>
         </aside>

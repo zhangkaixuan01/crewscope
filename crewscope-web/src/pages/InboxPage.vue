@@ -11,6 +11,8 @@ import InboxWorkspace from '../components/domain/InboxWorkspace.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
+import { inboxItemTypeLabels } from '../domains/teamops/labels'
+import { enumLabel } from '../domains/shared/labels'
 import { useTeamOpsStore } from '../domains/teamops/store'
 import {
   inboxDispositionStatuses,
@@ -228,16 +230,23 @@ function loadMore(): void {
  */
 function classifyBatchOutcome(itemId: string): InboxBatchEntryResult {
   const command = store.state.command
+  const title = batchEntryTitle(itemId)
   if (command.operation !== 'inbox-disposition' || command.targetId !== itemId) {
-    return { itemId, outcome: 'unknown', message: '命令结果未确认。' }
+    return { itemId, title, outcome: 'unknown', message: '命令结果未确认。' }
   }
-  if (command.phase === 'success') return { itemId, outcome: 'success', message: null }
+  if (command.phase === 'success') return { itemId, title, outcome: 'success', message: null }
   const error = command.error
-  if (command.phase === 'conflict') return { itemId, outcome: 'conflict', message: error?.message ?? null }
+  if (command.phase === 'conflict') return { itemId, title, outcome: 'conflict', message: error?.message ?? null }
   if (error && (error.kind === 'forbidden' || error.status === 400 || error.status === 422)) {
-    return { itemId, outcome: 'rejected', message: error.message }
+    return { itemId, title, outcome: 'rejected', message: error.message }
   }
-  return { itemId, outcome: 'unknown', message: error?.message ?? null }
+  return { itemId, title, outcome: 'unknown', message: error?.message ?? null }
+}
+
+/** M13b-F08（R26）：批量结果逐条的可读标题，与列表行首同源——工作上下文优先，回退类型标签。 */
+function batchEntryTitle(itemId: string): string {
+  const item = (store.state.inbox.value ?? []).find(entry => entry.inboxItemId === itemId)
+  return item?.sourceContext?.workItemTitle?.trim() || (item ? enumLabel(item.itemType, inboxItemTypeLabels) : '未命名条目')
 }
 
 async function batchDisposition(itemIds: string[], status: InboxBatchStatus): Promise<void> {

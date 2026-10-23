@@ -319,7 +319,7 @@ function rowSubtitle(item: InboxItem): string {
       <ul>
         <li v-for="entry in batchReport.results" :key="entry.itemId">
           <StatusBadge :tone="batchOutcomePresentation[entry.outcome].tone">{{ batchOutcomePresentation[entry.outcome].label }}</StatusBadge>
-          <span class="mono">{{ entry.itemId.slice(0, 8) }}</span>
+          <span>{{ entry.title }}</span>
           <small>{{ entry.outcome === 'conflict' ? '处置版本已更新，回读列表后请基于当前状态重新确认。' : entry.outcome === 'unknown' ? '结果未知：先刷新确认本次结果，不要直接重试。' : entry.outcome === 'rejected' ? (entry.message ?? '命令被服务端拒绝。') : (entry.message ?? '处置已提交。') }}</small>
         </li>
       </ul>

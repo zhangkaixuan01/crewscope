@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import { applyConfigureReturn, buildConfigureReturn } from '../app/configureReturn'
 import { useNetworkStatus } from '../app/network'
+import { useToast } from '../composables/useToast'
 import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
@@ -134,15 +135,20 @@ function actionLabel(action: string | null): string {
 }
 /*
  * 两套 actionKey 词表并存：就绪度用 OPEN_WORKPROJECT_SETTINGS / START_GITHUB_IMPORT / OPEN_EXECUTION_DEFAULTS，A06 配置健康用 OPEN_MODEL_SETTINGS。
- * 这里按并集解析，服务端给出未知 actionKey 时按钮不跳转（保持现状，不回显枚举）。
+ * 这里按并集解析；服务端给出未知 actionKey 时按钮不再静默（M13b-F08 R47）——toast 说明入口
+ * 暂不可用并指回左侧导航，不回显枚举值。
  */
+const toast = useToast()
 async function goAction(item: Pick<SetupReadinessItem, 'actionKey'>): Promise<void> {
   const target = ({
     OPEN_AGENT_SETTINGS: 'agent-settings', OPEN_WORKPROJECT_SETTINGS: 'today', OPEN_GITHUB_SETTINGS: 'github-settings',
     START_GITHUB_IMPORT: 'repository-settings', OPEN_LARK_SETTINGS: 'lark-settings', OPEN_MODEL_SETTINGS: 'model-settings',
     OPEN_EXECUTION_DEFAULTS: 'repository-settings',
   } as Record<string, string>)[item.actionKey ?? '']
-  if (!target) return
+  if (!target) {
+    toast.show('该配置入口暂不可用，请从左侧导航进入对应设置页。', { tone: 'warning' })
+    return
+  }
   const teamId = scopeStore.state.selectedTeamId
   // The settings branch registers its own return: spreading the raw query last would let an
   // unvalidated project (or a stale `from`, hiding the way back here) override the registration.
@@ -232,7 +238,7 @@ async function goToday(): Promise<void> {
       <p v-else-if="healthNotice" class="health-notice" role="status">{{ healthNotice }}</p>
 
       <section class="capability-panel panel" aria-labelledby="capability-heading">
-        <div class="panel-heading"><div><p class="eyebrow">Capability checklist</p><h2 id="capability-heading">能力与前置条件</h2><p>可继续配置的成员看到明确入口；无权限时展示责任方，不暴露内部错误细节。</p></div><StatusBadge :tone="readiness.requiredReady ? 'success' : 'warning'" dot>{{ readiness.requiredReady ? 'Required ready' : '仍需配置' }}</StatusBadge></div>
+        <div class="panel-heading"><div><p class="eyebrow">能力清单</p><h2 id="capability-heading">能力与前置条件</h2><p>可继续配置的成员看到明确入口；无权限时展示责任方，不暴露内部错误细节。</p></div><StatusBadge :tone="readiness.requiredReady ? 'success' : 'warning'" dot>{{ readiness.requiredReady ? '必需项已就绪' : '仍需配置' }}</StatusBadge></div>
         <div class="capability-list" role="list">
           <article v-for="item in pendingCapabilities" :key="item.capability" class="capability-card" :class="`capability-card--${item.status.toLowerCase()}`" role="listitem">
             <div class="capability-card__icon"><component :is="iconFor(item.capability)" :size="17" aria-hidden="true" /></div>
@@ -269,7 +275,7 @@ async function goToday(): Promise<void> {
           <p class="migration-boundary">边界：不伪造历史、不做双向同步、没有批量导入；本机 CLI 深度集成与附件批量迁移未在当前范围。完整说明见仓库 docs/guides/M9b-单项目迁移试用指南.md。</p>
         </div>
       </section>
-      <p class="snapshot-note">快照 {{ readiness.snapshotVersion }} · 观测于 {{ new Date(readiness.observedAt).toLocaleString('zh-CN') }}</p>
+      <p class="snapshot-note">观测于 {{ new Date(readiness.observedAt).toLocaleString('zh-CN') }}</p>
     </div>
   </SettingsShell>
 </template>

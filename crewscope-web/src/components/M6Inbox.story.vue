@@ -63,9 +63,9 @@ function inbox(
         detail-phase="ready"
         :detail="{ value: { ...items[1]!, dispositionStatus: 'ARCHIVED', dispositionVersion: 3, etag: '&quot;3&quot;' }, etag: '&quot;3&quot;' }"
         :batch-report="{ status: 'ARCHIVED', results: [
-          { itemId: items[0]!.inboxItemId, outcome: 'success', message: null },
-          { itemId: items[1]!.inboxItemId, outcome: 'conflict', message: '处置版本已更新' },
-          { itemId: '00000000-0000-4000-8000-000000000903', outcome: 'unknown', message: null },
+          { itemId: items[0]!.inboxItemId, title: '结算看板主链路', outcome: 'success', message: null },
+          { itemId: items[1]!.inboxItemId, title: '执行看板迁移', outcome: 'conflict', message: '处置版本已更新' },
+          { itemId: '00000000-0000-4000-8000-000000000903', title: '我的负责', outcome: 'unknown', message: null },
         ] }"
       />
     </Variant>

@@ -62,6 +62,13 @@ test('UserAccountMenu：menuitem 导航菜单的同一份键盘合同', async ({
   await expect.poll(() => focusedRole(page)).toBe('menuitem')
   await expect.poll(() => focusedText(page)).toBe('账号设置')
 
+  // M13b-F08（R50）：主题三选 radio 组插在账号设置与退出之间——序列随之延长。
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => focusedText(page)).toBe('跟随系统')
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => focusedText(page)).toBe('浅色')
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => focusedText(page)).toBe('深色')
   await page.keyboard.press('ArrowDown')
   await expect.poll(() => focusedText(page)).toBe('退出当前设备')
   await page.keyboard.press('ArrowDown')

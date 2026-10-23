@@ -32,6 +32,26 @@ describe('LineChart', () => {
     expect(wrapper.findAll('circle')).toHaveLength(2)
   })
 
+  // M13b-F08（R42）：画面本身说出逐点数值（BarChart 柱顶值对称）；多序列按序错开不叠字。
+  it('prints a visible value at every point, stacked per series index', () => {
+    const twoSeries = mountChart({
+      series: [
+        { key: 'human', label: '人工', tone: 'info', points: [{ x: '2026-09', y: 4 }, { x: '2026-10', y: 7 }] },
+        { key: 'agent', label: 'Agent', tone: 'agent', points: [{ x: '2026-09', y: 2 }, { x: '2026-10', y: 5 }] },
+      ],
+    })
+
+    const values = twoSeries.findAll('.line-chart__value')
+    expect(values).toHaveLength(4)
+    expect(values.map(value => value.text())).toEqual(['4', '7', '2', '5'])
+    // 每个值都锚在自己点的正上方 8px，第二个序列整体再上抬 12px——错开不靠猜。
+    const circles = twoSeries.findAll('circle')
+    values.forEach((value, index) => {
+      const seriesIndex = Math.floor(index / 2)
+      expect(Number(value.attributes('y')) - Number(circles[index]!.attributes('cy'))).toBe(-8 - seriesIndex * 12)
+    })
+  })
+
   it('states every datum in the sr-only equivalent table, formatted', () => {
     const wrapper = mountChart({ valueFormatter: (value: number) => `${value} 个` })
 

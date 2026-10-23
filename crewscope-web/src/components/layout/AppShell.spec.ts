@@ -65,12 +65,13 @@ describe('AppShell', () => {
     wrapper.unmount()
   })
 
-  it('keeps appearance in the account page only — the top bar offers no theme or density toggle', async () => {
+  // M13b-F08（R50）：主题切换前移进账号菜单（UserAccountMenu.spec 验证其行为）；顶栏工具
+  // 分组保持「导航 | 搜索 | 通知」，密度仍只在账号设置页。
+  it('keeps the top bar tool group lean — no standalone theme or density toggle', async () => {
     const wrapper = await harness()
 
     expect(wrapper.text()).not.toContain('点击切换')
     expect(wrapper.find('.density-button').exists()).toBe(false)
-    // 顶栏仍是「导航 | 搜索 | 通知」的工具分组：搜索与通知入口都在。
     expect(wrapper.get('.command-search').attributes('aria-label')).toBe('打开命令面板，搜索工作、成员或 Agent')
     expect(wrapper.get('[aria-label="打开通知 Inbox"]')).toBeTruthy()
     wrapper.unmount()

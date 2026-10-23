@@ -6,8 +6,9 @@ import { CHART_DEGRADE_THRESHOLD, type ChartReference, type ChartSeries, type Ch
 
 /**
  * M12-F02 line chart: a deterministic hand-written SVG (WorkGraph precedent — no chart
- * library, zero animation). The picture is never the only voice: an sr-only table lists
- * every point, and past the degrade threshold the visible surface IS the table.
+ * library, zero animation). The picture is never the only voice: every point carries a
+ * visible value (M13b-F08 R42, BarChart symmetry) and an sr-only table lists every point;
+ * past the degrade threshold the visible surface IS the table.
  */
 const props = withDefaults(defineProps<{
   label: string
@@ -104,13 +105,21 @@ function defaultFormat(value: number): string {
           :x1="PAD_LEFT" :y1="yOf(reference.value)" :x2="WIDTH - PAD_RIGHT" :y2="yOf(reference.value)"
         />
         <g
-          v-for="entry in series"
+          v-for="(entry, seriesIndex) in series"
           :key="entry.key"
           class="line-chart__series"
           :class="`line-chart__series--${entry.tone}`"
         >
           <polyline :points="polylineOf(entry)" />
           <circle v-for="(point, index) in entry.points" :key="point.x" :cx="xOf(index)" :cy="yOf(seriesValue(entry, index))" r="3" />
+          <!-- M13b-F08（R42）：逐点可见数值，与 BarChart 柱顶值对称；多序列按序上抬错开，不叠字。 -->
+          <text
+            v-for="(point, index) in entry.points"
+            :key="`${point.x}-value`"
+            class="line-chart__value"
+            :x="xOf(index)" :y="yOf(seriesValue(entry, index)) - 8 - seriesIndex * 12"
+            text-anchor="middle"
+          >{{ format(seriesValue(entry, index)) }}</text>
         </g>
         <text
           v-if="reference"
@@ -165,6 +174,7 @@ function defaultFormat(value: number): string {
 .line-chart__series--info circle { fill: var(--cs-info); }
 .line-chart__series--agent polyline { fill: none; stroke: var(--cs-agent); stroke-width: 2; }
 .line-chart__series--agent circle { fill: var(--cs-agent); }
+.line-chart__value { fill: var(--cs-text-secondary); font-size: var(--cs-text-xs); }
 /* The dash pattern lives on the element as an SVG attribute so the dashed style is
    assertable and stays a non-color signal even where scoped CSS is unavailable. */
 .line-chart__reference-line { stroke: var(--cs-warning); stroke-width: 1.5; }

@@ -227,7 +227,7 @@ async function timedRequest<T>(
       v-if="phase === 'loading'"
       kicker="正在恢复工作入口"
       title="正在确认你的会话"
-      description="检查服务端 Session 和安全登录坐标后继续。"
+      description="检查服务端登录配置后继续。"
       busy
       focus-on-mount
     >

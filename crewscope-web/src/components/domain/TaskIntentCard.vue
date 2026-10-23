@@ -64,6 +64,12 @@ const projectOptions = computed(() => withCurrent(
   '目录外 WorkProject',
 ))
 
+/** M13b-F08（R25）：详情不再露出 WorkProject UUID——与修订表单同一解析（key · name），目录外回退同文案。 */
+function workProjectLabel(projectId: string): string {
+  const project = (props.projects ?? []).find(entry => entry.id === projectId)
+  return project ? `${project.key} · ${project.name}` : '目录外 WorkProject'
+}
+
 function withCurrent(
   options: { value: string, label: string }[],
   current: string[],
@@ -192,10 +198,10 @@ function principalName(principalId: string): string {
         <div><dt>Owner</dt><dd>{{ principalName(intent.proposal.owner.principalId) }}</dd></div>
         <div><dt>Executor</dt><dd>{{ intent.proposal.executor ? principalName(intent.proposal.executor.principalId) : '确认后分配' }}</dd></div>
         <div><dt>Gate Reviewer</dt><dd>{{ intent.proposal.gateReviewer ? principalName(intent.proposal.gateReviewer.principalId) : '未设置' }}</dd></div>
-        <div><dt>WorkProject</dt><dd>{{ intent.proposal.workProjectId }}</dd></div>
+        <div><dt>WorkProject</dt><dd>{{ workProjectLabel(intent.proposal.workProjectId) }}</dd></div>
       </dl>
       <p v-if="!isOwner && reviewable" class="notice">只有提案 Owner 可以修订、确认或拒绝；当前成员可继续观察事实变化。</p>
-      <p v-else-if="isOwner && reviewable" class="notice coding-continuation">确认将原子创建 WorkItem；确认结果随后使用统一委托表单选择 Repository、Ref、Allowed Paths 与 BuildProfile。</p>
+      <p v-else-if="isOwner && reviewable" class="notice coding-continuation">确认后将创建 WorkItem；确认结果随后使用统一委托表单选择 Repository、Ref、Allowed Paths 与 BuildProfile。</p>
       <p v-if="versionConflict" class="notice conflict">提案版本已刷新，请重新检查当前内容。</p>
       <p v-if="errorMessage || localError" class="error" role="alert">{{ errorMessage || localError }}</p>
       <div v-if="rejecting" class="reject-form">

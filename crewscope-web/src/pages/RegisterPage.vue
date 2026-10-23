@@ -269,7 +269,7 @@ async function timedRequest<T>(
       v-if="phase === 'loading'"
       kicker="正在准备账号入口"
       title="正在确认注册方式"
-      description="检查部署策略和安全注册坐标后继续。"
+      description="检查部署策略与注册配置后继续。"
       busy
       focus-on-mount
     >

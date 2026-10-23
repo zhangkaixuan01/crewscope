@@ -336,8 +336,11 @@ async function updateDeskQuery(key: string, value: string): Promise<void> {
   if (!pageOwner.isCurrent()) return
 }
 
-// A row without a title still has to be nameable, so it falls back to a translated object type.
-function deskTitle(item: WorkDeskItem): string { return item.title?.trim() || `${enumLabel(item.objectType, workDeskObjectTypeLabels)} · ${item.objectId.slice(0, 8)}` }
+/** M13b-F08（R46）：无标题行的回退名不再露出 UUID 前缀——类型标签 + 所属项目（可解析时）。 */
+function deskTitle(item: WorkDeskItem): string {
+  const project = projectLabel(item.projectId)
+  return item.title?.trim() || `${enumLabel(item.objectType, workDeskObjectTypeLabels)}${project ? ` · ${project}` : ''}`
+}
 function roleLabel(role: string | null): string { return enumLabelOr(role, workDeskResponsibilityRoleLabels, '关联任务') }
 function urgencyLabel(urgency: string): string { return enumLabel(urgency, workDeskUrgencyLabels) }
 function urgencyTone(urgency: string): SemanticTone { return urgency === 'HIGH' || urgency === 'URGENT' ? 'danger' : urgency === 'NORMAL' ? 'warning' : 'neutral' }
