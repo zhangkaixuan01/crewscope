@@ -101,3 +101,29 @@ test('reports the executing verdict with one primary control and no synthesized 
   await expect(sections.nth(4)).toHaveAttribute('aria-label', '注入与引用')
   await expect(sections.nth(5)).toHaveAttribute('aria-label', '审查与交付')
 })
+
+test('distills the pinned execution into knowledge straight from the drawer (M13b-F03/R14)', async ({ page }) => {
+  await page.goto(f03WorkUrl({ taskExecution: f03Ids.currentExecution }))
+  const dialog = page.getByRole('dialog', { name: `${taskObjective} Task 详情` })
+  await expect(dialog).toBeVisible()
+
+  // R03：执行区顶部的 ID 事实卡常驻——正在查看的执行可复制，也能一键带进蒸馏。
+  const idCard = dialog.locator('section[aria-label="执行 ID"]')
+  await expect(idCard.locator('code')).toHaveText(f03Ids.currentExecution)
+  await idCard.getByRole('button', { name: '蒸馏为知识' }).click()
+
+  // R14：带入的执行直达已选态——objective 预览与自动生成的 Key 都就位，无需再手选/手粘。
+  const distill = page.getByRole('dialog', { name: '从执行蒸馏知识' })
+  await expect(distill).toBeVisible()
+  await expect(distill.locator('.knowledge-dialog__preview')).toContainText(taskObjective)
+  await expect(distill.locator('.knowledge-dialog__preview')).toContainText(f03Ids.currentExecution)
+  await expect(distill.getByLabel('目标条目 Key')).toHaveValue(`exec-${f03Ids.currentExecution.slice(0, 8)}`)
+
+  await distill.getByRole('button', { name: '开始蒸馏' }).click()
+  expect(world.distillInputs).toEqual([
+    { taskExecutionId: f03Ids.currentExecution, entryKey: `exec-${f03Ids.currentExecution.slice(0, 8)}` },
+  ])
+  const receipt = distill.getByRole('region', { name: '蒸馏回执' })
+  await expect(receipt).toBeVisible()
+  await expect(receipt).toContainText('第 2 次尝试')
+})

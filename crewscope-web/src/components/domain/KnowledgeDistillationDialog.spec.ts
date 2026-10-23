@@ -1,7 +1,13 @@
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import KnowledgeDistillationDialog from './KnowledgeDistillationDialog.vue'
+import { AUTH_PRINCIPAL } from '../../app/auth'
+import { createTaskStore, TASK_STORE } from '../../domains/task/store'
 import type { KnowledgeDistillationReceipt } from '../../domains/knowledge/types'
+import { bootstrapPrincipal } from '../../test/authFixtures'
+import { fixtureIds } from '../../test/scopeFixtures'
+import { FixtureTaskGateway, taskIds } from '../../test/taskFixtures'
 
 const executionId = '00000000-0000-0000-0000-000000007201'
 
@@ -33,7 +39,7 @@ describe('KnowledgeDistillationDialog', () => {
     expect(input.category).toBeUndefined()
     expect(key).not.toBe('')
 
-    await wrapper.get('select').setValue('RUNBOOK')
+    await wrapper.get('select[aria-label="蒸馏结果分类"]').setValue('RUNBOOK')
     await wrapper.get('form').trigger('submit')
     expect((wrapper.emitted('distill')![1]![0] as { category?: string }).category).toBe('RUNBOOK')
   })
@@ -81,6 +87,38 @@ describe('KnowledgeDistillationDialog', () => {
     const wrapper = await mounted({ errorMessage: '执行不存在或没有产物' })
     expect(wrapper.get('[role="alert"]').text()).toContain('执行不存在或没有产物')
   })
+
+  it('prefills the execution and generates an editable key from the picker selection (A11)', async () => {
+    const wrapper = await mounted()
+    // 选择器选项经 store 只读查询异步到达，先等列表落进 DOM 再选择。
+    await vi.waitFor(() => { expect(wrapper.get('select[aria-label="选择一次执行"]').element.children.length).toBeGreaterThan(1) })
+    // 选择器列出最近执行；选中即写入事实源、给出预览并生成默认 Key（不再手抄 UUID/自发明 Key）。
+    await wrapper.get('select[aria-label="选择一次执行"]').setValue(taskIds.execution)
+    await nextTick()
+    const inputs = wrapper.findAll('input[type="text"]')
+    expect((inputs[0]!.element as HTMLInputElement).value).toBe(taskIds.execution)
+    expect((inputs[1]!.element as HTMLInputElement).value).toBe(`exec-${taskIds.execution.slice(0, 8)}`)
+    expect(wrapper.text()).toContain('完成 Task Gateway')
+    expect(wrapper.text()).toContain('选择一次执行，系统会生成知识条目草稿')
+
+    // 用户改过 Key 后切换执行不再覆盖用户的选择。
+    await inputs[1]!.setValue('postmortem-cache')
+    await wrapper.get('select[aria-label="选择一次执行"]').setValue('00000000-0000-0000-0000-000000009901')
+    await nextTick()
+    expect((wrapper.findAll('input[type="text"]')[1]!.element as HTMLInputElement).value).toBe('postmortem-cache')
+    wrapper.unmount()
+  })
+
+  it('enters the picked state directly from a preset execution (R14)', async () => {
+    const wrapper = await mounted({ presetExecution: { taskExecutionId: executionId, objective: '建立团队看板' } })
+
+    expect((wrapper.findAll('input[type="text"]')[0]!.element as HTMLInputElement).value).toBe(executionId)
+    expect((wrapper.findAll('input[type="text"]')[1]!.element as HTMLInputElement).value).toBe(`exec-${executionId.slice(0, 8)}`)
+    expect(wrapper.text()).toContain('建立团队看板')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('distill')![0]![0]).toMatchObject({ taskExecutionId: executionId })
+    wrapper.unmount()
+  })
 })
 
 async function mounted(overrides: Record<string, unknown> = {}) {
@@ -90,9 +128,20 @@ async function mounted(overrides: Record<string, unknown> = {}) {
   })
   await router.push('/knowledge?team=team-1')
   await router.isReady()
+  // M13b-F03（A11）：选择器经 TaskStore 的只读快照查询拉最近执行；fixture 平台团队的任务
+  // 挂到 team-1 键，第二条执行改独立 ID 避免 option value 重复。
+  const gateway = new FixtureTaskGateway()
+  const platformTasks = structuredClone(gateway.tasks[fixtureIds.teamPlatform] ?? [])
+  if (platformTasks[1]) platformTasks[1] = { ...platformTasks[1]!, currentExecutionId: '00000000-0000-0000-0000-000000009901' }
+  gateway.tasks['team-1'] = platformTasks
+  const taskStore = createTaskStore(gateway)
   return mount(KnowledgeDistillationDialog, {
     props: { teamId: 'team-1', submitting: false, errorMessage: null, receipt: null, ...overrides },
-    global: { plugins: [router], stubs: { teleport: true } },
+    global: {
+      plugins: [router],
+      provide: { [TASK_STORE as symbol]: taskStore, [AUTH_PRINCIPAL as symbol]: bootstrapPrincipal },
+      stubs: { teleport: true },
+    },
     attachTo: document.body,
   })
 }

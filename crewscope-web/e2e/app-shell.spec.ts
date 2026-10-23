@@ -1767,8 +1767,9 @@ test('Conversation reviews the latest TaskIntent and confirms with an empty requ
   await expect(page.getByText('已确认', { exact: true }).first()).toBeVisible()
   expect(confirmationBody).toBeNull()
 
-  // 关联 WorkItem 卡默认摘要收起（M9b-Q01）：进入工作区的入口在展开内容里。
-  await page.locator('summary', { hasText: '关联 WorkItem' }).click()
+  // M13b-F03（R02）：确认任务提案即自动展开「关联 WorkItem」并 toast 指路——进入
+  // 工作区的入口已就位（旧用例手动点 summary 展开现在反而会把它收起）。
+  await expect(page.getByText('可在「关联 WorkItem」中配置 Coding Task')).toBeVisible()
   await page.getByRole('button', { name: '查看工作项 CRW-18' }).click()
   await expect(page).toHaveURL(/\/work\?/)
   expect(new URL(page.url()).searchParams.get('workItem')).toBe(ids.workItem)

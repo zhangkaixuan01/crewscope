@@ -9,10 +9,10 @@ import { CONVERSATION_STORE, createConversationStore } from '../domains/conversa
 import { TASK_INTENT_STORE, createTaskIntentStore } from '../domains/conversation/taskIntentStore'
 import type { TaskIntentGateway } from '../domains/conversation/taskIntentGateway'
 import type { TaskIntent, VersionedTaskIntentConfirmationPreview } from '../domains/conversation/types'
-import type { ConversationWorkItemLinkGateway } from '../domains/conversation/workItemLinkGateway'
 import { CONVERSATION_WORK_ITEM_LINK_STORE, createConversationWorkItemLinkStore } from '../domains/conversation/workItemLinkStore'
 import { SCOPE_STORE, createScopeStore } from '../domains/scope/store'
 import { COLLABORATION_STORE } from '../domains/collaboration/store'
+import { useToast } from '../composables/useToast'
 import { createFixtureCollaborationStore } from '../test/collaborationFixtures'
 import { TASK_STORE, createTaskStore } from '../domains/task/store'
 import { bootstrapPrincipal } from '../test/authFixtures'
@@ -20,6 +20,7 @@ import { conversationIds, FixtureConversationGateway } from '../test/conversatio
 import { FixtureConversationMessageGateway } from '../test/conversationMessageFixtures'
 import { FixtureConversationRealtimeGateway } from '../test/conversationRealtimeFixtures'
 import { fixtureIds, FixtureScopeGateway } from '../test/scopeFixtures'
+import { fixtureConversationWorkItemAssociation, FixtureConversationWorkItemLinkGateway } from '../test/conversationWorkItemFixtures'
 import { fixtureConfirmationPreview, fixtureTaskIntent, taskIntentIds } from '../test/taskIntentFixtures'
 import { FixtureTaskGateway } from '../test/taskFixtures'
 import ConversationPage from './ConversationPage.vue'
@@ -49,12 +50,11 @@ class FixtureTaskIntentGateway implements TaskIntentGateway {
   }
 }
 
-class FixtureWorkItemLinkGateway implements ConversationWorkItemLinkGateway {
-  async listByConversation(): Promise<never[]> { return [] }
-  async listByWorkItem(): Promise<never[]> { return [] }
-}
-
-async function harness(): Promise<{ wrapper: VueWrapper, taskIntentStore: ReturnType<typeof createTaskIntentStore> }> {
+async function harness(): Promise<{
+  wrapper: VueWrapper
+  taskIntentStore: ReturnType<typeof createTaskIntentStore>
+  linkGateway: FixtureConversationWorkItemLinkGateway
+}> {
   // Scoped reading state only persists inside an activated F05 identity (sign-in epoch).
   activateF05Identity(bootstrapPrincipal.accountId)
   // RouterLink resolves every navigation name during render; unknown names throw, so register them all.
@@ -78,6 +78,9 @@ async function harness(): Promise<{ wrapper: VueWrapper, taskIntentStore: Return
   const scopeStore = createScopeStore(new FixtureScopeGateway(), bootstrapPrincipal)
   await scopeStore.synchronize(fixtureIds.teamPlatform)
   const taskIntentStore = createTaskIntentStore(new FixtureTaskIntentGateway())
+  // 默认无关联（保持既有用例的渲染面）；R02 用例确认后按需注入确认产物。
+  const linkGateway = new FixtureConversationWorkItemLinkGateway()
+  linkGateway.associations = []
   const wrapper = mount(ConversationPage, {
     global: {
       plugins: [router],
@@ -87,7 +90,7 @@ async function harness(): Promise<{ wrapper: VueWrapper, taskIntentStore: Return
         [CONVERSATION_MESSAGE_STORE as symbol]: createConversationMessageStore(new FixtureConversationMessageGateway()),
         [CONVERSATION_REALTIME_STORE as symbol]: createConversationRealtimeStore(new FixtureConversationRealtimeGateway()),
         [TASK_INTENT_STORE as symbol]: taskIntentStore,
-        [CONVERSATION_WORK_ITEM_LINK_STORE as symbol]: createConversationWorkItemLinkStore(new FixtureWorkItemLinkGateway()),
+        [CONVERSATION_WORK_ITEM_LINK_STORE as symbol]: createConversationWorkItemLinkStore(linkGateway),
         [TASK_STORE as symbol]: createTaskStore(new FixtureTaskGateway()),
         [COLLABORATION_STORE as symbol]: createFixtureCollaborationStore(),
         [AUTH_PRINCIPAL as symbol]: bootstrapPrincipal,
@@ -98,7 +101,7 @@ async function harness(): Promise<{ wrapper: VueWrapper, taskIntentStore: Return
   // page's async restore chain settles before the test touches scroll state.
   await vi.waitFor(() => { expect(wrapper.find('.message-history').exists()).toBe(true) })
   await nextTick()
-  return { wrapper, taskIntentStore }
+  return { wrapper, taskIntentStore, linkGateway }
 }
 
 /** jsdom reports 0 for every layout box; the virtual list measures rows, so give them a height. */
@@ -199,6 +202,33 @@ describe('ConversationPage', () => {
     await nextTick()
     expect(text()).toContain('预检并确认')
     expect(text()).toContain('验收标准')
+    wrapper.unmount()
+  })
+
+  it('expands the work-item section and toasts the delegation path after confirming the intent (R02)', async () => {
+    const { wrapper, taskIntentStore, linkGateway } = await harness()
+    // 确认产物：服务端为该会话建好 WorkItem 关联，关联区因此进入渲染面。
+    linkGateway.associations.push(fixtureConversationWorkItemAssociation)
+    const toast = useToast()
+    toast.toasts.value.forEach(item => toast.dismiss(item.id))
+    await taskIntentStore.load(
+      { organizationId: bootstrapPrincipal.organizationId, teamId: fixtureIds.teamPlatform, conversationId: conversationIds.provider },
+      taskIntentIds.release,
+    )
+    await nextTick()
+
+    await wrapper.findAll('button').find(button => button.text() === '展开提案')!.trigger('click')
+    await nextTick()
+    // 确认前关联区保持 M9b-Q01 的默认收起。
+    const workItemSection = () => wrapper.findAll('details.conversation-structure')
+      .find(details => details.text().includes('关联 WorkItem'))!
+    expect((workItemSection().element as HTMLDetailsElement).open).toBe(false)
+
+    await wrapper.findAll('button').find(button => button.text().includes('预检并确认'))!.trigger('click')
+    // 确认成功不再是无反馈的一跳：toast 指路 + 关联区程序化展开。
+    await vi.waitFor(() => { expect(toast.toasts.value.map(item => item.message)).toContain('已确认任务提案并创建 WorkItem，可在「关联 WorkItem」中配置 Coding Task') })
+    expect(toast.toasts.value[0]!.tone).toBe('success')
+    expect((workItemSection().element as HTMLDetailsElement).open).toBe(true)
     wrapper.unmount()
   })
 

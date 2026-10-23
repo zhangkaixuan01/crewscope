@@ -8,9 +8,11 @@ import {
   RefreshCw,
   ServerCog,
   ShieldCheck,
+  Sparkles,
   TriangleAlert,
 } from '@lucide/vue'
 import { computed, nextTick, ref, useTemplateRef } from 'vue'
+import { useClipboard } from '../../composables/useClipboard'
 import { useNetworkStatus } from '../../app/network'
 import { useTaskStore } from '../../domains/task/store'
 import { useReviewStore } from '../../domains/review/store'
@@ -76,9 +78,16 @@ const props = defineProps<{
   pinnedResultReference?: ResultReference | null
 }>()
 
-const emit = defineEmits<{ close: [], openWorkItem: [], openConversation: [conversationId: string] }>()
+const emit = defineEmits<{
+  close: []
+  openWorkItem: []
+  openConversation: [conversationId: string]
+  /** M13b-F03（R14）：执行现场一键蒸馏——页面带完整执行上下文打开蒸馏对话框。 */
+  distill: [executionId: string]
+}>()
 const content = useTemplateRef<HTMLElement>('content')
 const reviewLocation = ref<ReviewFindingEvidence | null>(null)
+const clipboard = useClipboard()
 
 // --- M12b-F05 subscriptions: raw state faces come from the stores, projections from the workbench.
 const taskStore = useTaskStore()
@@ -137,6 +146,18 @@ const canCreateReview = computed<boolean>(() => props.workbench.canCreateReview.
 
 const codingCommandLog = (evidenceId: string): CodingResource<ArtifactTextDocument> | null => props.workbench.codingCommandLog(evidenceId)
 const codingTestReport = (evidenceId: string): CodingResource<ArtifactTextDocument> | null => props.workbench.codingTestReport(evidenceId)
+
+// M13b-F03（R03/R14）：执行 ID 是蒸馏等下游动作的事实来源——完整可见、一键复制，
+// 蒸馏入口留在执行现场，不再要求用户离开工作区去页面级入口手抄 UUID。
+const copiedExecutionId = computed(() => clipboard.copied.value === 'task-execution-id')
+
+async function copyExecutionId(): Promise<void> {
+  if (selectedExecutionId.value) await clipboard.copy(selectedExecutionId.value, 'task-execution-id')
+}
+
+function onDistillExecution(): void {
+  if (selectedExecutionId.value) emit('distill', selectedExecutionId.value)
+}
 
 // Command wrappers keep their page continuations; the local aliases keep the template untouched.
 const onResolveExecutionConflict = (executionId: string): void => props.workbench.resolveExecutionConflict(executionId)
@@ -400,6 +421,18 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
 
           <div class="task-detail-column task-detail-column--runtime">
             <section id="ws-execution" class="workspace-section" tabindex="-1" aria-label="执行">
+              <section class="detail-card execution-id-card" aria-label="执行 ID">
+                <div class="execution-id-card__fact">
+                  <p>当前执行 ID</p>
+                  <code>{{ selectedExecutionId ?? '—' }}</code>
+                  <!-- M13b-F03（R03/R14）：无执行时的禁用原因就近说明，按钮 aria-describedby 指向这里。 -->
+                  <small v-if="!selectedExecutionId" id="execution-id-absent-hint" class="execution-id-card__absent">这个 Task 还没有执行，暂无可复制或蒸馏的执行 ID。</small>
+                </div>
+                <div class="execution-id-card__actions">
+                  <BaseButton size="small" variant="ghost" :disabled="!selectedExecutionId" :aria-describedby="selectedExecutionId ? undefined : 'execution-id-absent-hint'" @click="copyExecutionId">{{ copiedExecutionId ? '已复制' : '复制 ID' }}</BaseButton>
+                  <BaseButton size="small" variant="secondary" :disabled="!selectedExecutionId" :aria-describedby="selectedExecutionId ? undefined : 'execution-id-absent-hint'" @click="onDistillExecution"><Sparkles :size="13" />蒸馏为知识</BaseButton>
+                </div>
+              </section>
               <TaskControlPanel
                 v-if="!codingAttempt?.coding"
                 class="control-card"
@@ -559,6 +592,8 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
 <style scoped>
 .task-detail-header__text p, .task-detail-header__text strong { display: block; margin: 0; }.task-detail-header__text p { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.task-detail-header__text strong { margin-top: var(--cs-space-2); color: var(--cs-text-brand); font: var(--cs-text-base) var(--cs-font-mono); }.task-detail-content { container: task-detail / inline-size; }.detail-sync-state { margin-bottom: var(--cs-space-12); }.workspace-nav-anchor { position: sticky; top: calc(-1 * var(--cs-space-12)); z-index: 3; margin: 0 calc(-1 * var(--cs-space-12)); padding: var(--cs-space-4) var(--cs-space-12) var(--cs-space-4) var(--cs-space-20); border-bottom: 1px solid var(--cs-border); background: var(--cs-canvas); }.task-detail-columns { display: grid; grid-template-columns: 1fr; align-items: start; gap: var(--cs-space-12); margin-top: var(--cs-space-12); }.task-detail-column { display: grid; gap: var(--cs-space-12); }.workspace-section { display: grid; gap: var(--cs-space-12); scroll-margin-top: var(--cs-space-8); outline: none; }.detail-card { min-width: 0; padding: var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }.task-hero { padding: var(--cs-space-20); }.acceptance { padding: var(--cs-space-12); border-radius: 9px; background: var(--cs-surface-accent); }.acceptance p { margin: 0 0 var(--cs-space-8); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.acceptance ul { display: grid; gap: var(--cs-space-8); margin: 0; padding: 0; list-style: none; }.acceptance li { display: flex; align-items: flex-start; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }.acceptance li svg { flex: 0 0 auto; margin-top: var(--cs-space-2); color: var(--cs-success); }.section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); margin-bottom: var(--cs-space-12); }.section-heading p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }.section-heading h3 { margin: 0; font-size: var(--cs-text-base); }.section-heading h3 span { color: var(--cs-text-muted); font-weight: var(--cs-weight-medium); }.section-heading > svg { color: var(--cs-text-muted); }.compact-facts { display: grid; grid-template-columns: 1fr 1fr; margin: var(--cs-space-12) 0 0; }.task-hero .compact-facts { margin-top: var(--cs-space-12); }.compact-facts > div { min-width: 0; padding: var(--cs-space-8) 0; border-top: 1px solid var(--cs-border); }.compact-facts dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.compact-facts dd { min-width: 0; margin: var(--cs-space-4) 0 0; overflow: hidden; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-overflow: ellipsis; white-space: nowrap; }.responsibility-list { display: grid; gap: var(--cs-space-8); }.responsibility-list article { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border-radius: 9px; background: var(--cs-surface-subtle); }.responsibility-list i { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.responsibility-list strong, .responsibility-list span { display: block; }.responsibility-list strong { overflow: hidden; font-size: var(--cs-text-sm); text-overflow: ellipsis; white-space: nowrap; }.responsibility-list span { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.fleet-overview { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-12); border-radius: 9px; background: var(--cs-surface-subtle); }.fleet-overview > div { display: flex; align-items: center; gap: var(--cs-space-8); }.fleet-overview small { color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }.fleet-overview > strong { font-size: var(--cs-text-lg); }.fleet-overview > strong span { margin-left: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.runtime-alert { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin-top: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-warning-border); border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); }.runtime-alert svg { flex: 0 0 auto; }.runtime-alert span, .runtime-alert strong { display: block; }.runtime-alert span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }.runtime-alert strong { margin-bottom: var(--cs-space-2); color: var(--cs-warning); font-size: var(--cs-text-xs); }.wait-causes { display: flex; flex-wrap: wrap; gap: var(--cs-space-4); margin-top: var(--cs-space-8); }.wait-causes span { padding: var(--cs-space-4) var(--cs-space-8); border-radius: 6px; background: var(--cs-warning-soft); color: var(--cs-warning); font: var(--cs-text-xs) var(--cs-font-mono); }.empty-note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.inline-error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }.inline-error button { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: inherit; text-decoration: underline; cursor: pointer; }.task-detail-footer { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: var(--cs-space-12); }.task-detail-footer > span { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .task-conversation-links { display: grid; gap: var(--cs-space-8); }.task-conversation-links > button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); color: var(--cs-text); text-align: left; cursor: pointer; }.task-conversation-links > button:hover { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); }.task-conversation-links span, .task-conversation-links strong, .task-conversation-links small { display: block; }.task-conversation-links strong { font-size: var(--cs-text-sm); }.task-conversation-links small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.task-conversation-links svg { flex: 0 0 auto; color: var(--cs-text-brand); }.associations-card :deep(.state-panel) { min-height: 100px; border: 0; }
+.execution-id-card { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); }.execution-id-card__fact { min-width: 0; }.execution-id-card__fact p { margin: 0 0 var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.execution-id-card__fact code { display: block; overflow-wrap: anywhere; color: var(--cs-text-secondary); font: var(--cs-text-xs) var(--cs-font-mono); }.execution-id-card__absent { display: block; margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.execution-id-card__actions { display: flex; flex: 0 0 auto; gap: var(--cs-space-8); }
+@media (max-width: 767px) { .execution-id-card { flex-wrap: wrap; }.execution-id-card__actions { flex-wrap: wrap; } }
 @container task-detail (min-width: 960px) { .task-detail-columns { grid-template-columns: minmax(310px, .78fr) minmax(430px, 1.22fr); } }
 @media (max-width: 767px) { .workspace-nav-anchor { padding-left: var(--cs-space-12); }.task-detail-footer > span { display: none; }.task-detail-footer > :deep(button) { width: 100%; } }
 </style>

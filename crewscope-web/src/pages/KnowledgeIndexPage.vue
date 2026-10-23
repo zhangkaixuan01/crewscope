@@ -11,6 +11,7 @@ import BaseMenu from '../components/base/BaseMenu.vue'
 import RelativeTime from '../components/base/RelativeTime.vue'
 import RepositoryBuildDialog from '../components/domain/RepositoryBuildDialog.vue'
 import KnowledgeIndexJobList from '../components/domain/KnowledgeIndexJobList.vue'
+import ActionConfirmDialog from '../components/shared/ActionConfirmDialog.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import { useAutoRefresh } from '../composables/useAutoRefresh'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
@@ -36,6 +37,8 @@ const store = useKnowledgeIndexStore()
 const online = useNetworkStatus()
 
 const buildOpen = ref(false)
+// M13b-F03（R31）：重建是整队列替换的显式操作——先确认影响再发命令，不再一键直发。
+const rebuildConfirmOpen = ref(false)
 const moreOpen = ref(false)
 const autoRefresh = ref(true)
 const autoRefreshTimer = useAutoRefresh(() => void refresh(), {
@@ -66,11 +69,14 @@ const buildPending = computed(() => store.state.command.phase === 'pending' && s
 const buildError = computed(() => buildOpen.value && store.state.command.operation === 'repository-build' && store.state.command.phase === 'error'
   ? store.state.command
   : null)
-/** The dialog owns repository-build errors while it stays open; every other outcome pages here. */
+const rebuildError = computed(() => rebuildConfirmOpen.value && store.state.command.operation === 'rebuild' && store.state.command.phase === 'error'
+  ? store.state.command
+  : null)
+/** The dialogs own their command errors while they stay open; every other outcome pages here. */
 const banner = computed(() => {
   const command = store.state.command
   if (command.phase !== 'success' && command.phase !== 'error') return null
-  if (buildError.value) return null
+  if (buildError.value || rebuildError.value) return null
   return command
 })
 
@@ -146,7 +152,15 @@ async function rebuild(): Promise<void> {
   const success = await store.rebuild()
   if (!pageOwner.isCurrent()) return
   // The store invalidates the listing; the refresh pulls the fresh queue in immediately (D2).
-  if (success) await refresh()
+  if (success) {
+    rebuildConfirmOpen.value = false
+    await refresh()
+  }
+}
+
+function cancelRebuild(): void {
+  rebuildConfirmOpen.value = false
+  if (store.state.command.operation === 'rebuild' && store.state.command.phase === 'error') store.clearCommand()
 }
 
 async function submitBuild(input: RepositoryBuildInput): Promise<void> {
@@ -187,7 +201,7 @@ function closeBuild(): void {
         <div class="index-more">
           <p v-if="lastRefreshedAt" class="last-refreshed">上次刷新于 <RelativeTime :value="lastRefreshedAt" /></p>
           <label class="auto-refresh"><input v-model="autoRefresh" type="checkbox">15 秒自动刷新</label>
-          <BaseButton v-if="canManage" variant="secondary" size="small" class="index-more__rebuild" :disabled="!online" :loading="rebuildPending" @click="rebuild"><ListRestart :size="14" />重建知识索引</BaseButton>
+          <BaseButton v-if="canManage" variant="secondary" size="small" class="index-more__rebuild" :disabled="!online" :loading="rebuildPending" @click="rebuildConfirmOpen = true"><ListRestart :size="14" />重建知识索引</BaseButton>
         </div>
       </BaseMenu>
     </template>
@@ -233,6 +247,20 @@ function closeBuild(): void {
       :error-status="buildError?.errorStatus ?? null"
       @close="closeBuild"
       @submit="submitBuild"
+    />
+
+    <ActionConfirmDialog
+      v-if="rebuildConfirmOpen"
+      heading="重建知识索引"
+      impact="会为当前 Team 重新排队全部条目的索引构建：现有队列被替换为新的重建任务，期间语义检索命中可能不完整，直到全部任务完成。条目内容本身不受影响。"
+      confirm-label="确认重建"
+      close-label="关闭重建确认"
+      cancel-label="取消"
+      width="min(500px, 100%)"
+      :submitting="rebuildPending"
+      :error-message="rebuildError?.errorMessage ?? null"
+      @cancel="cancelRebuild"
+      @confirm="rebuild"
     />
   </AppShell>
 </template>

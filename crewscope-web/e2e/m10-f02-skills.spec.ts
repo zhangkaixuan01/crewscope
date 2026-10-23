@@ -123,6 +123,20 @@ test.beforeEach(async ({ page }) => {
       await fulfillJson(route, { items: [project()], nextCursor: null })
       return
     }
+    if (path.endsWith('/tasks') && request.method() === 'GET') {
+      // M13b-F03（A11）：蒸馏对话框的「先选最近执行」选择器——一条带当前执行的任务。
+      await fulfillJson(route, {
+        items: [{
+          id: '00000000-0000-1000-8000-000000007301', workspaceId: ids.workspace, projectId: ids.project,
+          workItemId: '00000000-0000-1000-8000-00000000601', objective: '修复知识检索超时', acceptanceCriteria: [],
+          status: 'ACTIVE', currentExecutionId: ids.distillExecution, currentAttempt: 2,
+          currentExecutionStatus: 'RUNNING', currentWaitingReason: null, ownerPrincipalId: ids.principal,
+          version: 1, createdAt: '2026-08-08T04:00:00Z', updatedAt: '2026-08-08T04:00:00Z',
+        }],
+        nextCursor: null,
+      })
+      return
+    }
     if (path.endsWith('/skills') && request.method() === 'GET') {
       listingQueries.push(url.searchParams)
       const status = url.searchParams.get('status')
@@ -480,6 +494,8 @@ test('S10 蒸馏回执区分首次确认与幂等重放', async ({ page }) => {
   await page.getByRole('button', { name: '从执行蒸馏' }).first().click()
 
   const dialog = page.getByRole('dialog', { name: '从执行蒸馏 Skill' })
+  // M13b-F03（A11）：手粘收进「高级」——展开后粘贴仍是全量路径，选择器是默认入口。
+  await dialog.locator('summary', { hasText: '高级：粘贴执行 ID' }).click()
   await expect(dialog.getByText('仅任务执行创建者本人可提炼该执行')).toBeVisible()
   await dialog.getByLabel('任务执行 ID').fill(ids.distillExecution)
   await dialog.getByLabel('目标 skillKey').fill('postmortem-cache')
@@ -503,6 +519,7 @@ test('S10 蒸馏回执区分首次确认与幂等重放', async ({ page }) => {
   failFirstDistill = true
   await detail.getByRole('button', { name: '关闭 Skill 详情' }).click()
   await page.getByRole('button', { name: '从执行蒸馏' }).first().click()
+  await dialog.locator('summary', { hasText: '高级：粘贴执行 ID' }).click()
   await dialog.getByLabel('任务执行 ID').fill(ids.distillExecution)
   await dialog.getByLabel('目标 skillKey').fill('retry-cache')
   await dialog.getByRole('button', { name: '开始蒸馏' }).click()

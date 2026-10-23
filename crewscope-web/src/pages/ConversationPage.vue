@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useCreationEntry } from '../composables/useCreationEntry'
 import { useClipboard } from '../composables/useClipboard'
+import { useToast } from '../composables/useToast'
 import {
   ArrowLeft,
   ArrowRight,
@@ -179,6 +180,10 @@ const virtualBottom = virtualList.bottomPadding
 const isFollowing = virtualList.isFollowing
 // The folded TaskIntent pre-message card expands for this conversation only, never persisted (R19).
 const taskIntentExpanded = ref(false)
+// M13b-F03（R02）：确认提案后自动展开关联区——「配置 Coding Task」是确认后的下一跳，
+// M9b-Q01 的默认收起决策做出时折叠区还不是唯一的委托入口。
+const workItemSectionOpen = ref(false)
+const toast = useToast()
 let createReturnFocus: HTMLElement | null = null
 let conversationReturnFocus: HTMLElement | null = null
 let pendingDetailFocus = false
@@ -704,6 +709,12 @@ async function confirmTaskIntent(): Promise<void> {
     ])
     if (!pageOwner.isCurrent()) return
     synchronizeTaskStreams()
+    // R02：确认成功不再是无反馈的一跳——展开关联区并用 toast 指到委托入口。
+    workItemSectionOpen.value = true
+    toast.show('已确认任务提案并创建 WorkItem，可在「关联 WorkItem」中配置 Coding Task', {
+      tone: 'success',
+      action: { label: '查看关联', onClick: () => { workItemSectionOpen.value = true } },
+    })
   }
   await redirectIfForbidden()
   if (!pageOwner.isCurrent()) return
@@ -1068,8 +1079,9 @@ async function redirectIfForbidden(): Promise<void> {
                 />
               </details>
               <!-- M9b-Q01（主计划 4.5「关联卡默认摘要，参与者按需展开」）：默认收起，摘要行的
-                   计数就是状态；待确认的任务提案卡在上方保持例外突出。 -->
-              <details v-if="linkStore.state.associations.length || linkStore.state.phase !== 'idle'" class="conversation-structure">
+                   计数就是状态；待确认的任务提案卡在上方保持例外突出。F03（R02）：确认提案后
+                   程序化展开一次，用户手动收起不被覆盖（toggle 回写）。 -->
+              <details v-if="linkStore.state.associations.length || linkStore.state.phase !== 'idle'" class="conversation-structure" :open="workItemSectionOpen" @toggle="workItemSectionOpen = ($event.target as HTMLDetailsElement).open">
                 <summary>关联 WorkItem <span>{{ linkStore.state.associations.length }} 项</span></summary>
                 <ConversationWorkItemLinks
                   :phase="linkStore.state.phase"

@@ -138,6 +138,19 @@ export interface TaskSummary {
   updatedAt: string
 }
 
+/**
+ * M13b-F03（A11）：「选一次执行」场景的最近执行选项——任务列表的当前执行投影，
+ * 供蒸馏等对话框做选择器；只携带选择与预览所需字段，不引入任务详情生命周期。
+ */
+export interface TaskExecutionOption {
+  taskExecutionId: string
+  attempt: number | null
+  objective: string
+  executionStatus: TaskExecutionStatus | null
+  taskStatus: TaskStatus
+  createdAt: string
+}
+
 export interface CreateTaskInput {
   objective: string
   acceptanceCriteria: string[]

@@ -1,6 +1,10 @@
 import { mount } from '@vue/test-utils'
 import SkillDistillationDialog from './SkillDistillationDialog.vue'
+import { AUTH_PRINCIPAL } from '../../app/auth'
+import { createTaskStore, TASK_STORE } from '../../domains/task/store'
 import type { SkillDistillationReceipt } from '../../domains/skill/types'
+import { bootstrapPrincipal } from '../../test/authFixtures'
+import { FixtureTaskGateway } from '../../test/taskFixtures'
 
 const executionId = '00000000-0000-0000-0000-000000008201'
 
@@ -63,13 +67,31 @@ describe('SkillDistillationDialog', () => {
     expect(wrapper.text()).toContain('任务执行 ID')
     expect(wrapper.find('input').exists()).toBe(true)
   })
+
+  it('enters the picked state directly from a preset execution and generates the key (R14)', async () => {
+    const wrapper = mounted({ presetExecution: { taskExecutionId: executionId, objective: '建立团队看板' } })
+
+    const inputs = wrapper.findAll('input[type="text"]')
+    expect((inputs[0]!.element as HTMLInputElement).value).toBe(executionId)
+    expect((inputs[1]!.element as HTMLInputElement).value).toBe(`skill-${executionId.slice(0, 8)}`)
+    expect(wrapper.text()).toContain('建立团队看板')
+    expect(wrapper.text()).toContain('选择一次执行，系统会生成 Skill 草稿')
+
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('distill')![0]![0]).toMatchObject({ taskExecutionId: executionId })
+  })
 })
 
-function mounted() {
+function mounted(overrides: Record<string, unknown> = {}) {
+  // M13b-F03（A11）：选择器经 TaskStore 的只读快照查询拉最近执行。
+  const taskStore = createTaskStore(new FixtureTaskGateway())
   return mount(SkillDistillationDialog, {
-    props: { teamId: 'team-1', submitting: false, errorMessage: null, receipt: null },
+    props: { teamId: 'team-1', submitting: false, errorMessage: null, receipt: null, ...overrides },
     attachTo: document.body,
-    global: { stubs: { teleport: true } },
+    global: {
+      provide: { [TASK_STORE as symbol]: taskStore, [AUTH_PRINCIPAL as symbol]: bootstrapPrincipal },
+      stubs: { teleport: true },
+    },
   })
 }
 

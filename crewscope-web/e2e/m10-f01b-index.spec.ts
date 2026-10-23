@@ -228,6 +228,8 @@ test('重建回执区分入队与闸关跳过两种形态', async ({ page }) => 
   // L16：重建收进 overflow 菜单（弹层 v-if，收起时不在 DOM），先开菜单。
   await page.getByRole('button', { name: '更多索引动作' }).click()
   await page.getByRole('button', { name: '重建知识索引' }).click()
+  // M13b-F03（R31）：重建命令前先过影响确认对话框。
+  await page.getByRole('button', { name: '确认重建' }).click()
   // The banner is scoped by class: the listing's StatePanel also answers role=status
   // while the forced re-read holds it in the loading state.
   await expect(page.locator('p.index-banner')).toContainText('已入队 2 个知识重建作业')
@@ -241,9 +243,10 @@ test('重建回执区分入队与闸关跳过两种形态', async ({ page }) => 
 
   gateClosed = true
   await page.getByRole('button', { name: '关闭提示' }).click()
-  // 关闭 banner 的 pointerdown 会顺带收起菜单，重开再点重建。
+  // 关闭 banner 的 pointerdown 会顺带收起菜单，重开再点重建（R31：仍需过确认）。
   await page.getByRole('button', { name: '更多索引动作' }).click()
   await page.getByRole('button', { name: '重建知识索引' }).click()
+  await page.getByRole('button', { name: '确认重建' }).click()
   // Gate closed is a skip, never an error (contract §7).
   await expect(page.locator('p.index-banner')).toContainText('未新建作业：索引开关未开启，或没有可重建的生效版本')
 })

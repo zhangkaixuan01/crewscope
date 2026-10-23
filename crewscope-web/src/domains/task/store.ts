@@ -14,6 +14,7 @@ import type {
   TaskEventItem,
   TaskEventPage,
   TaskExecution,
+  TaskExecutionOption,
   TaskListQuery,
   TaskRuntimeFacts,
   TaskScope,
@@ -106,6 +107,11 @@ export interface TaskStore {
   synchronize(scope: TaskScope, options?: { projectId?: string, status?: TaskStatus, ownerPrincipalId?: string, taskId?: string | null }): Promise<void>
   load(scope: TaskScope, projectId?: string, status?: TaskStatus, ownerPrincipalId?: string, force?: boolean): Promise<void>
   loadMore(): Promise<void>
+  /**
+   * M13b-F03（A11）：只读拉取带当前执行的最近任务选项。走 gateway 直查，不触碰共享
+   * 集合态——WorkPage 的任务列表与游标不因蒸馏对话框打开而重置。
+   */
+  listRecentExecutionOptions(scope: TaskScope, limit?: number): Promise<TaskExecutionOption[]>
   select(scope: TaskScope, taskId: string, force?: boolean): Promise<void>
   clearSelection(): void
   loadRuntimeFacts(taskId: string, executionId: string, force?: boolean): Promise<void>
@@ -300,6 +306,21 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
       if (collectionAbort === controller) collectionAbort = null
       if (collectionCurrent(version, currentScopeKey!, currentQueryKey)) state.loadingMore = false
     }
+  }
+
+  /** M13b-F03（A11）：gateway 直查 + 当前执行投影，共享集合态零触碰（接口注释见 TaskStore）。 */
+  async function listRecentExecutionOptions(scope: TaskScope, limit = 20): Promise<TaskExecutionOption[]> {
+    const page = await gateway.listTasks({ ...scope, limit })
+    return page.items
+      .filter(item => item.currentExecutionId !== null)
+      .map(item => ({
+        taskExecutionId: item.currentExecutionId!,
+        attempt: item.currentAttempt,
+        objective: item.objective,
+        executionStatus: item.currentExecutionStatus,
+        taskStatus: item.status,
+        createdAt: item.createdAt,
+      }))
   }
 
   async function select(scope: TaskScope, taskId: string, force = false): Promise<void> {
@@ -1090,6 +1111,7 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
     synchronize,
     load,
     loadMore,
+    listRecentExecutionOptions,
     select,
     clearSelection,
     loadRuntimeFacts,

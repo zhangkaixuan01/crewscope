@@ -90,9 +90,10 @@ describe('KnowledgeIndexPage', () => {
     const { wrapper, gateway } = await mountPage(manager, '', { rebuildEnqueued: 2 })
     const listsBefore = gateway.listCalls.length
 
-    // L16：重建收进 overflow 菜单，先开菜单才能拿到按钮。
+    // L16：重建收进 overflow 菜单，先开菜单才能拿到按钮；M13b-F03（R31）命令前先过确认对话框。
     await openMoreActions(wrapper)
     await wrapper.findAll('button').find(button => button.text().includes('重建知识索引'))!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '确认重建')!.trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).toContain('已入队 2 个知识重建作业')
@@ -102,10 +103,25 @@ describe('KnowledgeIndexPage', () => {
     await wrapper.get('button[aria-label="关闭提示"]').trigger('click')
     await openMoreActions(wrapper)
     await wrapper.findAll('button').find(button => button.text().includes('重建知识索引'))!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '确认重建')!.trigger('click')
     await flushPromises()
 
     // 闸关 enqueued:0 是跳过，不是错误（契约 §7）。
     expect(wrapper.text()).toContain('未新建作业：索引开关未开启，或没有可重建的生效版本')
+    wrapper.unmount()
+  })
+
+  it('keeps the rebuild command unissued when the confirm dialog is cancelled (R31)', async () => {
+    const { wrapper, gateway } = await mountPage(manager, '')
+    await openMoreActions(wrapper)
+    await wrapper.findAll('button').find(button => button.text().includes('重建知识索引'))!.trigger('click')
+
+    // 确认对话框先呈现影响说明；取消即关闭且命令未发。
+    expect(wrapper.text()).toContain('现有队列被替换为新的重建任务')
+    await wrapper.findAll('button').find(button => button.text() === '取消')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('现有队列被替换为新的重建任务')
+    expect(gateway.rebuildCalls).toBe(0)
     wrapper.unmount()
   })
 
@@ -195,6 +211,7 @@ class FixtureIndexPageGateway implements KnowledgeIndexGateway {
   listCalls: Array<KnowledgeIndexJobFilter | undefined> = []
   cancelCalls: string[] = []
   buildInputs: RepositoryBuildInput[] = []
+  rebuildCalls = 0
   rebuildEnqueued: number
 
   constructor(private readonly overrides: FixtureOverrides) {
@@ -218,6 +235,7 @@ class FixtureIndexPageGateway implements KnowledgeIndexGateway {
   }
 
   async rebuild(_scope: SettingsScope): Promise<RebuildAccepted> {
+    this.rebuildCalls += 1
     return { enqueued: this.rebuildEnqueued }
   }
 

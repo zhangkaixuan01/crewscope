@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Sparkles } from '@lucide/vue'
 import { computed, ref, useId, watch } from 'vue'
+import { useClipboard } from '../../composables/useClipboard'
 import { useDirtyForm } from '../../composables/useDirtyForm'
 import { useIdempotentCommand } from '../../composables/useIdempotentCommand'
 import { knowledgeCategoryLabels, knowledgeIndexStatusHints, knowledgeIndexStatusLabels } from '../../domains/knowledge/labels'
@@ -15,12 +16,15 @@ import BaseDialog from '../base/BaseDialog.vue'
 import BaseSelect, { type BaseSelectOption } from '../base/BaseSelect.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import BaseReceiptPanel from '../shared/BaseReceiptPanel.vue'
+import ExecutionSourcePicker from './ExecutionSourcePicker.vue'
 
 const props = defineProps<{
   teamId: string
   submitting: boolean
   errorMessage: string | null
   receipt: KnowledgeDistillationReceipt | null
+  /** M13b-F03（R14）：执行现场带入的执行（Task 详情「蒸馏为知识」）——直接进入已选态。 */
+  presetExecution?: { taskExecutionId: string, objective?: string | null } | null
 }>()
 
 const emit = defineEmits<{
@@ -34,6 +38,12 @@ const entryKey = ref('')
 const category = ref<KnowledgeCategory | ''>('')
 const submitted = ref(false)
 const formId = useId()
+// M13b-F03（A11）：选择器选中后的预览事实；手粘与带入路径同样写入 taskExecutionId。
+const selectedObjective = ref<string | null>(props.presetExecution?.objective ?? null)
+const selectedExecutionId = ref<string | null>(props.presetExecution?.taskExecutionId ?? null)
+const entryKeyTouched = ref(false)
+const clipboard = useClipboard()
+if (props.presetExecution) taskExecutionId.value = props.presetExecution.taskExecutionId
 const dirtyForm = useDirtyForm(computed(() => ({
   taskExecutionId: taskExecutionId.value, entryKey: entryKey.value, category: category.value,
 })))
@@ -54,6 +64,27 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const executionValid = computed(() => uuidPattern.test(taskExecutionId.value.trim()))
 const entryKeyValid = computed(() => /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(entryKey.value))
 const valid = computed(() => executionValid.value && entryKeyValid.value)
+
+/** A11：执行一旦确定就生成可编辑的默认 Key；用户改过 Key 后不再覆盖（手粘高级区同样适用）。 */
+watch(() => taskExecutionId.value, () => {
+  if (entryKeyTouched.value) return
+  entryKey.value = executionValid.value ? `exec-${taskExecutionId.value.trim().slice(0, 8)}` : ''
+}, { immediate: true })
+
+function onPickExecution(option: { taskExecutionId: string, objective: string }): void {
+  selectedExecutionId.value = option.taskExecutionId
+  selectedObjective.value = option.objective
+  taskExecutionId.value = option.taskExecutionId
+}
+
+function onManualExecutionInput(): void {
+  selectedExecutionId.value = null
+  selectedObjective.value = null
+}
+
+async function copyExecutionId(): Promise<void> {
+  if (taskExecutionId.value) await clipboard.copy(taskExecutionId.value.trim(), 'distill-execution-id')
+}
 
 /** D3: the dialog stays open and turns into the receipt surface; the form comes back on demand. */
 const viewingReceipt = ref(props.receipt !== null)
@@ -92,7 +123,10 @@ function distillAnother(): void {
   clearAttempt()
   viewingReceipt.value = false
   taskExecutionId.value = ''
+  selectedExecutionId.value = null
+  selectedObjective.value = null
   entryKey.value = ''
+  entryKeyTouched.value = false
   category.value = ''
   submitted.value = false
   dirtyForm.markClean()
@@ -113,23 +147,39 @@ function distillAnother(): void {
     <template #icon><Sparkles :size="20" /></template>
     <div class="knowledge-dialog__content">
       <form v-if="!receiptMode" :id="formId" @submit.prevent="submit">
-        <label class="knowledge-dialog__field">
-          <span>任务执行 ID</span>
-          <input
-            v-model="taskExecutionId"
-            class="knowledge-dialog__mono-input"
-            type="text"
-            autocomplete="off"
-            spellcheck="false"
-            autofocus
+        <!-- M13b-F03（A11）：两步选择器——先选最近执行（或从 Task 详情带入），系统生成
+             可编辑的草稿 Key；手粘 UUID 收进「高级」，不再是唯一入口。 -->
+        <div class="knowledge-dialog__field">
+          <span id="knowledge-distill-execution-label">选择一次执行</span>
+          <ExecutionSourcePicker
+            v-model="selectedExecutionId"
+            :team-id="teamId"
             :disabled="submitting"
-            :aria-invalid="submitted && !executionValid || undefined"
-            aria-describedby="knowledge-distill-execution-hint"
-            required
-          >
-          <small id="knowledge-distill-execution-hint" class="knowledge-dialog__hint">在执行详情或产物面板可复制执行 ID（UUID）。</small>
-          <small v-if="submitted && !executionValid" class="knowledge-dialog__error">任务执行 ID 需为有效的 UUID。</small>
-        </label>
+            @select="onPickExecution"
+          />
+          <div v-if="executionValid" class="knowledge-dialog__preview">
+            <strong v-if="selectedObjective">{{ selectedObjective }}</strong>
+            <small>执行 {{ taskExecutionId }} <button type="button" class="knowledge-dialog__copy" @click="copyExecutionId">{{ clipboard.copied.value === 'distill-execution-id' ? '已复制' : '复制' }}</button></small>
+          </div>
+          <details class="knowledge-dialog__advanced">
+            <summary>高级：粘贴执行 ID</summary>
+            <input
+              v-model="taskExecutionId"
+              class="knowledge-dialog__mono-input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="任务执行 ID"
+              :disabled="submitting"
+              :aria-invalid="submitted && !executionValid || undefined"
+              aria-describedby="knowledge-distill-execution-hint"
+              @input="onManualExecutionInput"
+            >
+            <small id="knowledge-distill-execution-hint" class="knowledge-dialog__hint">粘贴任务执行 ID（UUID）；Task 详情的执行区可一键复制。</small>
+            <small v-if="submitted && !executionValid" class="knowledge-dialog__error">任务执行 ID 需为有效的 UUID。</small>
+          </details>
+          <small class="knowledge-dialog__hint">选择一次执行，系统会生成知识条目草稿。</small>
+        </div>
 
         <label class="knowledge-dialog__field">
           <span>目标条目 Key</span>
@@ -143,8 +193,9 @@ function distillAnother(): void {
             :aria-invalid="submitted && !entryKeyValid || undefined"
             aria-describedby="knowledge-distill-key-hint"
             required
+            @input="entryKeyTouched = true"
           >
-          <small id="knowledge-distill-key-hint" class="knowledge-dialog__hint">蒸馏结果会保存为该 Key 的草稿；已有条目会并入其草稿。</small>
+          <small id="knowledge-distill-key-hint" class="knowledge-dialog__hint">已按所选执行自动生成，可修改；蒸馏结果保存为该 Key 的草稿，已有条目会并入其草稿。</small>
           <small v-if="submitted && !entryKeyValid" class="knowledge-dialog__error">条目 Key 需为小写字母、数字与连字符（2-64 位）。</small>
         </label>
 
@@ -194,4 +245,11 @@ function distillAnother(): void {
 .knowledge-dialog__hint { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .knowledge-dialog__error { color: var(--cs-danger); font-size: var(--cs-text-xs); }
 .knowledge-dialog__command-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
+.knowledge-dialog__preview { display: grid; gap: var(--cs-space-4); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); }
+.knowledge-dialog__preview strong { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
+.knowledge-dialog__preview small { color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono, ui-monospace, monospace); overflow-wrap: anywhere; }
+.knowledge-dialog__copy { color: var(--cs-text-brand); font-size: var(--cs-text-xs); text-decoration: underline; cursor: pointer; }
+.knowledge-dialog__advanced { display: grid; gap: var(--cs-space-4); }
+.knowledge-dialog__advanced summary { color: var(--cs-text-muted); font-size: var(--cs-text-xs); cursor: pointer; }
+.knowledge-dialog__advanced input { width: 100%; min-height: 40px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
 </style>

@@ -21,6 +21,8 @@ const createdAt = '2026-08-08T03:30:00Z'
 export interface F03World extends A05World {
   /** Every POST under /tasks/ the page attempted — the conflict gate must keep this empty. */
   taskCommandPosts: string[]
+  /** M13b-F03（R14）：drawer「蒸馏为知识」发出的 distillation 命令载荷。 */
+  distillInputs: Array<{ taskExecutionId: string, entryKey: string }>
 }
 
 export function f03WorkUrl(extra: Record<string, string> = {}): string {
@@ -43,11 +45,29 @@ const attempts = () => [executionRow(f03Ids.currentExecution, 2, 'RUNNING'), exe
 export async function mockF03App(page: Page): Promise<F03World> {
   const world = await mockA05App(page) as F03World
   world.taskCommandPosts = []
-  world.tasks.push(taskRow(f03Ids.task, taskObjective, 'ACTIVE', 'RUNNING'))
+  world.distillInputs = []
+  // 列表行的 currentExecutionId 固定为 F03 当前执行：蒸馏选择器（M13b-F03）从这份列表投影
+  // 选项，preset 锚定的执行必须在选项里真实存在。
+  const f03Row = taskRow(f03Ids.task, taskObjective, 'ACTIVE', 'RUNNING')
+  f03Row.currentExecutionId = f03Ids.currentExecution as typeof f03Row.currentExecutionId
+  world.tasks.push(f03Row)
   page.on('request', request => {
     if (request.method() === 'POST' && request.url().includes(`/tasks/${f03Ids.task}`)) {
       world.taskCommandPosts.push(request.url())
     }
+  })
+
+  // M13b-F03（R14）：drawer 一键蒸馏提交到 knowledge distillations；回执带出条目与来源。
+  await page.route('**/knowledge/distillations', route => {
+    const input = route.request().postDataJSON() as { taskExecutionId: string, entryKey: string }
+    world.distillInputs.push(input)
+    return json(route, {
+      commandId: '00000000-0000-0000-0000-00000000d701', domainEventId: '00000000-0000-0000-0000-00000000d702',
+      committedVersion: 0, correlationId: 'f03-distill',
+      entryId: '00000000-0000-0000-0000-00000000d703', entryKey: input.entryKey,
+      origin: { taskExecutionId: input.taskExecutionId, attempt: 2 },
+      indexStatus: 'PENDING',
+    })
   })
 
   // Routes registered after mockA05App win (Playwright matches newest first); these three own the

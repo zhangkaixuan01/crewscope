@@ -22,6 +22,8 @@ import type {
 } from '../domains/skill/types'
 import { createScopeStore, SCOPE_STORE } from '../domains/scope/store'
 import { FixtureScopeGateway, fixtureIds } from '../test/scopeFixtures'
+import { createTaskStore, TASK_STORE } from '../domains/task/store'
+import { FixtureTaskGateway } from '../test/taskFixtures'
 import SkillsPage from './SkillsPage.vue'
 
 const skillId = '00000000-0000-1000-8000-000000007101'
@@ -185,6 +187,8 @@ async function mountPage(
         [AUTH_PRINCIPAL as symbol]: principal,
         [SCOPE_STORE as symbol]: scopeStore,
         [SKILL_STORE as symbol]: store,
+        // M13b-F03（A11）：蒸馏对话框的选择器经 TaskStore 拉最近执行。
+        [TASK_STORE as symbol]: createTaskStore(new FixtureTaskGateway()),
       },
       stubs: { teleport: true, AppShell: { template: '<main><slot name="actions"/><slot/></main>' } },
     },

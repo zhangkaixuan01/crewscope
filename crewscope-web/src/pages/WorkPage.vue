@@ -15,6 +15,7 @@ import ActivityStream from '../components/domain/ActivityStream.vue'
 import DelegateToAgentDialog from '../components/domain/DelegateToAgentDialog.vue'
 import TaskListPanel from '../components/domain/TaskListPanel.vue'
 import TaskDetailDrawer from '../components/domain/TaskDetailDrawer.vue'
+import KnowledgeDistillationDialog from '../components/domain/KnowledgeDistillationDialog.vue'
 import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialog.vue'
 import WorkItemCreateDialog from '../components/domain/WorkItemCreateDialog.vue'
 import WorkItemsWorkspace from '../components/domain/WorkItemsWorkspace.vue'
@@ -27,6 +28,8 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useAgentStore } from '../domains/agent/store'
 import { useScopeStore } from '../domains/scope/store'
+import { useKnowledgeStore } from '../domains/knowledge/store'
+import type { DistillKnowledgeInput } from '../domains/knowledge/types'
 import { type CollaborationScope } from '../domains/collaboration/types'
 import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
@@ -129,6 +132,8 @@ const reviewStore = useReviewStore()
 const deliveryStore = useDeliveryStore()
 const injectionStore = useInjectionStore()
 const teamOpsStore = useTeamOpsStore()
+// M13b-F03（R14）：执行现场一键蒸馏——知识命令走 app 级 knowledge store，WorkPage 只编排打开/关闭。
+const knowledgeStore = useKnowledgeStore()
 const isOnline = useNetworkStatus()
 const toast = useToast()
 /**
@@ -882,6 +887,45 @@ function showTaskWorkItem(): void {
   void closeTaskDetails()
 }
 
+// --- M13b-F03（R14）：执行现场一键蒸馏——预设执行直接进入对话框已选态，成功后指路知识库。 ---
+const distillOpen = ref(false)
+const distillReceipt = ref(knowledgeStore.distillationReceipt())
+const distillPreset = ref<{ taskExecutionId: string, objective?: string | null } | null>(null)
+const distillError = computed(() => distillOpen.value && knowledgeStore.state.command.operation === 'distill' && knowledgeStore.state.command.phase === 'error'
+  ? knowledgeStore.state.command.errorMessage
+  : null)
+const distillPending = computed(() => knowledgeStore.state.command.phase === 'pending' && knowledgeStore.state.command.operation === 'distill')
+
+function openTaskDistill(executionId: string): void {
+  // 知识 store 是 app 级单例，scope 由知识库页面在加载时激活；从工作台进入时这里补上，
+  // 否则 distill 命令会在 requireScope 处被拒（同 key 重复激活是无操作，无副作用）。
+  if (!principal || !team.value) return
+  knowledgeStore.activateScope({ organizationId: principal.organizationId, teamId: team.value.id })
+  distillPreset.value = { taskExecutionId: executionId, objective: taskStore.state.details?.objective ?? null }
+  distillReceipt.value = knowledgeStore.distillationReceipt()
+  distillOpen.value = true
+}
+
+async function distillFromTask(input: DistillKnowledgeInput, idempotencyKey: string): Promise<void> {
+  const pageOwner = pageRequests.captureSelection()
+  const success = await knowledgeStore.distill(input, idempotencyKey)
+  if (!pageOwner.isCurrent()) return
+  if (success) distillReceipt.value = knowledgeStore.distillationReceipt()
+}
+
+function closeTaskDistill(): void {
+  distillOpen.value = false
+  distillPreset.value = null
+  distillReceipt.value = null
+  knowledgeStore.clearCommand()
+}
+
+function openDistilledEntry(entryId: string): void {
+  closeTaskDistill()
+  toast.show('知识草稿已就绪，正在打开知识库条目', { tone: 'success' })
+  void router.push({ name: 'knowledge-base', query: { team: team.value?.id, entry: entryId } })
+}
+
 function openTaskWorkItem(task: TaskSummary): void {
   void router.replace({ query: { ...withoutCodingRoute(route.query), workItem: task.workItemId, task: undefined } })
 }
@@ -1223,6 +1267,19 @@ function retry(): void {
       @close="closeTaskDetails"
       @open-work-item="showTaskWorkItem"
       @open-conversation="openTaskConversation"
+      @distill="openTaskDistill"
+    />
+
+    <KnowledgeDistillationDialog
+      v-if="distillOpen"
+      :team-id="team?.id ?? ''"
+      :submitting="distillPending"
+      :error-message="distillError"
+      :receipt="distillReceipt"
+      :preset-execution="distillPreset"
+      @close="closeTaskDistill"
+      @distill="distillFromTask"
+      @open-entry="openDistilledEntry"
     />
   </AppShell>
 </template>
