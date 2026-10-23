@@ -261,7 +261,9 @@ describe('DelegateToAgentDialog', () => {
     const alert = wrapper.get('.delegate-error')
     expect(alert.attributes('role')).toBe('alert')
     expect(alert.text()).toContain('本月组织任务受理数已达上限')
-    expect(alert.text()).toContain('组织设置 → 配额与用量')
+    expect(alert.text()).toContain('配额与用量页')
+    // R43: the guidance links to the quota surface's real route, not a settings-deep path.
+    expect(alert.get('a').text()).toBe('前往配额与用量')
     // The raw English constant is guidance input, never user-facing copy.
     expect(alert.text()).not.toContain('create more agent tasks')
   })
@@ -427,6 +429,7 @@ function mountDialog(
       },
       stubs: {
         teleport: true,
+        RouterLink: { template: '<a><slot/></a>' },
         CodingTargetFormSection: defineComponent({
           emits: ['change'],
           setup(_, { emit }) {

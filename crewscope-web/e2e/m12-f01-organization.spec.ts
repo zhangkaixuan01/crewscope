@@ -32,9 +32,12 @@ const ORG_PERMISSIONS: Record<SessionRole, string[]> = {
 }
 
 const targetAccountId = '00000000-0000-4000-8000-000000000909'
+const targetPrincipalId = '00000000-4000-8000-0000-000000000910'
 const deletionReason = '离职账号清理：在途任务已收尾、责任已移交，现删除该账号并保留备份对账。'
 /** The target account's username — the confirmation token. Distinct from the session username. */
 const deletionToken = 'departing-owner'
+/** The directory row the picker resolves — M13b-F02 R07: the target is picked, never typed. */
+const targetMemberName = '离任负责人'
 
 function sessionFor(role: SessionRole) {
   // mapSession rejects an org:* vocabulary without the organization projection (and vice versa),
@@ -79,9 +82,20 @@ async function installGovernanceApi(page: Page, role: SessionRole = 'ORG_OWNER')
     const request = route.request()
     const path = new URL(request.url()).pathname
     const method = request.method()
+    if (method === 'GET' && /\/members$/.test(path)) {
+      // The A01 org member directory the picker searches; username matches the confirm token.
+      return fulfillJson(route, {
+        items: [{
+          accountId: targetAccountId, principalId: targetPrincipalId,
+          displayName: targetMemberName, username: deletionToken, status: 'ACTIVE', orgRoles: ['ORG_OWNER'],
+        }],
+        nextOffset: null, nextCursor: null,
+      })
+    }
     if (method === 'GET' && /\/deletion-precheck$/.test(path)) {
       return fulfillJson(route, {
-        accountId: targetAccountId, inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null,
+        accountId: targetAccountId, username: deletionToken, displayName: targetMemberName,
+        inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null,
       })
     }
     if (method === 'POST' && /\/data-exports$/.test(path)) {
@@ -175,9 +189,16 @@ test('删除工作流：预检→创建→用户名令牌确认→13 步执行�
   const fixture = await installGovernanceApi(page)
   await page.goto('/settings/organization?tab=governance')
 
-  await page.getByRole('textbox', { name: '目标账号 ID（UUID）' }).fill(targetAccountId)
+  // M13b-F02 R07：目标成员从组织目录选出，页面不再有任何手填标识符。
+  const memberSearch = page.getByRole('combobox', { name: '目标成员（组织目录）' })
+  await memberSearch.click()
+  await memberSearch.fill(targetMemberName)
+  const memberOptions = page.getByRole('listbox', { name: '目标成员（组织目录）' })
+  await memberOptions.getByRole('option', { name: new RegExp(targetMemberName) }).click()
   await page.getByRole('button', { name: '运行预检' }).click()
   await expect(page.getByText('三项先决均为零，可以发起删除作业。')).toBeVisible()
+  // The precheck echoes the directory facts (M13b-A01) — the token's reference.
+  await expect(page.getByText(`${targetMemberName}（${deletionToken}）`)).toBeVisible()
 
   await page.getByRole('textbox', { name: '删除原因（20 至 500 字）' }).fill(deletionReason)
   await page.getByRole('button', { name: '创建删除作业' }).click()
@@ -209,11 +230,14 @@ test('删除工作流：预检→创建→用户名令牌确认→13 步执行�
   await expect(page.getByText('每日快照保留 7 天')).toBeVisible()
   await expect(page.getByRole('region', { name: '删除协调步骤' }).locator('tbody tr')).toHaveCount(13)
 
-  // The token is a one-shot echo: neither browser storage nor the rendered panel keeps it.
+  // The token is a one-shot echo: neither browser storage nor any input keeps it. The username
+  // itself stays on screen as an A01 directory fact (chip subtitle, precheck echo), so the
+  // invariant narrows to: no token input remains after the flow, and storage stays clean.
   const persisted = await page.evaluate(() =>
     JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }))
   expect(persisted).not.toContain(deletionToken)
-  await expect(page.locator('body')).not.toContainText(deletionToken)
+  await expect(page.locator('#org-deletion-token')).toHaveCount(0)
+  await expect(page.locator('.org-confirm')).toHaveCount(0)
 })
 
 test('权限矩阵：审计员可读策略与角色但治理面被拒', async ({ page }) => {
@@ -382,7 +406,7 @@ function deletionJobBody(status: 'PENDING_CONFIRMATION' | 'CONFIRMED' | 'COMPLET
     id: 'job-d1',
     organizationId: ids.organization,
     accountId: targetAccountId,
-    targetPrincipalId: '00000000-4000-8000-0000-000000000910',
+    targetPrincipalId,
     reason: deletionReason,
     confirmationTokenHash: 'sha256:e2e-hash-must-never-render',
     status,

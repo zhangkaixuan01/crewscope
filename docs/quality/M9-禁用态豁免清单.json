@@ -165,6 +165,11 @@
       "file": "components/shared/ActionConfirmDialog.vue",
       "expression": "confirmDisabled",
       "reason": "确认按钮的禁用成因只有提交中的瞬时锁、禁用原因超长（同表单字段计数已变红）、或确认复选框未勾选（复选框及其旁的影响说明就是该禁用态的唯一载体）——不涉及权限或服务端前置条件。"
+    },
+    {
+      "file": "components/domain/OrganizationDeletionWorkflow.vue",
+      "expression": "jobOwnsFlow",
+      "reason": "R40 表单锁定：删除作业进行中（未到终态）时目标成员选择器整体禁用。锁定原因由选择器 helpText（删除作业进行中，目标成员已锁定。）与同表单 aria-live 的已有进行中的删除作业，表单已锁定。共同承载。"
     }
   ]
 }

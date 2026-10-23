@@ -5,6 +5,7 @@ import { createFormCommandKeys } from '../../api/formCommandKeys'
 import BaseBadge from '../base/BaseBadge.vue'
 import BaseButton from '../base/BaseButton.vue'
 import BaseTable from '../base/BaseTable.vue'
+import PrincipalPicker, { type PickerSelection } from './PrincipalPicker.vue'
 import { enumLabel } from '../../domains/shared/labels'
 import {
   deletionItemStateLabels,
@@ -38,11 +39,15 @@ const deletionSurface = computed(() => (flow.value.busy === 'confirm' || confirm
   ? 'deletion-confirm' : 'deletion-precondition'))
 
 const intentKeys = createFormCommandKeys()
-const accountIdInput = ref('')
-const accountIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const accountIdValid = computed(() => accountIdPattern.test(accountIdInput.value.trim()))
+/** The picked member carries the account coordinate and the username echo (M13b-F02 R07). */
+const target = ref<PickerSelection | null>(null)
+const accountIdValid = computed(() => target.value !== null && target.value.accountId !== undefined)
+/** A live job owns the flow until it reaches a terminal state — the forms lock behind it (R40). */
+const jobOwnsFlow = computed(() => job.value !== null
+  && job.value.status !== 'COMPLETED' && job.value.status !== 'CANCELLED')
 const precheckReady = computed(() => precheck.value.phase === 'ready' && precheck.value.value !== null
-  && precheck.value.value.accountId === accountIdInput.value.trim())
+  && target.value?.accountId !== undefined
+  && precheck.value.value.accountId === target.value.accountId)
 /** All three preconditions must be zero before create; null openReservations counts as zero. */
 const precheckClear = computed(() => {
   const value = precheck.value.value
@@ -55,11 +60,12 @@ const reasonInput = ref('')
 const reasonLength = computed(() => reasonInput.value.trim().length)
 const reasonValid = computed(() => reasonLength.value >= 20 && reasonLength.value <= 500)
 const createDisabledReason = computed(() => {
-  if (!accountIdValid.value) return '请输入目标账号 ID（UUID 格式）。'
+  if (jobOwnsFlow.value) return '已有进行中的删除作业，请先完成或取消该作业。'
+  if (!accountIdValid.value) return '请先从组织成员目录选择要删除的成员。'
   if (precheck.value.phase === 'idle') return '请先运行删除预检。'
   if (precheck.value.phase === 'loading') return '正在预检。'
   if (precheck.value.phase === 'error') return '预检失败，请重试。'
-  if (!precheckReady.value) return '账号 ID 与预检结果不一致，请重新预检。'
+  if (!precheckReady.value) return '所选成员与预检结果不一致，请重新预检。'
   if (!precheckClear.value) return '存在未收尾的在途执行或未转移的责任，暂不能发起删除。'
   if (!reasonValid.value) return '删除原因需 20 至 500 字。'
   if (flow.value.busy) return '正在提交。'
@@ -67,7 +73,8 @@ const createDisabledReason = computed(() => {
 })
 
 const precheckDisabledReason = computed(() => {
-  if (!accountIdValid.value) return '账号 ID 需为 36 位 UUID 格式。'
+  if (jobOwnsFlow.value) return '已有进行中的删除作业，表单已锁定。'
+  if (!accountIdValid.value) return '请先从组织成员目录选择要删除的成员。'
   if (precheck.value.phase === 'loading') return '正在预检。'
   return ''
 })
@@ -85,17 +92,32 @@ const confirmDisabledReason = computed(() => {
   return ''
 })
 
+/** The picker speaks principalId; the pick event carries the account/username the flow keys on. */
+const targetAccountId = computed<string | null>({
+  get: () => target.value?.principalId ?? null,
+  set: value => { if (value === null) target.value = null },
+})
+function onPick(selection: PickerSelection | null): void {
+  target.value = selection
+}
+const pickerHelp = computed(() => {
+  if (jobOwnsFlow.value) return '删除作业进行中，目标成员已锁定。'
+  if (target.value === null) return '按姓名搜索并选择要删除的成员；无需填写任何标识符。'
+  return `已选择 ${target.value.displayName}（用户名 ${target.value.username ?? '—'}）。`
+})
+
 async function runPrecheck(): Promise<void> {
-  if (!accountIdValid.value) return
-  await store.precheckDeletion(props.organizationId, accountIdInput.value.trim(), true)
+  if (!accountIdValid.value || target.value?.accountId === undefined) return
+  await store.precheckDeletion(props.organizationId, target.value.accountId, true)
 }
 
 async function createJob(): Promise<void> {
+  if (target.value?.accountId === undefined) return
   store.clearDeletionFlow()
   await store.createDeletion(props.organizationId, {
-    accountId: accountIdInput.value.trim(),
+    accountId: target.value.accountId,
     reason: reasonInput.value.trim(),
-  }, intentKeys.forInput([accountIdInput.value.trim(), reasonInput.value.trim()]))
+  }, intentKeys.forInput([target.value.accountId, reasonInput.value.trim()]))
 }
 
 async function confirmJob(): Promise<void> {
@@ -135,16 +157,15 @@ function timeText(value: string | null): string {
 <template>
   <div class="org-deletion">
     <form class="org-deletion-form" @submit.prevent="runPrecheck">
-      <h3>第一步：删除预检</h3>
-      <label for="org-deletion-account">目标账号 ID（UUID）</label>
-      <input
-        id="org-deletion-account"
-        v-model="accountIdInput"
-        type="text"
-        inputmode="text"
-        autocomplete="off"
-        :aria-invalid="!accountIdValid"
-        placeholder="00000000-0000-0000-0000-000000000000"
+      <h3>第一步：选择目标成员并预检</h3>
+      <p class="org-reason">删除的是所选成员的用户账号（含其登录身份与全部团队席位）；本页其余数据按备份声明保留。</p>
+      <PrincipalPicker
+        v-model="targetAccountId"
+        :scope="{ organizationId }"
+        label="目标成员（组织目录）"
+        :disabled="jobOwnsFlow"
+        :help-text="pickerHelp"
+        @pick="onPick"
       />
       <div class="org-actions">
         <BaseButton type="submit" :disabled="Boolean(precheckDisabledReason)">
@@ -155,6 +176,7 @@ function timeText(value: string | null): string {
       <p v-if="precheck.phase === 'error'" role="alert" class="org-error">预检失败：{{ precheck.errorMessage }}</p>
       <template v-else-if="precheckReady && precheck.value">
         <dl class="org-precheck-facts" :class="{ 'org-precheck-blocked': !precheckClear }">
+          <div><dt>目标成员</dt><dd>{{ precheck.value.displayName }}（{{ precheck.value.username }}）</dd></div>
           <div><dt>在途任务执行</dt><dd>{{ precheck.value.inFlightTaskExecutions }}</dd></div>
           <div><dt>活跃责任</dt><dd>{{ precheck.value.activeResponsibilities }}</dd></div>
           <div><dt>未关闭预留</dt><dd>{{ precheck.value.openReservations ?? '—' }}</dd></div>
@@ -210,7 +232,7 @@ function timeText(value: string | null): string {
             spellcheck="false"
             :aria-invalid="confirmSubmitted && tokenMissing"
           />
-          <p class="org-reason">必须与目标账号用户名完全一致；作业将以当前数据版本（{{ job.version }}）确认。</p>
+          <p class="org-reason">必须与目标账号用户名完全一致（见第一步预检结果）；作业将以当前数据版本（{{ job.version }}）确认。</p>
           <p v-if="flow.errorMessage" role="alert" class="org-error">{{ problemText }}</p>
           <div class="org-actions">
             <BaseButton type="submit" variant="danger" :disabled="Boolean(confirmDisabledReason)">

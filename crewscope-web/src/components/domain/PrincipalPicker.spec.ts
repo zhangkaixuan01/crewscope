@@ -2,10 +2,11 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import PrincipalPicker from './PrincipalPicker.vue'
 import type { PrincipalDirectoryGateway } from '../../domains/principal/gateway'
-import type { PrincipalDirectoryQuery } from '../../domains/principal/types'
+import type { OrganizationMemberEntry, OrganizationMemberQuery, PrincipalDirectoryQuery } from '../../domains/principal/types'
 import type { PrincipalEntry, PrincipalPage } from '../../domains/principal/types'
 
 const scope = { organizationId: '00000000-0000-0000-0000-000000000001', teamId: '00000000-0000-0000-0000-000000000201' }
+const orgScope = { organizationId: scope.organizationId }
 
 const linYue: PrincipalEntry = {
   principalId: '00000000-0000-0000-0000-000000000101',
@@ -29,19 +30,36 @@ const codingAgent: PrincipalEntry = {
   roles: [],
 }
 
+/** A second namesake in the org-grain directory: same person shape, different coordinate grain. */
+const orgLinYue: OrganizationMemberEntry = {
+  accountId: '00000000-0000-0000-0000-000000000a01',
+  principalId: linYue.principalId,
+  displayName: '林悦',
+  username: 'lin.yue',
+  status: 'ACTIVE',
+  orgRoles: ['ORG_AUDITOR'],
+}
+
 /**
  * Serves the directory like the server does: the kind filter runs before pagination,
  * so a cursor page only ever contains entries the request asked for.
  */
 function gateway(catalog: PrincipalEntry[] = [linYue, linYueNamesake, codingAgent]) {
   const calls: PrincipalDirectoryQuery[] = []
+  const orgCalls: OrganizationMemberQuery[] = []
   const search = vi.fn(async (query: PrincipalDirectoryQuery): Promise<PrincipalPage> => {
     calls.push(structuredClone(query))
     const filtered = catalog.filter(entry => !query.types || query.types.includes(entry.kind))
     if (!query.after) return { items: filtered.slice(0, 2), nextOffset: null, nextCursor: filtered.length > 2 ? 'page-2' : null }
     return { items: filtered.slice(2), nextOffset: null, nextCursor: null }
   })
-  return { gateway: { search } satisfies PrincipalDirectoryGateway, search, calls }
+  const searchOrganizationMembers = vi.fn(async (query: OrganizationMemberQuery) => {
+    orgCalls.push(structuredClone(query))
+    const prefix = query.namePrefix ?? ''
+    const filtered = [orgLinYue].filter(entry => !prefix || entry.displayName.startsWith(prefix))
+    return { items: filtered, nextOffset: null, nextCursor: null }
+  })
+  return { gateway: { search, searchOrganizationMembers } satisfies PrincipalDirectoryGateway, search, calls, searchOrganizationMembers, orgCalls }
 }
 
 async function openPicker(overrides: Record<string, unknown> = {}) {
@@ -228,5 +246,53 @@ describe('PrincipalPicker', () => {
     await wrapper.get('button[aria-label="清除已选择的负责人"]').trigger('click')
 
     expect(wrapper.emitted('update:modelValue')!.at(-1)).toEqual([null])
+  })
+})
+
+describe('PrincipalPicker org scope (M13b-A01)', () => {
+  it('searches the org member directory — no team coordinate, name prefix only', async () => {
+    const stub = gateway()
+    const wrapper = mount(PrincipalPicker, {
+      props: { scope: orgScope, modelValue: null, label: '目标成员', gateway: stub.gateway },
+    })
+    await wrapper.find('input').trigger('focus')
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+
+    expect(stub.searchOrganizationMembers).toHaveBeenCalledTimes(1)
+    expect(stub.search).not.toHaveBeenCalled()
+    expect(stub.orgCalls[0]).toMatchObject({ organizationId: orgScope.organizationId, limit: 20 })
+    expect('teamId' in stub.orgCalls[0]!).toBe(false)
+  })
+
+  it('sublines candidates with the username and org roles the directory carries', async () => {
+    const stub = gateway()
+    const wrapper = mount(PrincipalPicker, {
+      props: { scope: orgScope, modelValue: null, label: '目标成员', gateway: stub.gateway },
+    })
+    await wrapper.find('input').trigger('focus')
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+
+    const option = wrapper.get('[role="option"]')
+    expect(option.text()).toContain('lin.yue · ORG_AUDITOR')
+  })
+
+  it('picks carry the account coordinate and username the governance forms key on', async () => {
+    const stub = gateway()
+    const wrapper = mount(PrincipalPicker, {
+      props: { scope: orgScope, modelValue: null, label: '目标成员', gateway: stub.gateway },
+    })
+    await wrapper.find('input').trigger('focus')
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[role="option"]').trigger('click')
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[orgLinYue.principalId]])
+    expect(wrapper.emitted('pick')).toEqual([[
+      expect.objectContaining({ accountId: orgLinYue.accountId, username: 'lin.yue', displayName: '林悦' }),
+    ]])
+    // The chip keeps the username visible — it is the deletion confirmation token's echo.
+    expect(wrapper.text()).toContain('lin.yue')
   })
 })

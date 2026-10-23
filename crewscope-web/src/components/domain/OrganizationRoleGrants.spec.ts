@@ -7,6 +7,7 @@ import type { OrganizationGateway } from '../../domains/organization/gateway'
 import { ORGANIZATION_STORE, createOrganizationStore } from '../../domains/organization/store'
 import type { DeletionJob, ExportJob, OrganizationRoleGrant } from '../../domains/organization/types'
 import OrganizationRoleGrants from './OrganizationRoleGrants.vue'
+import PrincipalPicker from './PrincipalPicker.vue'
 
 const organizationId = '00000000-0000-0000-0000-000000000001'
 
@@ -44,17 +45,16 @@ describe('OrganizationRoleGrants', () => {
     expect(wrapper.findAll('button').some(button => button.text().includes('撤销'))).toBe(false)
   })
 
-  it('validates the principal UUID before enabling the grant submit', async () => {
+  it('gates the grant on a directory pick instead of a typed UUID (M13b-F02 R06)', async () => {
     const gateway = fakeGateway()
     gateway.roleGrants.mockResolvedValue([])
     const { wrapper } = await mountComponent(admin, gateway)
 
     expect((wrapper.get('button[type="submit"]').element as HTMLButtonElement).disabled).toBe(true)
-    await wrapper.get('#org-grant-principal').setValue('not-a-uuid')
-    expect((wrapper.get('button[type="submit"]').element as HTMLButtonElement).disabled).toBe(true)
-    expect(wrapper.text()).toContain('请输入有效的 Principal ID（UUID 格式）。')
+    expect(wrapper.text()).toContain('请先从组织成员目录选择成员')
+    expect(wrapper.find('#org-grant-principal').exists()).toBe(false)
 
-    await wrapper.get('#org-grant-principal').setValue('00000000-0000-0000-0000-000000000009')
+    await wrapper.findComponent(PrincipalPicker).vm.$emit('update:modelValue', '00000000-0000-0000-0000-000000000009')
     expect((wrapper.get('button[type="submit"]').element as HTMLButtonElement).disabled).toBe(false)
     await wrapper.get('form.org-grant-form').trigger('submit')
     await flushPromises()
@@ -89,6 +89,8 @@ describe('OrganizationRoleGrants', () => {
 
     await wrapper.findAll('button').find(button => button.text().includes('撤销'))!.trigger('click')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+    // M13b-F02 R39: revoking a role is a destructive confirmation — the button says so in danger.
+    expect(wrapper.find('[role="dialog"] .base-button--danger').exists()).toBe(true)
     await wrapper.get('.org-revoke-body').trigger('submit')
     await flushPromises()
 
@@ -156,7 +158,7 @@ function fakeGateway(): OrganizationGateway & {
     processExport: vi.fn(async () => exportJobFixture()),
     cancelExport: vi.fn(async () => exportJobFixture()),
     openExportArtifacts: vi.fn(async () => ({ manifest: null, artifacts: [] })),
-    deletionPrecheck: vi.fn(async () => ({ accountId: 'account-1', inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null })),
+    deletionPrecheck: vi.fn(async () => ({ accountId: 'account-1', username: 'lin.yue', displayName: '林悦', inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null })),
     createDeletion: vi.fn(async () => ({ job: deletionJobFixture(), receipt: null, replayed: false })),
     deletionJob: vi.fn(async () => deletionJobFixture()),
     confirmDeletion: vi.fn(async () => deletionJobFixture()),

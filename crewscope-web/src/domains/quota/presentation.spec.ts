@@ -31,7 +31,9 @@ describe('quotaAdmissionProblem', () => {
   it('maps both wire constants verbatim to the tailored Chinese guidance', () => {
     const intake = quotaAdmissionProblem('create more agent tasks this month (organization monthly task intake limit reached)')
     expect(intake).toContain('本月组织任务受理数已达上限')
-    expect(intake).toContain('组织设置 → 配额与用量')
+    // R43: the quota surface is its own route; the copy names the page, not a settings-deep path.
+    expect(intake).toContain('配额与用量页')
+    expect(intake).not.toContain('组织设置 →')
 
     const budget = quotaAdmissionProblem('create an agent task reserving additional model tokens this month (organization monthly token budget reached)')
     expect(budget).toContain('Token 预算已用尽')

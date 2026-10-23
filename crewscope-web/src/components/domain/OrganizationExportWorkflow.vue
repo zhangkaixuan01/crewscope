@@ -80,10 +80,6 @@ function timeText(value: string | null): string {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
 }
 
-function checksumText(value: string | null): string {
-  return value ? value.slice(0, 12) : '—'
-}
-
 /** Manifest family strings are server-authored; known ones read through the label layer. */
 function familyLabel(family: string): string {
   return family in exportFamilyLabels
@@ -96,6 +92,8 @@ function familyLabel(family: string): string {
   <div class="org-export">
     <form class="org-export-form" @submit.prevent="createJob">
       <h3>发起数据导出</h3>
+      <!-- R41: the two buttons are two phases — say so before the first click. -->
+      <p class="org-reason">导出分两步：创建作业时冻结导出范围与数据版本快照；随后点击「生成产物」按资源族生成行数据与校验和。两步独立，便于在生成前核对范围或取消作业。</p>
       <label class="org-export-vectors">
         <input v-model="includeVectors" type="checkbox" />
         包含向量数据
@@ -142,6 +140,7 @@ function familyLabel(family: string): string {
         <p v-if="flow.errorMessage" role="alert" class="org-error">{{ problemText }}</p>
         <p v-else-if="flow.notice" class="org-ok" role="status">{{ flow.notice }}</p>
         <p v-if="resumable" class="org-reason">上次处理被中断；「继续处理」将从第一个未完成的资源族续跑。</p>
+        <p v-else-if="job.status === 'PENDING'" class="org-reason">「生成产物」将按创建时冻结的范围与版本快照生成各资源族的行数据与校验和；生成前可取消作业。</p>
         <p v-if="downloadable" class="org-reason">每次下载都会记录 SECURITY 审计事件。</p>
       </section>
 
@@ -163,7 +162,14 @@ function familyLabel(family: string): string {
             <td>{{ item.batchSequence }}</td>
             <td>{{ item.rowCount }}</td>
             <td><BaseBadge>{{ enumLabel(item.state, exportItemStateLabels) }}</BaseBadge></td>
-            <td class="org-mono" :title="item.checksum ?? undefined">{{ checksumText(item.checksum) }}</td>
+            <td class="org-mono">
+              <!-- A24: the truncated digest is the summary; the full value expands in place. -->
+              <details v-if="item.checksum" class="org-checksum">
+                <summary>{{ item.checksum.slice(0, 12) }}</summary>
+                <span class="org-checksum-full">{{ item.checksum }}</span>
+              </details>
+              <template v-else>—</template>
+            </td>
             <td>{{ item.errorCode ?? '—' }}</td>
             <td>{{ timeText(item.processedAt) }}</td>
           </tr>
@@ -188,7 +194,12 @@ function familyLabel(family: string): string {
               <td>{{ familyLabel(family.family) }}</td>
               <td>{{ family.itemCount }}</td>
               <td>{{ family.pinnedRowCount }}</td>
-              <td class="org-mono" :title="family.checksum">{{ family.checksum.slice(0, 12) }}</td>
+              <td class="org-mono">
+                <details class="org-checksum">
+                  <summary>{{ family.checksum.slice(0, 12) }}</summary>
+                  <span class="org-checksum-full">{{ family.checksum }}</span>
+                </details>
+              </td>
               <td>{{ family.skipped.length ? family.skipped.join('、') : '—' }}</td>
             </tr>
           </tbody>
@@ -197,8 +208,8 @@ function familyLabel(family: string): string {
     </template>
 
     <p v-else class="org-reason">
-      本会话尚未创建导出作业。作业没有列表端点：历史作业请在
-      <RouterLink to="/audit">审计中心</RouterLink>查询治理审计事件。
+      当前会话没有导出作业。历史导出记录可在
+      <RouterLink to="/audit">审计中心</RouterLink>查看。
     </p>
   </div>
 </template>
@@ -214,6 +225,8 @@ function familyLabel(family: string): string {
 .org-job-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: var(--cs-text-sm); color: var(--cs-text-secondary); }
 .org-manifest { display: grid; gap: var(--cs-space-8); }
 .org-mono { font-family: var(--cs-font-mono, monospace); font-size: var(--cs-text-sm); }
+.org-checksum summary { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+.org-checksum-full { display: block; overflow-wrap: anywhere; }
 .org-reason { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .org-error { margin: 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
 .org-ok { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }

@@ -91,7 +91,9 @@ test('A quota admission denial renders the tailored Chinese guidance, not the ra
   const alert = delegate.locator('.delegate-error')
   await expect(alert).toBeVisible()
   await expect(alert).toContainText('本月组织任务受理数已达上限')
-  await expect(alert).toContainText('组织设置 → 配额与用量')
+  await expect(alert).toContainText('配额与用量页')
+  // M13b-F02 R43: the quota surface is its own route — the guidance links to it directly.
+  await expect(alert.getByRole('link', { name: '前往配额与用量' })).toHaveAttribute('href', '/settings/quota')
   await expect(alert).not.toContainText('create more agent tasks')
   // The denial is a fact, not a retry candidate: nothing was created.
   expect(world.tasks).toEqual([])

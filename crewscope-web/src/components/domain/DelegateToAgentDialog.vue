@@ -136,8 +136,9 @@ const criteria = computed(() => form.acceptanceCriteria.split('\n').map(value =>
  * tailored Chinese guidance outranks the raw prop message. Everything else — including the
  * responsibility-command half of the prop — renders unchanged.
  */
-const createErrorCopy = computed(() =>
-  quotaAdmissionProblem(taskStore.state.createErrorDetails.action) ?? props.errorMessage)
+const quotaAdmissionCopy = computed(() =>
+  quotaAdmissionProblem(taskStore.state.createErrorDetails.action))
+const createErrorCopy = computed(() => quotaAdmissionCopy.value ?? props.errorMessage)
 
 /** Project defaults the coding section starts from; unavailable ones fall back inside the section. */
 const codingInitial = computed<CodingTargetInitialDefaults>(() => ({
@@ -482,7 +483,10 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
       </section>
       <p v-if="!selectable.length" class="delegate-unavailable">当前没有可分配的 Agent 候选。请先由 Agent Owner 启用 Agent，或让团队成员创建个人 Agent。</p>
       </template>
-      <p v-if="createErrorCopy" class="delegate-error" role="alert">{{ createErrorCopy }}</p>
+      <p v-if="createErrorCopy" class="delegate-error" role="alert">{{ createErrorCopy }}
+        <!-- R43: the quota page is its own route; link the guidance to where it actually lives. -->
+        <RouterLink v-if="quotaAdmissionCopy" to="/settings/quota">前往配额与用量</RouterLink>
+      </p>
     </form>
 
     <template #footer>

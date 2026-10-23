@@ -61,6 +61,41 @@ describe('HttpPrincipalDirectoryGateway', () => {
       vi.fn(async (_input: RequestInfo | URL) => json({ items: [{ ...entryPayload(), kind: 'SERVICE' }] })))
     await expect(broken.search(scope)).rejects.toThrow('Invalid Principal kind')
   })
+
+  it('searches the org member directory with the prefix filter and maps the account facts', async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL) => json(memberPagePayload()))
+    const gateway = gatewayWith(fetcher)
+
+    const page = await gateway.searchOrganizationMembers({
+      organizationId: scope.organizationId, namePrefix: '林', limit: 20,
+    })
+
+    const url = String(fetcher.mock.calls[0]?.[0])
+    expect(url).toContain(`/organizations/${scope.organizationId}/members?`)
+    expect(url).toContain('namePrefix=')
+    expect(url).toContain('offset=0')
+    expect(url).not.toContain('/teams/')
+    expect(page.items[0]).toEqual({
+      accountId: '00000000-0000-0000-0000-000000000a01',
+      principalId: fixtureIds.principal,
+      displayName: '林悦',
+      username: 'lin.yue',
+      status: 'ACTIVE',
+      orgRoles: ['ORG_AUDITOR'],
+    })
+    expect(page.nextOffset).toBeNull()
+    expect(page.nextCursor).toBeNull()
+  })
+
+  it('keeps the org directory continuation exclusive — after and offset never ride together', async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL) => json(memberPagePayload({ nextCursor: 'org-tail' })))
+    const gateway = gatewayWith(fetcher)
+
+    await expect(gateway.searchOrganizationMembers({
+      organizationId: scope.organizationId, offset: 40, after: 'org-tail',
+    })).rejects.toThrow('mutually exclusive')
+    expect(fetcher).not.toHaveBeenCalled()
+  })
 })
 
 function gatewayWith(fetcher: ReturnType<typeof vi.fn>): HttpPrincipalDirectoryGateway {
@@ -81,6 +116,23 @@ function entryPayload(extra: Record<string, unknown> = {}) {
 
 function pagePayload(extra: Record<string, unknown> = {}) {
   return { items: [entryPayload()], nextOffset: 20, ...extra }
+}
+
+/** The A01 org-grain row: account identity plus org roles, no kind and no email. */
+function memberEntryPayload(extra: Record<string, unknown> = {}) {
+  return {
+    accountId: '00000000-0000-0000-0000-000000000a01',
+    principalId: fixtureIds.principal,
+    displayName: '林悦',
+    username: 'lin.yue',
+    status: 'ACTIVE',
+    orgRoles: ['ORG_AUDITOR'],
+    ...extra,
+  }
+}
+
+function memberPagePayload(extra: Record<string, unknown> = {}) {
+  return { items: [memberEntryPayload()], nextOffset: null, nextCursor: null, ...extra }
 }
 
 function json(body: unknown): Response {

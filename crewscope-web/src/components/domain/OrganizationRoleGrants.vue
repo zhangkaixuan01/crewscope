@@ -8,6 +8,7 @@ import BaseBadge from '../base/BaseBadge.vue'
 import BaseButton from '../base/BaseButton.vue'
 import BaseDialog from '../base/BaseDialog.vue'
 import BaseTable from '../base/BaseTable.vue'
+import PrincipalPicker from './PrincipalPicker.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import { organizationRoleLabels, roleGrantStatusLabels } from '../../domains/organization/labels'
 import { organizationProblem } from '../../domains/organization/presentation'
@@ -40,16 +41,16 @@ const filteredGrants = computed(() => {
 })
 
 const intentKeys = createFormCommandKeys()
-const grantPrincipal = ref('')
+/** The picked subject's principalId — the org directory names it, nobody types a UUID (R06). */
+const grantPrincipal = ref<string | null>(null)
 const grantRole = ref<'ORG_AUDITOR' | 'ORG_ADMIN' | 'ORG_OWNER'>('ORG_AUDITOR')
 const grantReason = ref('')
 const grantSubmitted = ref(false)
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const principalValid = computed(() => uuidPattern.test(grantPrincipal.value.trim()))
+const principalValid = computed(() => grantPrincipal.value !== null)
 const reasonTooLong = computed(() => grantReason.value.trim().length > 500)
 const grantValid = computed(() => principalValid.value && !reasonTooLong.value)
 const grantDisabledReason = computed(() => {
-  if (!principalValid.value) return '请输入有效的 Principal ID（UUID 格式）。'
+  if (!principalValid.value) return '请先从组织成员目录选择成员。'
   if (reasonTooLong.value) return '原因最长 500 字。'
   if (roleCommand.value.phase === 'pending') return '正在提交。'
   return ''
@@ -67,7 +68,7 @@ onMounted(() => { void store.loadRoleGrants(props.organizationId) })
 watch(() => roleCommand.value.phase, phase => {
   if (phase !== 'success') return
   void authStore?.refresh()
-  grantPrincipal.value = ''
+  grantPrincipal.value = null
   grantReason.value = ''
   grantSubmitted.value = false
   if (revoking.value) closeRevoke()
@@ -75,13 +76,13 @@ watch(() => roleCommand.value.phase, phase => {
 
 async function submitGrant(): Promise<void> {
   grantSubmitted.value = true
-  if (!grantValid.value) return
+  if (!grantValid.value || grantPrincipal.value === null) return
   store.clearRoleCommand()
   const ok = await store.grantRole(props.organizationId, {
-    principalId: grantPrincipal.value.trim(),
+    principalId: grantPrincipal.value,
     role: grantRole.value,
     reason: grantReason.value.trim() || undefined,
-  }, intentKeys.forInput([grantPrincipal.value.trim(), grantRole.value]))
+  }, intentKeys.forInput([grantPrincipal.value, grantRole.value]))
   if (!ok) grantSubmitted.value = false
 }
 
@@ -175,20 +176,12 @@ function dateText(value: string | null): string {
     <form v-if="canWrite" class="org-grant-form" @submit.prevent="submitGrant">
       <h3>授予组织角色</h3>
       <div class="org-grant-fields">
-        <label for="org-grant-principal">Principal ID（本组织成员）</label>
-        <input
-          id="org-grant-principal"
+        <PrincipalPicker
           v-model="grantPrincipal"
-          type="text"
-          inputmode="text"
-          autocomplete="off"
-          :aria-invalid="grantSubmitted && !principalValid"
-          aria-describedby="org-grant-principal-reason"
-          placeholder="00000000-0000-0000-0000-000000000000"
+          :scope="{ organizationId }"
+          label="目标成员（组织目录）"
+          :help-text="grantSubmitted && !principalValid ? '请先从组织成员目录选择成员。' : '按姓名搜索本组织成员；授予目标由服务端校验。'"
         />
-        <p id="org-grant-principal-reason" class="org-reason" aria-live="polite">
-          {{ grantSubmitted && !principalValid ? '请输入有效的 Principal ID（UUID 格式）。' : '仅可授予本组织的 Principal；授予权限由服务端校验。' }}
-        </p>
         <label for="org-grant-role">角色</label>
         <BaseSelect id="org-grant-role" v-model="grantRole">
           <option value="ORG_AUDITOR">组织审计员</option>
@@ -241,7 +234,7 @@ function dateText(value: string | null): string {
       </form>
       <template #footer>
         <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮。 -->
-        <BaseButton type="submit" :form="revokeFormId" :disabled="roleCommand.phase === 'pending'">
+        <BaseButton type="submit" variant="danger" :form="revokeFormId" :disabled="roleCommand.phase === 'pending'">
           {{ roleCommand.phase === 'pending' ? '撤销中…' : '确认撤销' }}
         </BaseButton>
         <BaseButton variant="ghost" :disabled="roleCommand.phase === 'pending'" autofocus @click="closeRevoke">取消</BaseButton>

@@ -375,6 +375,8 @@ function mapDeletionPrecheck(input: unknown): DeletionPrecheck {
   const value = record(input)
   return {
     accountId: nonEmptyString(value.accountId),
+    username: nonEmptyString(value.username),
+    displayName: nonEmptyString(value.displayName),
     inFlightTaskExecutions: nonNegativeInteger(value.inFlightTaskExecutions),
     activeResponsibilities: nonNegativeInteger(value.activeResponsibilities),
     openReservations: value.openReservations === null ? null : nonNegativeInteger(value.openReservations),

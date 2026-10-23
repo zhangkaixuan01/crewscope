@@ -4,6 +4,7 @@ import type { OrganizationGateway } from '../../domains/organization/gateway'
 import { ORGANIZATION_STORE, createOrganizationStore } from '../../domains/organization/store'
 import type { DeletionItem, DeletionJob, DeletionJobStatus } from '../../domains/organization/types'
 import OrganizationDeletionWorkflow from './OrganizationDeletionWorkflow.vue'
+import PrincipalPicker from './PrincipalPicker.vue'
 
 const organizationId = '00000000-0000-0000-0000-000000000001'
 const accountId = '00000000-0000-0000-0000-000000000111'
@@ -13,19 +14,24 @@ describe('OrganizationDeletionWorkflow', () => {
   it('blocks create until a clear precheck and a valid reason, then queues PENDING_CONFIRMATION', async () => {
     const gateway = fakeGateway()
     gateway.deletionPrecheck.mockResolvedValueOnce({
-      accountId, inFlightTaskExecutions: 2, activeResponsibilities: 1, openReservations: null,
+      accountId, username: 'e2e-member', displayName: '林悦', inFlightTaskExecutions: 2, activeResponsibilities: 1, openReservations: null,
     })
     const { wrapper } = await mountComponent(gateway)
 
-    await wrapper.get('#org-deletion-account').setValue(accountId)
+    await pickTarget(wrapper)
     await wrapper.findAll('form')[0].trigger('submit')
     await flushPromises()
+    expect(wrapper.text()).toContain('在途任务执行')
+    // M13b-A01: the precheck echoes the target's name and username — the token's reference.
+    expect(wrapper.text()).toContain('林悦（e2e-member）')
+    expect(wrapper.text()).toContain('存在未收尾的在途执行或未转移的责任，暂不能发起删除。')
+    expect((createSubmit(wrapper).element as HTMLButtonElement).disabled).toBe(true)
     expect(wrapper.text()).toContain('在途任务执行')
     expect(wrapper.text()).toContain('存在未收尾的在途执行或未转移的责任，暂不能发起删除。')
     expect((createSubmit(wrapper).element as HTMLButtonElement).disabled).toBe(true)
 
     gateway.deletionPrecheck.mockResolvedValueOnce({
-      accountId, inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null,
+      accountId, username: 'e2e-member', displayName: '林悦', inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null,
     })
     await wrapper.findAll('form')[0].trigger('submit')
     await flushPromises()
@@ -72,10 +78,10 @@ describe('OrganizationDeletionWorkflow', () => {
     await confirmSubmit(wrapper).trigger('submit')
     await flushPromises()
     expect(gateway.confirmDeletion).toHaveBeenCalledWith(organizationId, 'job-d1', 'e2e-member', 1)
-    // The confirmed echo is one-shot: the confirm form unmounts with the state change and no
-    // token value survives anywhere in the rendered panel.
+    // The confirmed echo is one-shot: the confirm form unmounts with the state change. The
+    // username itself stays visible — it is the A01 directory fact, not the typed token.
     expect(wrapper.find('#org-deletion-token').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('e2e-member')
+    expect(wrapper.find('.org-confirm').exists()).toBe(false)
 
     await wrapper.findAll('button').find(button => button.text().includes('开始执行'))!.trigger('click')
     await flushPromises()
@@ -101,14 +107,42 @@ describe('OrganizationDeletionWorkflow', () => {
     expect(localStorage.getItem('confirmationToken')).toBeNull()
     expect(Object.values(sessionStorage).concat(Object.values(localStorage))).not.toContain('e2e-member')
   })
+
+  it('locks both forms behind a live job instead of offering a second entry (M13b-F02 R40)', async () => {
+    const gateway = fakeGateway()
+    gateway.deletionPrecheck.mockResolvedValueOnce(clearPrecheck())
+    gateway.createDeletion.mockResolvedValueOnce(
+      { job: deletionJob('PENDING_CONFIRMATION', []), receipt: null, replayed: false })
+    const { wrapper } = await mountComponent(gateway)
+    await prepareCreate(wrapper)
+
+    expect(wrapper.text()).toContain('已有进行中的删除作业')
+    const precheckButton = wrapper.findAll('button').find(button => button.text().includes('运行预检'))!
+    expect((precheckButton.element as HTMLButtonElement).disabled).toBe(true)
+    const picker = wrapper.findComponent(PrincipalPicker)
+    expect(picker.props('disabled')).toBe(true)
+    expect((createSubmit(wrapper).element as HTMLButtonElement).disabled).toBe(true)
+    expect(gateway.deletionPrecheck).toHaveBeenCalledTimes(1)
+  })
 })
 
 async function prepareCreate(wrapper: ReturnType<typeof mount>) {
-  await wrapper.get('#org-deletion-account').setValue(accountId)
+  await pickTarget(wrapper)
   await wrapper.findAll('form')[0].trigger('submit')
   await flushPromises()
   await wrapper.get('#org-deletion-reason').setValue(reason)
   await wrapper.findAll('form')[1].trigger('submit')
+  await flushPromises()
+}
+
+/** Drives the org-scope picker the way a real pick does — account facts ride the pick event. */
+async function pickTarget(wrapper: ReturnType<typeof mount>) {
+  const picker = wrapper.findComponent(PrincipalPicker)
+  picker.vm.$emit('pick', {
+    principalId: 'p-2', displayName: '林悦', status: 'ACTIVE', kind: 'USER',
+    optionSubtitle: 'e2e-member', chipSubtitle: 'e2e-member · 正常', accountId, username: 'e2e-member',
+  })
+  picker.vm.$emit('update:modelValue', 'p-2')
   await flushPromises()
 }
 
@@ -135,7 +169,7 @@ async function mountComponent(gateway: OrganizationGateway) {
 }
 
 function clearPrecheck() {
-  return { accountId, inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null }
+  return { accountId, username: 'e2e-member', displayName: '林悦', inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null }
 }
 
 function step(id: string, state: DeletionItem['state']): DeletionItem {

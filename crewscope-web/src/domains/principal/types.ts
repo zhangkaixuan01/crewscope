@@ -25,6 +25,40 @@ export interface PrincipalScope {
 }
 
 /**
+ * The org-grain coordinate of the M13b-A01 member directory: no team, because governance forms
+ * (role grants, account deletion, adding an existing user) name subjects the organization owns.
+ */
+export interface OrganizationScope {
+  organizationId: string
+}
+
+/** One ACTIVE-binding member as the A01 directory returns it; the email never leaves the server. */
+export interface OrganizationMemberEntry {
+  accountId: string
+  principalId: string
+  displayName: string
+  username: string
+  status: PrincipalStatus
+  orgRoles: string[]
+}
+
+export interface OrganizationMemberQuery extends OrganizationScope {
+  /** Display-name prefix filter; the only filter the org directory supports. */
+  namePrefix?: string
+  /** Signed continuation from a previous page's `nextCursor` (mutually exclusive with offset). */
+  after?: string
+  offset?: number
+  limit?: number
+}
+
+export interface OrganizationMemberPage {
+  items: OrganizationMemberEntry[]
+  /** Legacy offset continuation; null on a cursor walk. */
+  nextOffset: number | null
+  nextCursor: string | null
+}
+
+/**
  * Member-safe subject projection from the A07 directory contract.
  *
  * This is deliberately the whole of what the UI knows about a subject: enough to recognise a

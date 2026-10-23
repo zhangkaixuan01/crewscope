@@ -130,12 +130,12 @@ describe('OrganizationSettingsPage', () => {
     expect(adminView.wrapper.text()).toContain('组织数据导出')
     expect(adminView.wrapper.text()).toContain('发起数据导出')
     expect(adminView.wrapper.text()).toContain('账号删除仅限组织 Owner 执行')
-    expect(adminView.wrapper.text()).not.toContain('第一步：删除预检')
+    expect(adminView.wrapper.text()).not.toContain('第一步：选择目标成员并预检')
 
     // The owner session renders both workflows.
     const ownerView = await mountPage(admin, fakeGateway(), '?tab=governance', 'ORG_OWNER')
     expect(ownerView.wrapper.text()).toContain('发起数据导出')
-    expect(ownerView.wrapper.text()).toContain('第一步：删除预检')
+    expect(ownerView.wrapper.text()).toContain('第一步：选择目标成员并预检')
     expect(ownerView.wrapper.text()).toContain('治理作业没有列表端点')
   })
 })
@@ -207,7 +207,7 @@ function fakeGateway(): OrganizationGateway & {
     processExport: vi.fn(async () => exportJobFixture()),
     cancelExport: vi.fn(async () => exportJobFixture()),
     openExportArtifacts: vi.fn(async () => ({ manifest: null, artifacts: [] })),
-    deletionPrecheck: vi.fn(async () => ({ accountId: 'account-1', inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null })),
+    deletionPrecheck: vi.fn(async () => ({ accountId: 'account-1', username: 'e2e-member', displayName: '林悦', inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null })),
     createDeletion: vi.fn(async () => ({ job: deletionJobFixture(), receipt: null, replayed: false })),
     deletionJob: vi.fn(async () => deletionJobFixture()),
     confirmDeletion: vi.fn(async () => deletionJobFixture()),

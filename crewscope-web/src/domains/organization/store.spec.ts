@@ -312,7 +312,8 @@ function fakeGateway(): OrganizationGateway & {
     cancelExport: vi.fn(async () => exportJobFixture('CANCELLED')),
     openExportArtifacts: vi.fn(async () => ({ manifest: null, artifacts: [] })),
     deletionPrecheck: vi.fn(async (_organizationId: string, accountId: string) => ({
-      accountId, inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null,
+      accountId, username: 'e2e-member', displayName: '林悦',
+      inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null,
     })),
     createDeletion: vi.fn(async () => creation(deletionJobFixture('PENDING_CONFIRMATION'))),
     deletionJob: vi.fn(async () => deletionJobFixture('PENDING_CONFIRMATION')),

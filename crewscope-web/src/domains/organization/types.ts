@@ -147,6 +147,9 @@ export interface ExportManifest {
 
 export interface DeletionPrecheck {
   accountId: string
+  /** M13b-A01: the target's echo facts — the confirm token IS the username, so it must be visible. */
+  username: string
+  displayName: string
   inFlightTaskExecutions: number
   activeResponsibilities: number
   openReservations: number | null

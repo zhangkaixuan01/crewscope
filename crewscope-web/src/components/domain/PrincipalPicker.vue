@@ -6,21 +6,64 @@ import { createRequestScope } from '../../api/requestScope'
 import { principalDirectoryGateway, type PrincipalDirectoryGateway } from '../../domains/principal/gateway'
 import { isImeComposition } from '../../composables/useImeGuard'
 import { principalKindLabels, principalStatusLabels } from '../../domains/principal/labels'
-import type { PrincipalEntry, PrincipalKind, PrincipalScope } from '../../domains/principal/types'
+import type { OrganizationMemberEntry, OrganizationScope, PrincipalEntry, PrincipalKind, PrincipalScope } from '../../domains/principal/types'
 import BaseButton from '../base/BaseButton.vue'
 import BaseInput from '../base/BaseInput.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 
 /**
- * Picks a Team subject by name instead of asking anyone to paste a UUID.
+ * Picks a subject by name instead of asking anyone to paste a UUID.
  *
  * A Principal ID is a database fact, not something a member can be expected to know, type or
  * verify. This component is the only sanctioned way to name a subject in a form: it searches the
- * member-safe A07 directory, shows who the match actually is, and hands the caller the identifier
- * it resolved. Callers therefore never need a free-text identifier field at all.
+ * member-safe A07 directory (Team scope) or the org-grain member directory (org scope, M13b-A01),
+ * shows who the match actually is, and hands the caller the identifier it resolved. Callers
+ * therefore never need a free-text identifier field at all.
  */
+
+/** One candidate in either directory, flattened for rendering; org-only facts ride along. */
+export interface PickerSelection {
+  principalId: string
+  displayName: string
+  status: PrincipalEntry['status']
+  kind: PrincipalKind
+  /** Listbox second line: kind · roles (team) or username · org roles (org). */
+  optionSubtitle: string
+  /** Chip second line: kind · status (team) or username · status (org). */
+  chipSubtitle: string
+  /** Org directory only — the account coordinate deletion workflows and echoes key on. */
+  accountId?: string
+  /** Org directory only — the username the deletion confirmation token echoes. */
+  username?: string
+}
+
+function fromTeamEntry(entry: PrincipalEntry): PickerSelection {
+  return {
+    principalId: entry.principalId,
+    displayName: entry.displayName,
+    status: entry.status,
+    kind: entry.kind,
+    optionSubtitle: `${principalKindLabels[entry.kind]}${entry.roles.length ? ` · ${entry.roles.join(' · ')}` : ''}`,
+    chipSubtitle: `${principalKindLabels[entry.kind]} · ${principalStatusLabels[entry.status]}`,
+  }
+}
+
+function fromOrgEntry(entry: OrganizationMemberEntry): PickerSelection {
+  return {
+    principalId: entry.principalId,
+    displayName: entry.displayName,
+    status: entry.status,
+    kind: 'USER',
+    optionSubtitle: `${entry.username}${entry.orgRoles.length ? ` · ${entry.orgRoles.join(' · ')}` : ''}`,
+    chipSubtitle: `${entry.username} · ${principalStatusLabels[entry.status]}`,
+    accountId: entry.accountId,
+    username: entry.username,
+  }
+}
+
 const props = withDefaults(defineProps<{
-  scope: PrincipalScope
+  /** Team scope searches the A07 directory; an org scope (no teamId) searches the A01 directory. */
+  scope: PrincipalScope | OrganizationScope
   modelValue: string | null
   label: string
   /** Restricts the directory to one subject category; both are offered when omitted. */
@@ -40,7 +83,11 @@ const props = withDefaults(defineProps<{
   gateway: () => principalDirectoryGateway,
 })
 
-const emit = defineEmits<{ 'update:modelValue': [value: string | null] }>()
+const emit = defineEmits<{
+  'update:modelValue': [value: string | null]
+  /** Fires with the full selection on every choose/clear — org scopes carry accountId/username. */
+  pick: [selection: PickerSelection | null]
+}>()
 
 const domId = `principal-picker-${useId()}`
 const query = ref('')
@@ -49,19 +96,32 @@ const open = ref(false)
 const replacing = ref(false)
 const phase = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
 const errorMessage = ref<string | null>(null)
-const entries = ref<PrincipalEntry[]>([])
+const entries = ref<PickerSelection[]>([])
 const activeIndex = ref(-1)
-const selected = ref<PrincipalEntry | null>(null)
+const selected = ref<PickerSelection | null>(null)
 const nextCursor = ref<string | null>(null)
 const loadingMore = ref(false)
 const loadMoreError = ref<string | null>(null)
 
-let searchTimer: number | undefined
-// The Team scope is the coordinate (M12b-F05): switching it voids every in-flight search —
-// the version counter + controller this replaces.
-const requests = createRequestScope(() => JSON.stringify([props.scope.organizationId, props.scope.teamId]))
+/** Org-grain scopes read the A01 member directory (governance forms); teams keep the A07 path. */
+/** Team vs org is one structural fact: the teamId key (M13b-A01). Narrows the props union. */
+function isPrincipalScope(scope: PrincipalScope | OrganizationScope): scope is PrincipalScope {
+  return 'teamId' in scope
+}
+const isOrgScope = computed(() => !isPrincipalScope(props.scope))
 
-const kindHint = computed(() => props.kind ? `仅显示${principalKindLabels[props.kind]}` : '成员与 Agent')
+let searchTimer: number | undefined
+// The scope is the coordinate (M12b-F05): switching it voids every in-flight search —
+// the version counter + controller this replaces.
+const scopeKey = computed(() => JSON.stringify(props.scope))
+const requests = createRequestScope(() => scopeKey.value)
+
+const kindHint = computed(() => {
+  if (isOrgScope.value) return '组织成员'
+  return props.kind ? `仅显示${principalKindLabels[props.kind]}` : '成员与 Agent'
+})
+const loadFailure = computed(() => isOrgScope.value ? '暂时无法加载组织成员，请稍后重试' : '暂时无法加载团队成员，请稍后重试')
+const emptyHint = computed(() => isOrgScope.value ? '当前组织没有可选的成员' : `当前团队没有可选的${kindHint.value}`)
 const optionId = (index: number): string => `${domId}-option-${index}`
 
 // A selection made elsewhere (a reset, a restored draft) must clear the visible chip too.
@@ -78,8 +138,8 @@ watch(query, () => {
   searchTimer = window.setTimeout(() => void search(), 200)
 })
 
-// Candidates belong to one Team scope; switching it must not leave another Team's names on screen.
-watch(() => [props.scope.organizationId, props.scope.teamId] as const, () => {
+// Candidates belong to one scope; switching it must not leave another scope's names on screen.
+watch(scopeKey, () => {
   window.clearTimeout(searchTimer)
   requests.invalidate()
   open.value = false
@@ -108,25 +168,41 @@ async function search(): Promise<void> {
   phase.value = 'loading'
   errorMessage.value = null
   loadMoreError.value = null
+  // A local copy lets the structural guard narrow the union for both branches below.
+  const scope = props.scope
   try {
-    const page = await props.gateway.search(
-      // The kind filter rides the request so pagination walks the filtered set (R21),
-      // not a client-side slice of an unfiltered page.
-      { ...props.scope, q: query.value.trim() || undefined, types: props.kind ? [props.kind] : undefined, purpose: props.purpose, limit: 20 },
-      request.signal,
-    )
-    if (!request.isCurrent()) return
-    entries.value = page.items
-    nextCursor.value = page.nextCursor
-    activeIndex.value = page.items.length ? 0 : -1
-    phase.value = page.items.length ? 'ready' : 'empty'
+    // The kind filter rides the request so pagination walks the filtered set (R21),
+    // not a client-side slice of an unfiltered page.
+    let items: PickerSelection[]
+    let cursor: string | null
+    if (isPrincipalScope(scope)) {
+      const page = await props.gateway.search(
+        { ...scope, q: query.value.trim() || undefined, types: props.kind ? [props.kind] : undefined, purpose: props.purpose, limit: 20 },
+        request.signal,
+      )
+      if (!request.isCurrent()) return
+      items = page.items.map(fromTeamEntry)
+      cursor = page.nextCursor
+    } else {
+      const page = await props.gateway.searchOrganizationMembers(
+        { organizationId: scope.organizationId, namePrefix: query.value.trim() || undefined, limit: 20 },
+        request.signal,
+      )
+      if (!request.isCurrent()) return
+      items = page.items.map(fromOrgEntry)
+      cursor = page.nextCursor
+    }
+    entries.value = items
+    nextCursor.value = cursor
+    activeIndex.value = items.length ? 0 : -1
+    phase.value = items.length ? 'ready' : 'empty'
   } catch (error) {
     if (!request.isCurrent() || isAbort(error)) return
     entries.value = []
     nextCursor.value = null
     activeIndex.value = -1
     phase.value = 'error'
-    errorMessage.value = '暂时无法加载团队成员，请稍后重试'
+    errorMessage.value = loadFailure.value
   } finally {
     request.finish()
   }
@@ -138,14 +214,28 @@ async function loadMore(): Promise<void> {
   const owner = requests.capture()
   loadingMore.value = true
   loadMoreError.value = null
+  const scope = props.scope
   try {
-    const page = await props.gateway.search(
-      { ...props.scope, q: query.value.trim() || undefined, types: props.kind ? [props.kind] : undefined, purpose: props.purpose, limit: 20, after: nextCursor.value },
-    )
-    if (!owner.isCurrent()) return
+    let incoming: PickerSelection[]
+    let cursor: string | null
+    if (isPrincipalScope(scope)) {
+      const page = await props.gateway.search(
+        { ...scope, q: query.value.trim() || undefined, types: props.kind ? [props.kind] : undefined, purpose: props.purpose, limit: 20, after: nextCursor.value },
+      )
+      if (!owner.isCurrent()) return
+      incoming = page.items.map(fromTeamEntry)
+      cursor = page.nextCursor
+    } else {
+      const page = await props.gateway.searchOrganizationMembers(
+        { organizationId: scope.organizationId, namePrefix: query.value.trim() || undefined, limit: 20, after: nextCursor.value },
+      )
+      if (!owner.isCurrent()) return
+      incoming = page.items.map(fromOrgEntry)
+      cursor = page.nextCursor
+    }
     const known = new Set(entries.value.map(entry => entry.principalId))
-    entries.value = [...entries.value, ...page.items.filter(entry => !known.has(entry.principalId))]
-    nextCursor.value = page.nextCursor
+    entries.value = [...entries.value, ...incoming.filter(entry => !known.has(entry.principalId))]
+    nextCursor.value = cursor
   } catch {
     // The rows already on screen stay; only the continuation failed, so surface it beside the
     // button instead of throwing through the click handler or swapping the list for the error state.
@@ -155,10 +245,11 @@ async function loadMore(): Promise<void> {
   }
 }
 
-function choose(entry: PrincipalEntry): void {
+function choose(entry: PickerSelection): void {
   selected.value = entry
   replacing.value = false
   emit('update:modelValue', entry.principalId)
+  emit('pick', entry)
   open.value = false
   query.value = ''
 }
@@ -166,6 +257,7 @@ function choose(entry: PrincipalEntry): void {
 function clear(): void {
   selected.value = null
   emit('update:modelValue', null)
+  emit('pick', null)
 }
 
 /** Re-opens the search box without dropping the current value first (R21). */
@@ -216,7 +308,7 @@ function onKeydown(event: KeyboardEvent): void {
       </i>
       <span>
         <strong>{{ selected.displayName }}</strong>
-        <small>{{ principalKindLabels[selected.kind] }} · {{ principalStatusLabels[selected.status] }}</small>
+        <small>{{ selected.chipSubtitle }}</small>
       </span>
       <BaseButton
         v-if="!disabled"
@@ -258,7 +350,7 @@ function onKeydown(event: KeyboardEvent): void {
           <button type="button" @click="search">重试</button>
         </p>
         <p v-else-if="phase === 'empty'" class="principal-state">
-          {{ query.trim() ? `没有匹配「${query.trim()}」的${kindHint}` : `当前团队没有可选的${kindHint}` }}
+          {{ query.trim() ? `没有匹配「${query.trim()}」的${kindHint}` : emptyHint }}
         </p>
         <button
           v-for="(entry, index) in entries"
@@ -278,7 +370,7 @@ function onKeydown(event: KeyboardEvent): void {
           </i>
           <span>
             <strong>{{ entry.displayName }}</strong>
-            <small>{{ principalKindLabels[entry.kind] }}{{ entry.roles.length ? ` · ${entry.roles.join(' · ')}` : '' }}</small>
+            <small>{{ entry.optionSubtitle }}</small>
           </span>
           <StatusBadge v-if="entry.status !== 'ACTIVE'" tone="warning">{{ principalStatusLabels[entry.status] }}</StatusBadge>
           <Check v-if="entry.principalId === modelValue" :size="13" />

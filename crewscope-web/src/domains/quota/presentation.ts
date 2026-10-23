@@ -39,12 +39,14 @@ export function quotaProblem(status: number | null, code: string | null): QuotaP
  * The two action constants are the wire contract verbatim — Java source:
  * OrganizationQuotaAdmissionService.java:19-23 (adjacent-string concatenation resolved).
  * Unknown actions return null so the caller keeps the raw server message.
+ * The copy names the quota page but embeds no path (M13b-F02 R43): the quota surface is its
+ * own route (/settings/quota), and the rendering component attaches the router link.
  */
 const ADMISSION_ACTIONS: Record<string, string> = {
   'create more agent tasks this month (organization monthly task intake limit reached)':
-    '本月组织任务受理数已达上限，任务创建被拒绝。请联系组织管理员在 组织设置 → 配额与用量 调整每月任务受理上限，或等待下月配额重置。',
+    '本月组织任务受理数已达上限，任务创建被拒绝。请联系组织管理员在配额与用量页调整每月任务受理上限，或等待下月配额重置。',
   'create an agent task reserving additional model tokens this month (organization monthly token budget reached)':
-    '本月组织 Token 预算已用尽，任务创建被拒绝。请联系组织管理员在 组织设置 → 配额与用量 调整每月 Token 预算，或等待下月配额重置。',
+    '本月组织 Token 预算已用尽，任务创建被拒绝。请联系组织管理员在配额与用量页调整每月 Token 预算，或等待下月配额重置。',
 }
 
 export function quotaAdmissionProblem(action: string | null | undefined): string | null {

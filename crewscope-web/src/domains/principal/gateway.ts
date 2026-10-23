@@ -1,6 +1,9 @@
 import { apiClient, type CrewScopeApiClient } from '../../api/client'
 import { principalKinds, principalStatuses } from './types'
 import type {
+  OrganizationMemberEntry,
+  OrganizationMemberPage,
+  OrganizationMemberQuery,
   PrincipalDirectoryQuery,
   PrincipalEntry,
   PrincipalKind,
@@ -11,6 +14,8 @@ import { segment } from '../../api/gatewayUtils'
 
 export interface PrincipalDirectoryGateway {
   search(query: PrincipalDirectoryQuery, signal?: AbortSignal): Promise<PrincipalPage>
+  /** The org-grain M13b-A01 directory behind governance forms (org:audit-read on the server). */
+  searchOrganizationMembers(query: OrganizationMemberQuery, signal?: AbortSignal): Promise<OrganizationMemberPage>
 }
 
 /** Strict adapter for the A07 member-safe subject directory. */
@@ -56,6 +61,48 @@ export class HttpPrincipalDirectoryGateway implements PrincipalDirectoryGateway 
       nextOffset: value.nextOffset == null ? null : integer(value.nextOffset),
       nextCursor: value.nextCursor == null ? null : string(value.nextCursor),
     }
+  }
+
+  async searchOrganizationMembers(query: OrganizationMemberQuery, signal?: AbortSignal): Promise<OrganizationMemberPage> {
+    const prefix = query.namePrefix?.trim() ?? ''
+    if (prefix.length > 100) {
+      throw new TypeError('Organization member directory text must not exceed 100 characters')
+    }
+    if (query.after && query.offset !== undefined) {
+      throw new TypeError('Organization member directory after and offset are mutually exclusive')
+    }
+    const params = new URLSearchParams({
+      offset: String(Math.max(query.offset ?? 0, 0)),
+      limit: String(Math.min(Math.max(query.limit ?? 20, 1), 200)),
+    })
+    if (prefix) params.set('namePrefix', prefix)
+    if (query.after) {
+      params.delete('offset')
+      params.set('after', query.after)
+    }
+    const value = record(await this.client.get(
+      `/organizations/${segment(query.organizationId)}/members?${params}`,
+      { signal },
+    ))
+    return {
+      items: array(value.items).map(readMemberEntry),
+      nextOffset: value.nextOffset == null ? null : integer(value.nextOffset),
+      nextCursor: value.nextCursor == null ? null : string(value.nextCursor),
+    }
+  }
+}
+
+function readMemberEntry(input: unknown): OrganizationMemberEntry {
+  const value = record(input)
+  const status = string(value.status)
+  if (!principalStatuses.includes(status as PrincipalStatus)) throw new TypeError('Invalid member status')
+  return {
+    accountId: string(value.accountId),
+    principalId: string(value.principalId),
+    displayName: string(value.displayName),
+    username: string(value.username),
+    status: status as PrincipalStatus,
+    orgRoles: Array.isArray(value.orgRoles) ? value.orgRoles.map(string) : [],
   }
 }
 

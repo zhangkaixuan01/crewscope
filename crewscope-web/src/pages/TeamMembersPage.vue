@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import BaseSelect from '../components/base/BaseSelect.vue'
 import { Check, Copy, Plus, ShieldCheck, UserRoundPlus, X } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -8,6 +7,7 @@ import BaseButton from '../components/base/BaseButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
+import PrincipalPicker from '../components/domain/PrincipalPicker.vue'
 import MemberActionMenu, { type MemberAction } from '../components/team/MemberActionMenu.vue'
 import MemberLifecycleDialog from '../components/team/MemberLifecycleDialog.vue'
 import ResponsibilityHandoverDialog from '../components/team/ResponsibilityHandoverDialog.vue'
@@ -36,14 +36,14 @@ const team = store.selectedTeam
 const { locatedId, bindRow, clear: clearLocated } = useRouteFocus('member')
 const locatedMember = computed(() => store.state.members.find(member => member.id === locatedId.value) ?? null)
 const showAddMember = ref(false)
-const targetPrincipalId = ref('')
+/** The picked member's principalId — the org directory names it, nobody pastes an ID (A02). */
+const targetPrincipalId = ref<string | null>(null)
 const submitted = ref(false)
 const canManageMembers = computed(() => Boolean(principal && can(principal, permissions.teamMembersManage)))
 const canManageRoles = computed(() => Boolean(principal && can(principal, permissions.teamRolesManage)))
 const clipboard = useClipboard()
 const activeMembers = computed(() => store.state.members.filter(member => member.status === 'ACTIVE'))
-const rejoinCandidates = computed(() => store.state.members.filter(member => member.status !== 'ACTIVE'))
-const principalIdValid = computed(() => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(targetPrincipalId.value.trim()))
+const principalIdValid = computed(() => targetPrincipalId.value !== null)
 const viewerMember = computed(() => store.state.members.find(member => member.userPrincipalId === principal?.id) ?? null)
 const viewerIsOwner = computed(() => Boolean(viewerMember.value && team.value && viewerMember.value.id === team.value.ownerMemberId))
 
@@ -61,7 +61,7 @@ const handoverCandidates = computed(() =>
 
 watch(() => store.state.selectedTeamId, () => {
   showAddMember.value = false
-  targetPrincipalId.value = ''
+  targetPrincipalId.value = null
   submitted.value = false
   closeLifecycle()
   closeHandover()
@@ -76,11 +76,11 @@ async function switchTab(next: 'members' | 'invitations'): Promise<void> {
 async function addMember(): Promise<void> {
   const pageOwner = pageRequests.capture()
   submitted.value = true
-  if (!principalIdValid.value) return
+  if (targetPrincipalId.value === null) return
   try {
     await store.addMember(targetPrincipalId.value)
     if (!pageOwner.isCurrent()) return
-    targetPrincipalId.value = ''
+    targetPrincipalId.value = null
     submitted.value = false
     showAddMember.value = false
   } catch {
@@ -291,12 +291,16 @@ function copyPrincipal(member: { userPrincipalId: string }): void { void clipboa
         </section>
 
         <form v-if="showAddMember && canManageMembers" class="add-member panel" @submit.prevent="addMember">
-          <div class="add-member__heading"><i><UserRoundPlus :size="19" /></i><div><h2>添加已有用户</h2><p>输入同一 Organization 下的 ACTIVE USER Principal ID。服务端会重新验证身份、Scope 与 MEMBER_MANAGE 权限。</p></div><button type="button" aria-label="关闭添加成员" @click="showAddMember = false"><X :size="17" /></button></div>
-          <label for="principal-id">选择身份</label>
-          <div class="principal-input"><BaseSelect id="principal-id" v-model="targetPrincipalId" :aria-invalid="submitted && !principalIdValid"><option value="">请选择待重新加入的身份</option><option v-for="member in rejoinCandidates" :key="member.userPrincipalId" :value="member.userPrincipalId">{{ member.displayName }} · {{ memberStatusLabel(member.status) }}</option></BaseSelect><BaseButton type="submit" size="small" :loading="store.state.memberCommandPending">确认添加</BaseButton></div>
-          <p v-if="!rejoinCandidates.length" class="field-hint">当前没有可重新加入的身份；新成员请切换到“加入邀请”创建一次性邀请链接。</p>
-          <p v-if="submitted && !principalIdValid" class="field-error" role="alert">请选择一个身份。</p>
+          <div class="add-member__heading"><i><UserRoundPlus :size="19" /></i><div><h2>添加已有用户</h2><p>按姓名搜索本组织的已有成员并加入当前 Team；服务端会重新验证身份、Scope 与 MEMBER_MANAGE 权限。</p></div><button type="button" aria-label="关闭添加成员" @click="showAddMember = false"><X :size="17" /></button></div>
+          <PrincipalPicker
+            v-model="targetPrincipalId"
+            :scope="{ organizationId: team?.organizationId ?? '' }"
+            label="目标成员（组织目录）"
+            :help-text="submitted && !principalIdValid ? '请先从组织成员目录选择成员。' : '按姓名搜索本组织成员；已是本 Team 成员的账号会被服务端拒绝。'"
+          />
+          <p v-if="submitted && !principalIdValid" class="field-error" role="alert">请先从组织成员目录选择成员。</p>
           <p v-if="store.state.membersErrorMessage" class="field-error" role="alert">{{ store.state.membersErrorMessage }}</p>
+          <div class="principal-input"><BaseButton type="submit" size="small" :loading="store.state.memberCommandPending">确认添加</BaseButton></div>
         </form>
 
         <section class="panel member-directory">
@@ -382,7 +386,7 @@ function copyPrincipal(member: { userPrincipalId: string }): void { void clipboa
 
 <style scoped>
 .members-tabs { display: inline-flex; gap: var(--cs-space-4); padding: var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 11px; background: var(--cs-surface); }.members-tabs__tab { display: inline-flex; align-items: center; min-height: var(--cs-density-control-height); padding: var(--cs-space-8) var(--cs-space-16); border-radius: 8px; color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-decoration: none; }.members-tabs__tab:hover, .members-tabs__tab:focus-visible { color: var(--cs-text-brand); }.members-tabs__tab--active { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
-.add-member { padding: var(--cs-space-20); }.add-member__heading { display: grid; grid-template-columns: 40px 1fr 30px; gap: var(--cs-space-12); margin-bottom: var(--cs-space-16); }.add-member__heading > i { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 11px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.add-member__heading h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-base); }.add-member__heading p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.add-member__heading > button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.add-member > label { display: block; margin-bottom: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.principal-input { display: grid; max-width: 700px; grid-template-columns: 1fr auto; gap: var(--cs-space-8); }.principal-input input { min-width: 0; min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }.principal-input input[aria-invalid="true"] { border-color: var(--cs-danger); }.field-error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
+.add-member { padding: var(--cs-space-20); }.add-member__heading { display: grid; grid-template-columns: 40px 1fr 30px; gap: var(--cs-space-12); margin-bottom: var(--cs-space-16); }.add-member__heading > i { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 11px; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }.add-member__heading h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-base); }.add-member__heading p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }.add-member__heading > button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--cs-surface-subtle); cursor: pointer; }.add-member > label { display: block; margin-bottom: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.principal-input { display: flex; max-width: 700px; }.principal-input input { min-width: 0; min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }.principal-input input[aria-invalid="true"] { border-color: var(--cs-danger); }.field-error { margin: var(--cs-space-8) 0 0; color: var(--cs-danger); font-size: var(--cs-text-sm); }
 .member-directory { overflow: visible; }.member-table__head, .member-row { display: grid; grid-template-columns: minmax(220px, 1.5fr) 110px 110px 110px 70px 44px; align-items: center; gap: var(--cs-space-12); padding-inline: var(--cs-space-20); }.member-table__head { min-height: 38px; border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }.member-row { min-height: 72px; border-bottom: 1px solid var(--cs-border); }.member-row:last-child { border-bottom: 0; }.member-identity { display: flex; align-items: center; gap: var(--cs-space-12); min-width: 0; }.member-identity > i { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-style: normal; font-weight: var(--cs-weight-semibold); }.member-identity strong, .member-identity small { display: flex; align-items: center; gap: var(--cs-space-4); }.member-identity strong { font-size: var(--cs-text-sm); }.member-identity strong em { padding: var(--cs-space-2) var(--cs-space-4); border-radius: var(--cs-radius-pill); background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-style: normal; }.member-identity small { margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.join-method, .joined-at, .version { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.version { display: flex; align-items: center; gap: var(--cs-space-4); }.version svg { color: var(--cs-success); }.member-actions { display: grid; justify-items: end; }
 .permission-note { display: flex; align-items: flex-start; gap: var(--cs-space-12); padding: var(--cs-space-12) var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.permission-note > svg { flex: 0 0 auto; color: var(--cs-text-brand); }.permission-note strong, .permission-note span { display: block; }.permission-note strong { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }.permission-note span { margin-top: var(--cs-space-2); font-size: var(--cs-text-xs); }
 @media (max-width: 850px) { .member-table__head { display: none; }.member-row { grid-template-columns: 1fr auto; gap: var(--cs-space-8); padding-block: var(--cs-space-12); }.member-row > .join-method, .member-row > .joined-at { display: none; }.member-row > .member-roles { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.version { grid-column: 2; }.member-actions { grid-row: 1; grid-column: 2; } }

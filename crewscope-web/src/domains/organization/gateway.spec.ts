@@ -148,12 +148,16 @@ describe('HttpOrganizationGateway', () => {
 
   it('prechecks by account query parameter and maps the openReservations null', async () => {
     const harness = gatewayWith(vi.fn(async () => json({
-      accountId: 'account-1', inFlightTaskExecutions: 0, activeResponsibilities: 3, openReservations: null,
+      accountId: 'account-1', username: 'e2e-member', displayName: '林悦',
+      inFlightTaskExecutions: 0, activeResponsibilities: 3, openReservations: null,
     })))
 
     const precheck = await harness.gateway.deletionPrecheck(organizationId, 'account-1')
 
-    expect(precheck).toEqual({ accountId: 'account-1', inFlightTaskExecutions: 0, activeResponsibilities: 3, openReservations: null })
+    expect(precheck).toEqual({
+      accountId: 'account-1', username: 'e2e-member', displayName: '林悦',
+      inFlightTaskExecutions: 0, activeResponsibilities: 3, openReservations: null,
+    })
     expect(new URL(harness.lastRequest()!.url, 'http://crewscope.local').search)
       .toBe('?accountId=account-1')
   })

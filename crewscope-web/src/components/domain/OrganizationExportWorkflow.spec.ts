@@ -18,6 +18,11 @@ describe('OrganizationExportWorkflow', () => {
     ], manifest()))
     const { wrapper } = await mountComponent(gateway)
 
+    // R41/A24 baseline: the two-phase copy precedes the first click, and the empty state names
+    // where history actually lives instead of the missing list endpoint.
+    expect(wrapper.text()).toContain('导出分两步')
+    expect(wrapper.text()).toContain('当前会话没有导出作业')
+
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(gateway.createExport).toHaveBeenCalledWith(
@@ -26,6 +31,7 @@ describe('OrganizationExportWorkflow', () => {
     expect(wrapper.text()).toContain('待处理')
     expect(wrapper.text()).toContain('任务')
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+    expect(wrapper.text()).toContain('「生成产物」将按创建时冻结的范围与版本快照')
 
     await wrapper.findAll('button').find(button => button.text().includes('生成产物'))!.trigger('click')
     await flushPromises()
@@ -33,6 +39,11 @@ describe('OrganizationExportWorkflow', () => {
     expect(wrapper.text()).toContain('已完成')
     expect(wrapper.text()).toContain('对账清单')
     expect(wrapper.text()).toContain('下载产物')
+    // A24: digests truncate in the summary; the full value is in the expandable details payload,
+    // not just a hover title.
+    const familyChecksum = wrapper.findAll('details.org-checksum').at(-1)!
+    expect(familyChecksum.get('summary').text()).toBe('a'.repeat(12))
+    expect(familyChecksum.get('.org-checksum-full').text()).toBe('a'.repeat(64))
   })
 
   it('offers resume for an interrupted RUNNING job with pending items', async () => {
@@ -155,7 +166,7 @@ function fakeGateway(): OrganizationGateway & {
     processExport: vi.fn(async () => exportJob('COMPLETED', [])),
     cancelExport: vi.fn(async () => exportJob('CANCELLED', [])),
     openExportArtifacts: vi.fn(async () => ({ manifest: null, artifacts: [] })),
-    deletionPrecheck: vi.fn(async () => ({ accountId: 'account-1', inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null })),
+    deletionPrecheck: vi.fn(async () => ({ accountId: 'account-1', username: 'e2e-member', displayName: '林悦', inFlightTaskExecutions: 0, activeResponsibilities: 0, openReservations: null })),
     createDeletion: vi.fn(async () => ({ job: null, receipt: null, replayed: false })),
     deletionJob: vi.fn(async () => deletionJobFixture()),
     confirmDeletion: vi.fn(async () => deletionJobFixture()),
