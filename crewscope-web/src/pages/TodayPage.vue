@@ -82,14 +82,24 @@ const setupReadyCount = computed(() => setupReadiness.value?.capabilities.filter
 const setupRequiredCount = computed(() => setupReadiness.value?.capabilities.filter(item => item.required).length ?? 0)
 // Keep the page mountable in isolated route/story tests where the application store is not installed.
 const workDeskStore = inject(WORKDESK_STORE, null) ?? ({
-  state: { phase: 'idle', scope: null, summary: null, errorMessage: null, sectionLoadingKey: null, sectionErrorMessage: null },
+  state: { phase: 'idle', scope: null, summary: null, errorMessage: null, sectionLoadingKey: null, sectionError: null },
   activateScope: () => undefined,
   load: async () => undefined,
   loadMore: async () => undefined,
   reset: () => undefined,
 } as WorkDeskStore)
 const workItemStore = useWorkItemStore()
-const { offerUndo } = useUndoOffer(workItemStore)
+const { offerUndo, undoTransition } = useUndoOffer(workItemStore)
+/**
+ * M13b-F11（I08）：行级失败持久化——「命令是否落地未知」不能只靠自动消失的 toast；失败留在
+ * 页面上并给出刷新确认出路。M13b-F11（I09）：撤销窗口的内联入口，键盘可达，不依赖 toast。
+ */
+const rowFailure = ref<{ title: string; message: string } | null>(null)
+function clearRowFailureAndRefresh(): void {
+  rowFailure.value = null
+  void workDeskStore.load(workDeskFilter.value, true)
+}
+const undoOffer = computed(() => workItemStore.state.undoOffer)
 const { confirmingTarget, confirmingSubject, submit: submitTransition, reset: resetTransition } =
   useTransitionConfirm(() => workItemStore.state.detailCommandPending === 'transition')
 
@@ -167,7 +177,19 @@ const actionRequiredRows = computed(() => ['HUMAN_GATE', 'REVIEW', 'BLOCKED'].fl
 /** Whether one section still holds rows its loaded page does not — the desk's own continuation. */
 const sectionHasMore = (key: string): boolean =>
   Boolean(workDeskSections.value.find(section => section.key === key)?.nextCursor)
-const deskLoading = ref(false)
+/**
+ * M13b-F11（I03）：每个分组自己的在途标记——此前一个共用 ref 让一个分组的失败把全部
+ * 「加载更多」按钮一起停转；错误也只归失败的那个组（store.sectionError 带 sectionKey）。
+ */
+const loadingKeys = ref(new Set<string>())
+function panelLoading(keys: readonly string[]): boolean {
+  return keys.some(key => loadingKeys.value.has(key))
+}
+/** The panel's own continuation failure, if the last one happened inside this panel's sections. */
+function sectionErrorFor(keys: readonly string[]): string | null {
+  const error = workDeskStore.state.sectionError
+  return error && keys.includes(error.sectionKey) ? error.message : null
+}
 /**
  * Unfolds every section behind one panel.
  *
@@ -175,14 +197,14 @@ const deskLoading = ref(false)
  * the panel's order, so the button's promise stays one press and the panel stays one summary.
  */
 async function loadMoreDeskSections(keys: readonly string[]): Promise<void> {
-  if (!online.value || deskLoading.value) return
-  deskLoading.value = true
+  if (!online.value || keys.some(key => loadingKeys.value.has(key))) return
+  for (const key of keys) loadingKeys.value.add(key)
   try {
     for (const key of keys) {
       if (sectionHasMore(key)) await workDeskStore.loadMore(key)
     }
   } finally {
-    deskLoading.value = false
+    for (const key of keys) loadingKeys.value.delete(key)
   }
 }
 const myWorkRows = computed(() => sectionItems('WORK_ITEM'))
@@ -391,7 +413,17 @@ async function runDeskAction(item: WorkDeskItem, target: string | WorkItemStatus
   }
   // A refusal and a failure are different news: the first says the row is not in a state that allows
   // the action, the second says we do not know whether the command landed.
-  toast.show(result.message, { tone: result.status === 'refused' ? 'warning' : 'danger' })
+  if (result.status === 'refused') {
+    toast.show(result.message, { tone: 'warning' })
+    return
+  }
+  // M13b-F11（I08）：失败持久在页 + danger toast 不自动消失，附刷新确认出路（与 WorkPage 同规）。
+  rowFailure.value = { title: deskTitle(item), message: result.message }
+  toast.show(result.message, {
+    tone: 'danger',
+    duration: 0,
+    action: { label: '刷新确认', onClick: clearRowFailureAndRefresh },
+  })
 }
 
 function runCardAction(item: WorkDeskItem, action: WorkDeskItem['availableActions'][number]): void {
@@ -459,11 +491,12 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
                choice between two identical answers. -->
           <p class="eyebrow">{{ todayLabel }}</p>
           <p v-if="workDeskStore.state.summary" class="today-head__summary">
-            <span v-if="actionRequiredRows.length">需要你行动 {{ actionRequiredRows.length }} 项</span>
+            <!-- M13b-F11（I02）：顶部摘要用服务器总数，与各组 chip 同口径——分页未展开时不再低报。 -->
+            <span v-if="actionRequiredTotal > 0">需要你行动 {{ actionRequiredTotal }} 项</span>
             <span v-else>今天没有需要你行动的事项</span>
             <span aria-hidden="true">·</span>
-            <span>推进中 {{ myWorkRows.length }} 项</span>
-            <template v-if="executionRows.length"><span aria-hidden="true">·</span><span>执行中 {{ executionRows.length }} 项</span></template>
+            <span>推进中 {{ sectionTotal('WORK_ITEM') }} 项</span>
+            <template v-if="sectionTotal('TASK_EXECUTION') > 0"><span aria-hidden="true">·</span><span>执行中 {{ sectionTotal('TASK_EXECUTION') }} 项</span></template>
           </p>
         </div>
         <div class="desk-filters" aria-label="工作台筛选">
@@ -484,6 +517,18 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
           @select="projectId => updateDeskQuery('deskProject', projectId)"
         />
       </header>
+
+      <!-- M13b-F11（I09）：撤销窗口的内联入口——键盘顺序可达，不依赖自动消失的 toast。 -->
+      <div v-if="undoOffer" class="row-feedback panel" role="status">
+        <p>刚才的操作还在撤销窗口内（{{ undoOffer.actionLabel }}）。</p>
+        <BaseButton size="small" variant="secondary" @click="undoTransition()">撤销</BaseButton>
+      </div>
+      <!-- M13b-F11（I08）：行级失败持久在页——危险 toast 关闭后仍有事实与出路。 -->
+      <div v-if="rowFailure" class="row-feedback row-feedback--danger panel" role="alert">
+        <p>{{ rowFailure.title }}：{{ rowFailure.message }}</p>
+        <BaseButton size="small" variant="secondary" @click="clearRowFailureAndRefresh">刷新确认</BaseButton>
+        <BaseButton size="small" variant="ghost" @click="rowFailure = null">知道了</BaseButton>
+      </div>
 
       <StatePanel v-if="firstLoad" state="loading" compact title="正在汇总你的工作" description="正在从各个 WorkProject 读取责任、决策与执行事实。" />
       <StatePanel
@@ -558,7 +603,11 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
                for, and saying so avoids the reader hunting for an action that lives one screen down. -->
           <p v-if="actionRequiredRows.some(canExecute)" class="desk-hint">阻塞的工作项可以直接在下面的看板上推进；决策类事项需要进入对应页面处理。</p>
           <div v-if="['HUMAN_GATE', 'REVIEW', 'BLOCKED'].some(sectionHasMore)" class="desk-more">
-            <BaseButton size="small" variant="secondary" :disabled="!online" :loading="deskLoading" @click="loadMoreDeskSections(['HUMAN_GATE', 'REVIEW', 'BLOCKED'])">加载更多需要处理的事项</BaseButton>
+            <BaseButton size="small" variant="secondary" :disabled="!online" :loading="panelLoading(['HUMAN_GATE', 'REVIEW', 'BLOCKED'])" @click="loadMoreDeskSections(['HUMAN_GATE', 'REVIEW', 'BLOCKED'])">加载更多需要处理的事项</BaseButton>
+            <p v-if="sectionErrorFor(['HUMAN_GATE', 'REVIEW', 'BLOCKED'])" class="desk-more__error" role="alert">
+              本页加载失败，以上内容已保留。{{ sectionErrorFor(['HUMAN_GATE', 'REVIEW', 'BLOCKED']) }}
+              <BaseButton size="small" variant="ghost" @click="loadMoreDeskSections(['HUMAN_GATE', 'REVIEW', 'BLOCKED'])">重试本页</BaseButton>
+            </p>
           </div>
         </section>
 
@@ -620,7 +669,11 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
             <template v-else>拖动卡片，或聚焦卡片后按空格拾起、方向键选列、Enter 放下，都可以改状态。</template>
           </p>
           <div v-if="sectionHasMore('WORK_ITEM')" class="desk-more">
-            <BaseButton size="small" variant="secondary" :disabled="!online" :loading="deskLoading" @click="loadMoreDeskSections(['WORK_ITEM'])">加载更多工作项</BaseButton>
+            <BaseButton size="small" variant="secondary" :disabled="!online" :loading="panelLoading(['WORK_ITEM'])" @click="loadMoreDeskSections(['WORK_ITEM'])">加载更多工作项</BaseButton>
+            <p v-if="sectionErrorFor(['WORK_ITEM'])" class="desk-more__error" role="alert">
+              本页加载失败，以上内容已保留。{{ sectionErrorFor(['WORK_ITEM']) }}
+              <BaseButton size="small" variant="ghost" @click="loadMoreDeskSections(['WORK_ITEM'])">重试本页</BaseButton>
+            </p>
           </div>
         </section>
 
@@ -639,7 +692,11 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
             </div>
             <p v-else class="desk-inline-empty">当前没有进行中的执行。</p>
             <div v-if="sectionHasMore('TASK_EXECUTION')" class="desk-more">
-              <BaseButton size="small" variant="secondary" :disabled="!online" :loading="deskLoading" @click="loadMoreDeskSections(['TASK_EXECUTION'])">加载更多执行</BaseButton>
+              <BaseButton size="small" variant="secondary" :disabled="!online" :loading="panelLoading(['TASK_EXECUTION'])" @click="loadMoreDeskSections(['TASK_EXECUTION'])">加载更多执行</BaseButton>
+              <p v-if="sectionErrorFor(['TASK_EXECUTION'])" class="desk-more__error" role="alert">
+                本页加载失败，以上内容已保留。{{ sectionErrorFor(['TASK_EXECUTION']) }}
+                <BaseButton size="small" variant="ghost" @click="loadMoreDeskSections(['TASK_EXECUTION'])">重试本页</BaseButton>
+              </p>
             </div>
           </section>
 
@@ -730,7 +787,12 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
 /* A column that would refuse the row dims, so the highlight is the only bright target. */
 .desk-board--locked .desk-column.drop-rejected, .desk-column.drop-rejected { opacity: .62; }
 .desk-hint { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.desk-more { display: flex; justify-content: center; margin-top: var(--cs-space-12); }
+.desk-more { display: flex; flex-direction: column; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }
+.desk-more__error { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--cs-space-8); margin: 0; color: var(--cs-danger); font-size: var(--cs-text-xs); }
+/* M13b-F11（I08/I09）：行级反馈条——失败持久化与撤销内联入口共用的轻量形态（与 WorkPage 同规）。 */
+.row-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-16); }
+.row-feedback p { flex: 1; margin: 0; font-size: var(--cs-text-xs); }
+.row-feedback--danger { border-color: var(--cs-danger); color: var(--cs-danger); }
 .desk-hint--warn { color: var(--cs-warning); }
 .today-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-16); }
 .executions, .activity { display: grid; align-content: start; gap: var(--cs-space-12); }

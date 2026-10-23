@@ -182,7 +182,9 @@ function queryText(value: unknown): string | null {
       <section class="panel" aria-labelledby="budget-heading">
         <h2 id="budget-heading" class="panel__title">本月预算与消耗</h2>
         <StatePanel v-if="store.state.budget.phase === 'loading'" state="loading" title="正在加载本月预算" />
-        <StatePanel v-else-if="store.state.budget.phase === 'error'" compact state="error" :title="store.state.budget.errorMessage ?? '暂时无法加载本月预算'" />
+        <!-- M13b-F11（I10/C2）：局部失败局部重试——预算/明细/质量各自重载，不连坐整页刷新；
+             retry 走 StatePanel 内置通道（C2 门禁只认 @retry / :retryable="false"）。 -->
+        <StatePanel v-else-if="store.state.budget.phase === 'error'" compact state="error" :title="store.state.budget.errorMessage ?? '暂时无法加载本月预算'" retry-label="重试" @retry="store.loadBudget(true)" />
         <template v-else-if="budget">
           <p v-if="!budget.config.alertsEnabled" class="panel__note">预算提醒未开启——预算数字只作展示，不会发送提醒。</p>
           <dl class="metric-grid">
@@ -210,14 +212,15 @@ function queryText(value: unknown): string | null {
         </template>
       </section>
 
-      <StatePanel v-if="store.state.months.phase === 'loading'" state="loading" title="正在加载用量月份" />
-      <StatePanel v-else-if="store.state.months.phase === 'error'" state="error" :title="store.state.months.errorMessage ?? '暂时无法加载用量月份'">
-        <template #action><BaseButton variant="secondary" size="small" @click="refresh">重试</BaseButton></template>
-      </StatePanel>
+      <!-- M13b-F11（C5）：stale-while-refresh——刷新保留旧内容，只有首载（无旧值）才用整块面板。 -->
+      <StatePanel v-if="store.state.months.phase === 'loading' && !store.state.months.value" state="loading" title="正在加载用量月份" />
+      <StatePanel v-else-if="store.state.months.phase === 'error' && !store.state.months.value" state="error" :title="store.state.months.errorMessage ?? '暂时无法加载用量月份'" retry-label="重试" @retry="refresh" />
       <StatePanel v-else-if="store.state.months.phase === 'empty'" state="empty" title="本月还没有模型用量事实" description="执行任务、提炼知识或构建索引后，用量会按月聚合在这里。" />
 
       <template v-if="selectedSummary && selectedMonth">
         <nav class="month-nav" aria-label="用量月份">
+          <span v-if="store.state.months.phase === 'loading'" class="month-nav__stale" role="status">正在刷新月份…</span>
+          <span v-else-if="store.state.months.phase === 'error'" class="month-nav__stale month-nav__stale--error" role="alert">刷新失败，仍显示上次月份</span>
           <button
             v-for="item in months" :key="item.month" type="button"
             class="month-nav__item" :aria-pressed="item.month === selectedMonth"
@@ -269,9 +272,10 @@ function queryText(value: unknown): string | null {
               <option v-for="role in observabilityUsageRoles" :key="role" :value="role">{{ observabilityUsageRoleLabels[role] }}</option>
             </BaseSelect>
           </label>
-          <StatePanel v-if="store.state.detail.phase === 'loading'" state="loading" title="正在加载当月成本明细" />
-          <StatePanel v-else-if="store.state.detail.phase === 'error'" state="error" :title="store.state.detail.errorMessage ?? '暂时无法加载当月成本明细'" />
-          <StatePanel v-else-if="detailRows.length === 0" state="empty" title="该角色本月没有用量行" />
+          <StatePanel v-if="store.state.detail.phase === 'loading' && !store.state.detail.value" state="loading" title="正在加载当月成本明细" />
+          <StatePanel v-else-if="store.state.detail.phase === 'error' && !store.state.detail.value" state="error" :title="store.state.detail.errorMessage ?? '暂时无法加载当月成本明细'" retry-label="重试" @retry="store.loadMonth(selectedMonth)" />
+          <!-- C5：loading/error 携旧值时表格照常显示旧数据，表格后的 stale 行说明它不是最新的。 -->
+          <StatePanel v-else-if="detailRows.length === 0 && store.state.detail.phase === 'ready'" state="empty" title="该角色本月没有用量行" />
           <!-- M13b-F10（L10）：10 列压 6 列——Tokens 三项堆叠同格、费用是主数字（Attempt 降为小字）、
                价格修订并进计价列小字；数值列右对齐 + tabular-nums；首列 sticky；≤767 变卡片。 -->
           <BaseTable v-else class="model-detail-table" :caption="`${selectedMonth} 模型用量明细`">
@@ -302,12 +306,15 @@ function queryText(value: unknown): string | null {
               </tr>
             </tbody>
           </BaseTable>
+          <p v-if="detailRows.length > 0 && store.state.detail.phase !== 'ready'" class="panel__note" :role="store.state.detail.phase === 'error' ? 'alert' : 'status'">
+            {{ store.state.detail.phase === 'error' ? '刷新失败，仍显示上次明细。' : '正在刷新明细，仍显示上次数据。' }}
+          </p>
         </section>
 
         <section class="panel" aria-labelledby="quality-heading">
           <h2 id="quality-heading" class="panel__title">{{ selectedMonth }} 质量统计</h2>
-          <StatePanel v-if="store.state.quality.phase === 'loading'" state="loading" title="正在加载当月质量统计" />
-          <StatePanel v-else-if="store.state.quality.phase === 'error'" state="error" :title="store.state.quality.errorMessage ?? '暂时无法加载当月质量统计'" />
+          <StatePanel v-if="store.state.quality.phase === 'loading' && !store.state.quality.value" state="loading" title="正在加载当月质量统计" />
+          <StatePanel v-else-if="store.state.quality.phase === 'error' && !store.state.quality.value" state="error" :title="store.state.quality.errorMessage ?? '暂时无法加载当月质量统计'" retry-label="重试" @retry="store.loadMonth(selectedMonth)" />
           <StatePanel v-else-if="!store.state.quality.value" state="empty" title="当月暂无质量统计" description="本月的执行与模型调用记录出现后，这里会给出成功率与质量指标。" />
           <div v-else class="quality-grid">
             <div class="quality-card">
@@ -329,6 +336,9 @@ function queryText(value: unknown): string | null {
               </dl>
             </div>
           </div>
+          <p v-if="store.state.quality.value && store.state.quality.phase !== 'ready'" class="panel__note" :role="store.state.quality.phase === 'error' ? 'alert' : 'status'">
+            {{ store.state.quality.phase === 'error' ? '刷新失败，仍显示上次质量统计。' : '正在刷新质量统计，仍显示上次数据。' }}
+          </p>
         </section>
       </template>
     </div>
@@ -341,6 +351,8 @@ function queryText(value: unknown): string | null {
 .month-nav__item { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text-secondary); padding: var(--cs-space-4) var(--cs-space-12); font-size: var(--cs-text-sm); cursor: pointer; }
 .month-nav__item[aria-pressed='true'] { border-color: var(--cs-focus); color: var(--cs-text); font-weight: var(--cs-weight-semibold); }
 .month-nav__item:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); }
+.month-nav__stale { align-self: center; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.month-nav__stale--error { color: var(--cs-warning); }
 .panel { display: grid; gap: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); padding: var(--cs-space-16); }
 .panel__title { margin: 0; font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); }
 .panel__note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }

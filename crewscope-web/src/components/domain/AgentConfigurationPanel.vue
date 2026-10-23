@@ -22,6 +22,7 @@ import type {
   SelectableAgentModel,
 } from '../../domains/agent/types'
 import BaseButton from '../base/BaseButton.vue'
+import CopyButton from '../base/CopyButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import AgentConfigurationHistoryPanel from './AgentConfigurationHistoryPanel.vue'
@@ -475,7 +476,7 @@ function integerOrNull(value: PreferenceNumber): number | null {
 
         <template v-else>
           <section class="effect-note">
-            <ShieldCheck :size="18" aria-hidden="true" /><div><strong>{{ platformManaged ? '平台托管 Team Observer' : '版本生效范围' }}</strong><span>{{ platformManaged ? '平台负责创建唯一 Observer 并固定只读能力边界；管理员在此配置 TEAM 模型并完成 Preflight，Team Observer 运行时会在首次安全调用时完成就绪激活。' : '保存会追加不可变 Configuration Revision。新 Task 与新 Conversation 使用新版本；已有 Conversation 保持 Pin，运行中 Task 和默认 Retry 继续使用固定 PolicySnapshot。' }}</span><small v-if="current?.configurationHash" class="current-hash mono">当前 Hash：{{ current.configurationHash }} <button type="button" class="copy-button" aria-label="复制当前配置 Hash" @click="clipboard.copy(current.configurationHash, 'current-configuration')">{{ copiedHash === 'current-configuration' ? '已复制' : '复制' }}</button></small></div>
+            <ShieldCheck :size="18" aria-hidden="true" /><div><strong>{{ platformManaged ? '平台托管 Team Observer' : '版本生效范围' }}</strong><span>{{ platformManaged ? '平台负责创建唯一 Observer 并固定只读能力边界；管理员在此配置 TEAM 模型并完成 Preflight，Team Observer 运行时会在首次安全调用时完成就绪激活。' : '保存会追加不可变 Configuration Revision。新 Task 与新 Conversation 使用新版本；已有 Conversation 保持 Pin，运行中 Task 和默认 Retry 继续使用固定 PolicySnapshot。' }}</span><small v-if="current?.configurationHash" class="current-hash mono">当前 Hash：{{ current.configurationHash }} <!-- M13b-F11（C3）：复制反馈统一走 CopyButton——失败显式「无法复制」。 --><CopyButton class="copy-button" :value="current.configurationHash" copy-key="current-configuration" label="复制" /></small></div>
           </section>
 
           <StatePanel v-if="!canConfigure" state="forbidden" compact title="只读 Agent" description="你可以发现这个团队 Agent，但配置和生命周期操作需要 Agent 管理权限。"><template #action><RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.agentManage } }"><BaseButton variant="secondary" size="small">查看权限说明</BaseButton></RouterLink></template></StatePanel>

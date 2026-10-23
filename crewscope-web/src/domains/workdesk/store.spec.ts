@@ -93,7 +93,7 @@ describe('WorkDesk store', () => {
     await store.load()
     await store.loadMore('WORK_ITEM')
     expect(getSection).not.toHaveBeenCalled()
-    expect(store.state.sectionErrorMessage).toBeNull()
+    expect(store.state.sectionError).toBeNull()
   })
 
   it('keeps the loaded page and names the section when a continuation fails', async () => {
@@ -108,6 +108,8 @@ describe('WorkDesk store', () => {
 
     expect(store.state.phase).toBe('ready')
     expect(store.state.summary?.sections.find(candidate => candidate.key === 'WORK_ITEM')?.items).toHaveLength(1)
-    expect(store.state.sectionErrorMessage).toContain('暂时无法加载该分组的更多内容')
+    // M13b-F11（I03）：错误带分组归属——失败只归失败的那个组，供该组 footer 定向重试。
+    expect(store.state.sectionError?.sectionKey).toBe('WORK_ITEM')
+    expect(store.state.sectionError?.message).toContain('暂时无法加载该分组的更多内容')
   })
 })

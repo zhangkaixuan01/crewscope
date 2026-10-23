@@ -27,7 +27,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from '@lucide/vue'
-import { computed, inject, ref, watch } from 'vue'
+import { computed, inject, nextTick, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { queryValue } from '../../utils/queryParams'
 import { AUTH_PRINCIPAL, can, permissions } from '../../app/auth'
@@ -136,6 +136,8 @@ const visibleNavigationGroups = computed(() => navigationGroups.map(group => ({
   items: group.items.filter(item => principal && can(principal, item.permission)),
 })).filter(group => group.items.length > 0))
 const navigationTarget = (name: string): RouteLocationRaw => ({ name, query: route.query })
+/** M13b-F11（I13）：页面切换后接收键盘焦点的 `<main>`；query/hash 变化不是换页，不在此列。 */
+const workspaceEl = ref<HTMLElement | null>(null)
 
 watch(
   // Multi-source form: Vue compares array-getter results by identity, so any query change
@@ -221,6 +223,16 @@ watch(
   },
   { immediate: true },
 )
+
+/*
+ * M13b-F11（I13）：换页后键盘焦点落主工作区——键盘/读屏用户不必每页重新跳过侧栏。只在 path
+ * 真正变化时执行（query/hash 是页内状态）；首载不抢（登录落地页自身的焦点语义优先）；不滚动
+ * （滚动契约归 scrollBehavior，C1）。
+ */
+watch(() => route.path, async () => {
+  await nextTick()
+  workspaceEl.value?.focus({ preventScroll: true })
+})
 
 // Esc、backdrop、关闭钮与焦点归还都由 BaseDrawer 的焦点陷阱承担（F02 收敛）。
 function closeMobileNav(): void {
@@ -361,7 +373,7 @@ async function signOut(): Promise<void> {
         <div class="context-header__actions"><slot name="actions" /></div>
       </header>
 
-      <main id="main-workspace" class="app-shell__workspace" :class="{ 'app-shell__workspace--fill': fill }" tabindex="-1"><slot /></main>
+      <main id="main-workspace" ref="workspaceEl" class="app-shell__workspace" :class="{ 'app-shell__workspace--fill': fill }" tabindex="-1"><slot /></main>
     </div>
 
     <BaseDrawer :open="mobileNavOpen" title="移动端主导航" side="left" width="min(300px, 86vw)" padding="var(--cs-space-16)" close-label="关闭主导航" @close="closeMobileNav">

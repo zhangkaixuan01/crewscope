@@ -90,10 +90,11 @@ export function createObservabilityStore(gateway: ObservabilityGateway): Observa
     const request = requests.begin('months')
     if (more) state.months.loadingMore = true
     else {
+      // M13b-F11（C5）：force 刷新不再清值——loading 期间页面继续显示已加载的月份列表，
+      // 成功后整体覆盖；只有首次加载（本无值）才呈现 loading 面板。
       state.months.phase = 'loading'
       state.months.errorMessage = null
       state.months.errorStatus = null
-      if (force) state.months.value = null
     }
     try {
       const page = await gateway.listCostMonths(scope, after, PAGE_SIZE, request.signal)
@@ -115,13 +116,15 @@ export function createObservabilityStore(gateway: ObservabilityGateway): Observa
     const detailRequest = requests.begin('detail')
     const qualityRequest = requests.begin('quality')
     for (const resource of [state.detail, state.quality]) {
+      // M13b-F11（C5）：同月重拉（重试/刷新）保留旧值，loading 期间页面继续显示已加载数据；
+      // 换月是数据源切换——旧月数据对新月标题是误导，必须清空重来。
+      const switchingMonth = resource.month !== month
       resource.phase = 'loading'
       resource.month = month
       resource.errorMessage = null
       resource.errorStatus = null
+      if (switchingMonth) resource.value = null
     }
-    state.detail.value = null
-    state.quality.value = null
     const [detailOutcome, qualityOutcome] = await Promise.allSettled([
       gateway.costMonth(scope, month, detailRequest.signal),
       gateway.qualityMonth(scope, month, qualityRequest.signal),

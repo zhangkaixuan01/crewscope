@@ -164,7 +164,9 @@ function requiredStore(value: TeamObserverStore | undefined): TeamObserverStore 
                 <!-- One failed evidence read stays here beside its row; the summary and its siblings
                      keep rendering, and pressing the row's button retries just this entry (R38). -->
                 <span v-if="failedEvidence === entry.evidenceIndex" class="evidence-failure" role="alert">暂时无法打开这条证据</span>
-                <button type="button" :disabled="!online || openingEvidence !== null" :aria-describedby="openingEvidence !== null ? `evidence-reason-${entry.evidenceIndex}` : undefined" :aria-label="`打开${section.label}证据：${entry.summary}`" @click="openEvidence(entry)">{{ failedEvidence === entry.evidenceIndex ? '重试' : '查看证据' }}<ArrowUpRight :size="12" aria-hidden="true" /></button>
+                <!-- M13b-F11（I11）：in-flight rows say so on the button itself（aria-busy + 正在打开…）；
+                     the global disable stays, so siblings still explain why they went inert. -->
+                <button type="button" :disabled="!online || openingEvidence !== null" :aria-busy="openingEvidence === entry.evidenceIndex" :aria-describedby="openingEvidence !== null ? `evidence-reason-${entry.evidenceIndex}` : undefined" :aria-label="`打开${section.label}证据：${entry.summary}`" @click="openEvidence(entry)">{{ openingEvidence === entry.evidenceIndex ? '正在打开…' : failedEvidence === entry.evidenceIndex ? '重试' : '查看证据' }}<ArrowUpRight :size="12" aria-hidden="true" /></button>
                 <span :id="`evidence-reason-${entry.evidenceIndex}`" class="sr-only">正在打开另一条证据，完成前无法重复打开。</span>
               </footer>
             </li>

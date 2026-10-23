@@ -14,7 +14,7 @@ import {
   ShieldCheck,
   X,
 } from '@lucide/vue'
-import { computed, nextTick, useTemplateRef, watch } from 'vue'
+import { computed, useTemplateRef, watch } from 'vue'
 import { enumLabel } from '../../domains/shared/labels'
 import {
   inboxCloseReasonLabels,
@@ -49,6 +49,7 @@ import RelativeTime from '../base/RelativeTime.vue'
 import { useListSort } from '../../composables/useListSort'
 import { useSelection } from '../../composables/useSelection'
 import { useConfirm } from '../../composables/useConfirm'
+import { useDetailPaneFocus } from '../../composables/useDetailPaneFocus'
 
 const props = defineProps<{
   phase: TeamOpsPhase
@@ -93,6 +94,17 @@ const emit = defineEmits<{
 }>()
 
 const detailHeading = useTemplateRef<HTMLElement>('detailHeading')
+/** M13b-F11（C4）：详情焦点生命周期——打开聚焦标题、关闭还原触发按钮。 */
+const detailFocus = useDetailPaneFocus(detailHeading)
+
+function openDetail(itemId: string): void {
+  detailFocus.captureTrigger()
+  emit('select', itemId)
+}
+function closeDetailAndRestore(): void {
+  detailFocus.restoreTrigger()
+  emit('closeDetail')
+}
 const hasItems = computed(() => props.items.length > 0)
 /** 「全部类型 + 待处理队列之外」是 Inbox 的两个可选筛选；来源状态是成员刻意选择的二值，不在这里重置。 */
 const hasOptionalFilter = computed(() => props.itemType !== 'ALL' || props.dispositionStatus !== 'QUEUE')
@@ -129,8 +141,7 @@ watch(
   () => [props.selectedItemId, props.detailPhase] as const,
   async ([itemId, phase]) => {
     if (!itemId || (phase !== 'ready' && phase !== 'error')) return
-    await nextTick()
-    detailHeading.value?.focus()
+    await detailFocus.focusHeading()
   },
 )
 
@@ -366,7 +377,7 @@ function rowSubtitle(item: InboxItem): string {
                   <span v-if="item.deadline" :class="{ overdue: isOverdue(item) }"><Clock3 :size="11" aria-hidden="true" /><RelativeTime :value="item.deadline" /></span>
                   <span v-else :class="{ overdue: isOverdue(item) }"><Clock3 :size="11" aria-hidden="true" />无截止时间</span>
                 </div>
-                <footer><span class="inbox-card__source" :class="{ closed: item.sourceStatus !== 'OPEN' }">{{ item.sourceStatus === 'OPEN' ? '来源仍需处理' : '来源已关闭' }}</span><button type="button" :aria-label="`查看 ${typePresentation[item.itemType].label} 详情`" @click="emit('select', item.inboxItemId)">查看详情<ChevronRight :size="13" aria-hidden="true" /></button></footer>
+                <footer><span class="inbox-card__source" :class="{ closed: item.sourceStatus !== 'OPEN' }">{{ item.sourceStatus === 'OPEN' ? '来源仍需处理' : '来源已关闭' }}</span><button type="button" :aria-label="`查看 ${typePresentation[item.itemType].label} 详情`" @click="openDetail(item.inboxItemId)">查看详情<ChevronRight :size="13" aria-hidden="true" /></button></footer>
               </article>
             </li>
           </ol>
@@ -376,13 +387,14 @@ function rowSubtitle(item: InboxItem): string {
       </section>
 
       <aside v-if="selectedItemId" class="inbox-detail panel" aria-label="Inbox 详情">
-        <header><div><p>Member disposition</p><h2 ref="detailHeading" tabindex="-1">Inbox 详情</h2></div><button type="button" aria-label="关闭 Inbox 详情" @click="emit('closeDetail')"><X :size="17" /></button></header>
+        <header><div><p>Member disposition</p><h2 ref="detailHeading" tabindex="-1">Inbox 详情</h2></div><button type="button" aria-label="关闭 Inbox 详情" @click="closeDetailAndRestore()"><X :size="17" /></button></header>
         <StatePanel v-if="detailPhase === 'idle' || detailPhase === 'loading'" state="loading" compact />
         <StatePanel v-else-if="detailPhase === 'error' && !detail" :state="detailError?.kind === 'forbidden' ? 'forbidden' : 'error'" compact :description="detailError?.message" @retry="emit('retryDetail', selectedItemId)" />
 
         <template v-else-if="selected">
           <StatePanel v-if="commandForSelection?.phase === 'conflict'" compact state="conflict" title="处置版本已更新" description="详情已回读，请基于当前处置重新确认操作。" @retry="emit('retryDetail', selectedItemId)" />
-          <StatePanel v-else-if="commandForSelection?.phase === 'error'" compact state="error" title="处置命令失败" :description="commandForSelection.error?.message" />
+          <!-- M13b-F11（C2）：命令失败不盲目重放——恢复动作是回读最新处置，确认事实后再决定。 -->
+          <StatePanel v-else-if="commandForSelection?.phase === 'error'" compact state="error" title="处置命令失败" :description="commandForSelection.error?.message" retry-label="回读最新处置" @retry="emit('retryDetail', selectedItemId)" />
           <StatePanel v-if="targetError" compact state="error" title="来源解析失败" :description="targetError.message" retry-label="重新加载来源" @retry="emit('retryTarget', selectedItemId)" />
 
           <section class="inbox-detail__hero">

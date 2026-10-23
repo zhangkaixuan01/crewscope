@@ -175,9 +175,11 @@ function parseTypes(value: unknown): SearchObjectType[] {
         <section v-if="store.state.phase === 'loading'" class="result-refresh" role="status">正在更新结果<small>仍显示上次结果</small></section>
         <StatePanel v-else-if="store.state.phase === 'offline' && !loadMoreError" compact state="offline" :description="store.state.errorMessage ?? '当前离线，暂时无法搜索。'"><template #action><BaseButton size="small" variant="secondary" @click="retrySubmitted">重试本次搜索</BaseButton></template></StatePanel>
         <StatePanel v-else-if="store.state.phase === 'error' && !loadMoreError" compact state="error" :description="store.state.errorMessage ?? undefined" @retry="retrySubmitted" />
-        <StatePanel v-else-if="store.state.phase === 'empty' && !hasVisibleResult" state="empty" title="没有找到匹配结果" description="换一个关键词，或清除对象类型筛选后重试。"><template #action><BaseButton size="small" variant="secondary" @click="clearTypes">清除筛选</BaseButton></template></StatePanel>
+        <!-- M13b-F11（I04）：空态按真实原因分支——有类型筛选才提供「清除筛选」，否则它是无效按钮。 -->
+        <StatePanel v-else-if="store.state.phase === 'empty' && !hasVisibleResult" state="empty" title="没有找到匹配结果" :description="selectedTypes.length ? '换一个关键词，或清除对象类型筛选后重试。' : '换一个关键词重试；结果范围是当前 Team 内你有权限查看的工作事实。'"><template v-if="selectedTypes.length" #action><BaseButton size="small" variant="secondary" @click="clearTypes">清除筛选</BaseButton></template></StatePanel>
         <template v-if="hasVisibleResult">
-        <section class="result-summary" :class="{ stale: (store.state.phase === 'error' || store.state.phase === 'offline') && !loadMoreError }" aria-live="polite">找到 {{ store.state.result?.items.length ?? 0 }} 条结果 <span v-if="(store.state.phase === 'error' || store.state.phase === 'offline') && !loadMoreError">仍显示上次结果</span><span v-else>结果按更新时间排序</span></section>
+        <!-- M13b-F11（I12）：这是已加载数，不是全量数——措辞照 AuditExplorer 的「N 条已加载」。 -->
+        <section class="result-summary" :class="{ stale: (store.state.phase === 'error' || store.state.phase === 'offline') && !loadMoreError }" aria-live="polite">已加载 {{ store.state.result?.items.length ?? 0 }} 条结果 <span v-if="(store.state.phase === 'error' || store.state.phase === 'offline') && !loadMoreError">仍显示上次结果</span><span v-else>结果按更新时间排序</span></section>
         <div class="result-groups">
           <section v-for="[type, items] in groupedItems" :key="type" class="result-group panel" :aria-labelledby="`search-${type}`">
             <header><div><p class="eyebrow">匹配对象</p><h2 :id="`search-${type}`">{{ searchObjectTypeLabels[type] }}</h2></div><span>{{ items.length }} 条</span></header>

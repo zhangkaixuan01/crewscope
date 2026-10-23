@@ -105,7 +105,8 @@ function rollbackAllowed(revision: number): boolean {
       </footer>
 
       <StatePanel v-if="selectedPending" compact state="loading" title="正在读取版本内容" />
-      <StatePanel v-else-if="versionResource?.phase === 'error'" compact state="error" :description="versionResource.errorMessage ?? undefined" />
+      <!-- M13b-F11（C2）：版本内容读取失败可恢复——上层 retry 重载事实，当前选中的修订会重新读取。 -->
+      <StatePanel v-else-if="versionResource?.phase === 'error'" compact state="error" :description="versionResource.errorMessage ?? undefined" @retry="emit('retry')" />
       <section v-else-if="selected" class="version-history__content" :aria-label="`版本 r${selected.revision} 内容`">
         <header class="version-history__content-head">
           <h4>{{ selected.title ?? `修订 r${selected.revision}` }}</h4>

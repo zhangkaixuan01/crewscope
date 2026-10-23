@@ -82,6 +82,13 @@ export interface WorkItemBulkTarget {
   /** The server's own label for the edge, exactly as the row published it. */
   readonly label: string
   readonly strength: WorkItemTransitionStrength
+  /**
+   * M13b-F11（I01）：whether the batch may run straight through. The single-row path asks twice for
+   * irreversible edges（useTransitionConfirm）and offers undo；the batch must honor the same rule, so
+   * it needs to know. One non-reversible publisher is enough to mark the whole target — the batch
+   * would otherwise run an edge some rows cannot take back.
+   */
+  readonly reversible: boolean
   /** How many of the selected rows can actually take it, by the rows' own published verdicts. */
   readonly eligible: number
   readonly total: number
@@ -99,11 +106,17 @@ export interface WorkItemBulkTarget {
  * the same sequence, whatever order the rows arrived in.
  */
 export function bulkTransitionTargets(rows: readonly WorkItemBulkRow[]): WorkItemBulkTarget[] {
-  const targets = new Map<WorkItemStatus, { label: string; strength: WorkItemTransitionStrength }>()
+  const targets = new Map<WorkItemStatus, { label: string; strength: WorkItemTransitionStrength; reversible: boolean }>()
   for (const row of rows) {
     for (const action of row.availableActions) {
-      if (!action.enabled || targets.has(action.targetStatus)) continue
-      targets.set(action.targetStatus, { label: action.label, strength: action.strength })
+      if (!action.enabled) continue
+      const known = targets.get(action.targetStatus)
+      if (known) {
+        // 任一提供方不可逆则整个 target 按不可逆对待（保守侧）。
+        known.reversible = known.reversible && action.reversible
+        continue
+      }
+      targets.set(action.targetStatus, { label: action.label, strength: action.strength, reversible: action.reversible })
     }
   }
   return [...targets.entries()]
@@ -111,6 +124,7 @@ export function bulkTransitionTargets(rows: readonly WorkItemBulkRow[]): WorkIte
       targetStatus,
       label: action.label,
       strength: action.strength,
+      reversible: action.reversible,
       total: rows.length,
       eligible: rows.filter(row => exclusionReason(row, targetStatus) === null).length,
     }))

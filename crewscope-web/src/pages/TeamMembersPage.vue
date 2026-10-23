@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { Check, Copy, Plus, ShieldCheck, UserRoundPlus, X } from '@lucide/vue'
+import { Plus, ShieldCheck, UserRoundPlus, X } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import BaseButton from '../components/base/BaseButton.vue'
+import CopyButton from '../components/base/CopyButton.vue'
 import StatusBadge from '../components/base/StatusBadge.vue'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import SettingsShell from '../components/settings/SettingsShell.vue'
@@ -19,7 +20,6 @@ import type { TeamMemberSummary } from '../domains/scope/types'
 import { useAuthStore } from '../domains/identity/store'
 import { enumLabel } from '../domains/shared/labels'
 import { teamJoinMethodLabels, teamMemberStatusLabels, teamRoleLabels } from '../domains/scope/labels'
-import { useClipboard } from '../composables/useClipboard'
 import { useRouteFocus } from '../composables/useRouteFocus'
 import { usePageRequestScope } from '../composables/usePageRequestScope'
 
@@ -41,7 +41,6 @@ const targetPrincipalId = ref<string | null>(null)
 const submitted = ref(false)
 const canManageMembers = computed(() => Boolean(principal && can(principal, permissions.teamMembersManage)))
 const canManageRoles = computed(() => Boolean(principal && can(principal, permissions.teamRolesManage)))
-const clipboard = useClipboard()
 const activeMembers = computed(() => store.state.members.filter(member => member.status === 'ACTIVE'))
 const principalIdValid = computed(() => targetPrincipalId.value !== null)
 const viewerMember = computed(() => store.state.members.find(member => member.userPrincipalId === principal?.id) ?? null)
@@ -55,7 +54,17 @@ const lifecycleAction = ref<MemberAction | null>(null)
 const lifecycleProblem = ref<{ title: string, message: string } | null>(null)
 
 const handoverSource = ref<TeamMemberSummary | null>(null)
-const handoverPreviewCount = ref<number | null>(null)
+/**
+ * M13b-F11（I06）：预览是四态，不是「有数/没数」。失败曾被折叠进 null，页面把「读取失败」
+ * 说成「选择角色后显示」，成员可以在不知道影响面的情况下继续创建交接。
+ */
+type HandoverPreviewPhase = 'idle' | 'loading' | 'ready' | 'error'
+const handoverPreviewPhase = ref<HandoverPreviewPhase>('idle')
+const handoverPreviewCount = ref(0)
+function resetHandoverPreview(): void {
+  handoverPreviewPhase.value = 'idle'
+  handoverPreviewCount.value = 0
+}
 const handoverCandidates = computed(() =>
   store.state.members.filter(member => member.status === 'ACTIVE' && member.id !== handoverSource.value?.id))
 
@@ -175,26 +184,28 @@ function lifecycleProblemText(error: unknown): { title: string, message: string 
 
 function openHandover(member: TeamMemberSummary): void {
   handoverSource.value = member
-  handoverPreviewCount.value = null
+  resetHandoverPreview()
   store.clearHandover()
   void previewResponsibilities('OWNER')
 }
 
 function closeHandover(): void {
   handoverSource.value = null
-  handoverPreviewCount.value = null
+  resetHandoverPreview()
   store.clearHandover()
 }
 
 async function previewResponsibilities(role: string): Promise<void> {
   const source = handoverSource.value
   if (!source) return
-  handoverPreviewCount.value = null
+  handoverPreviewPhase.value = 'loading'
   try {
     const items = await store.previewResponsibilities(source.id, role)
-    if (handoverSource.value?.id === source.id) handoverPreviewCount.value = items.length
+    if (handoverSource.value?.id !== source.id) return
+    handoverPreviewCount.value = items.length
+    handoverPreviewPhase.value = 'ready'
   } catch {
-    if (handoverSource.value?.id === source.id) handoverPreviewCount.value = null
+    if (handoverSource.value?.id === source.id) handoverPreviewPhase.value = 'error'
   }
 }
 
@@ -250,8 +261,6 @@ function roleLabels(roles?: string[]): string {
   if (!roles?.length) return '成员'
   return roles.map(role => enumLabel(role, teamRoleLabels)).join('、')
 }
-
-function copyPrincipal(member: { userPrincipalId: string }): void { void clipboard.copy(member.userPrincipalId, member.userPrincipalId) }
 
 </script>
 
@@ -324,7 +333,7 @@ function copyPrincipal(member: { userPrincipalId: string }): void { void clipboa
               :class="{ 'member-row--located': member.id === locatedId }"
               role="row"
             >
-              <div class="member-identity" role="cell"><i>{{ member.displayName.slice(0, 1) }}</i><span><strong>{{ member.displayName }} <em v-if="member.userPrincipalId === principal?.id">你</em><em v-if="member.id === team?.ownerMemberId">Owner</em></strong><small class="mono" :title="member.userPrincipalId">{{ shortId(member.userPrincipalId) }} <button type="button" class="copy-principal" :aria-label="`复制 ${member.displayName} 的 Principal ID`" @click="copyPrincipal(member)"><Check v-if="clipboard.copied.value === member.userPrincipalId" :size="11" /><Copy v-else :size="11" /></button></small></span></div>
+              <div class="member-identity" role="cell"><i>{{ member.displayName.slice(0, 1) }}</i><span><strong>{{ member.displayName }} <em v-if="member.userPrincipalId === principal?.id">你</em><em v-if="member.id === team?.ownerMemberId">Owner</em></strong><small class="mono" :title="member.userPrincipalId">{{ shortId(member.userPrincipalId) }} <!-- M13b-F11（C3）：复制反馈统一走 CopyButton——失败显式「无法复制」。 --><CopyButton class="copy-principal" icon-only :value="member.userPrincipalId" :label="`复制 ${member.displayName} 的 Principal ID`" /></small></span></div>
               <span class="member-roles" role="cell">{{ roleLabels(member.roles) }}</span>
               <span role="cell"><StatusBadge :tone="statusTone(member.status)" dot>{{ memberStatusLabel(member.status) }}</StatusBadge></span>
               <span class="join-method" role="cell">{{ joinMethodLabel(member.joinMethod) }}</span>
@@ -374,6 +383,7 @@ function copyPrincipal(member: { userPrincipalId: string }): void { void clipboa
       :pending="store.state.handoverPending"
       :problem="store.state.handoverErrorMessage"
       :job="store.state.handoverJob"
+      :preview-phase="handoverPreviewPhase"
       :preview-count="handoverPreviewCount"
       @close="closeHandover"
       @preview="previewResponsibilities"

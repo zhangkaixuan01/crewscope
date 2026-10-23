@@ -115,7 +115,8 @@ watch(
           <BaseButton variant="secondary" size="small" @click="emit('loadServerDraft')">载入服务端内容</BaseButton>
         </template>
       </StatePanel>
-      <StatePanel v-else-if="commandError" compact state="error" :title="commandFailedTitle" :description="commandError ?? undefined" />
+      <!-- M13b-F11（C2）：命令失败的恢复在面板之外——本地草稿仍保留，按错误修正后重新提交即可。 -->
+      <StatePanel v-else-if="commandError" compact state="error" :retryable="false" :title="commandFailedTitle" :description="commandError ?? undefined" />
       <p v-else-if="receipt" class="detail-panel__receipt" role="status">命令已确认：{{ receipt.commandId.slice(0, 8) }}，事件版本 v{{ receipt.committedVersion }}。</p>
 
       <section class="detail-panel__facts">

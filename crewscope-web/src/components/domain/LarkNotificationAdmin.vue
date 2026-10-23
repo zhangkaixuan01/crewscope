@@ -325,7 +325,8 @@ function toLocalDate(value: string | null): string {
     </nav>
 
     <StatePanel v-if="command.phase === 'conflict'" compact state="conflict" title="命令使用的版本已过期" :description="`服务端当前版本 v${command.error?.currentVersion ?? '未知'}，已停止自动重放。`" @retry="emit('refresh')" />
-    <StatePanel v-else-if="command.phase === 'error'" compact :state="command.error?.kind === 'forbidden' ? 'forbidden' : command.error?.kind === 'offline' ? 'offline' : 'error'" :description="command.error?.message" />
+    <!-- M13b-F11（C2）：命令失败的恢复动作是下方的只读核实（不重放命令），面板本身显式声明无自动重试。 -->
+    <StatePanel v-else-if="command.phase === 'error'" compact :retryable="false" :state="command.error?.kind === 'forbidden' ? 'forbidden' : command.error?.kind === 'offline' ? 'offline' : 'error'" :description="command.error?.message" />
     <div v-else-if="command.phase === 'success' && command.receipt" class="receipt" role="status"><CheckCircle2 :size="15" /><span><strong>命令已受理</strong><small class="mono">Receipt {{ shortId(command.receipt.commandId) }} · Correlation {{ shortId('correlationId' in command.receipt ? command.receipt.correlationId : null) }}</small></span></div>
     <div v-if="command.phase === 'error' && command.error?.retryable" role="status"><p>结果尚未确认。只读核实不会重放命令，也不会把列表变化当作成功回执。</p><BaseButton variant="secondary" :disabled="!online" @click="readOriginal">只读取原连接与映射事实</BaseButton></div>
 

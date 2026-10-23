@@ -149,7 +149,7 @@ describe('SearchPage', () => {
     const { wrapper, gateway } = await harness()
     gateway.resolvePending(page(['one', 'two'], 'cursor-2'))
     await flushPromises()
-    expect(wrapper.text()).toContain('找到 2 条结果')
+    expect(wrapper.text()).toContain('已加载 2 条结果')
 
     gateway.enqueue(new Error('page unavailable'))
     await wrapper.get('.load-more button').trigger('click')
@@ -164,7 +164,7 @@ describe('SearchPage', () => {
     await wrapper.get('.load-more button').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('结果 three')
-    expect(wrapper.text()).toContain('找到 3 条结果')
+    expect(wrapper.text()).toContain('已加载 3 条结果')
     wrapper.unmount()
   })
 })

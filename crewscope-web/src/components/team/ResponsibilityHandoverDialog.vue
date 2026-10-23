@@ -23,7 +23,9 @@ const props = defineProps<{
   problem: string | null
   job: import('../../domains/scope/types').HandoverJobView | null
   /** Count of the source member's active assignments for the selected role, before any job exists. */
-  previewCount: number | null
+  /** M13b-F11（I06）：四态预览——idle/loading/ready/error，失败不再伪装成「还没选角色」。 */
+  previewPhase: 'idle' | 'loading' | 'ready' | 'error'
+  previewCount: number
 }>()
 
 const emit = defineEmits<{
@@ -83,7 +85,9 @@ function close(): void {
           <option value="">请选择接手成员</option>
           <option v-for="member in candidates" :key="member.id" :value="member.id">{{ member.displayName }}</option>
         </BaseSelect>
-        <p v-if="previewCount !== null" class="handover-dialog__count" role="status">该角色当前有 {{ previewCount }} 项在途责任，创建后会全部纳入交接。</p>
+        <p v-if="previewPhase === 'loading'" class="handover-dialog__count" role="status">正在读取该角色的在途责任数量…</p>
+        <p v-else-if="previewPhase === 'error'" class="handover-dialog__count handover-dialog__count--error" role="alert">无法读取在途责任数量——创建前无法确认影响面。<BaseButton size="small" variant="ghost" @click="emit('preview', selectedRole)">重试</BaseButton></p>
+        <p v-else-if="previewPhase === 'ready'" class="handover-dialog__count" role="status">该角色当前有 {{ previewCount }} 项在途责任，创建后会全部纳入交接。</p>
         <p v-else class="handover-dialog__count handover-dialog__count--muted">选择角色后显示在途责任数量。</p>
       </template>
 
@@ -126,6 +130,7 @@ function close(): void {
 .handover-body { display: grid; gap: var(--cs-space-12); }
 .handover-dialog__hint, .handover-dialog__count { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
 .handover-dialog__count--muted { font-size: var(--cs-text-xs); }
+.handover-dialog__count--error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); font-size: var(--cs-text-xs); color: var(--cs-danger); }
 .handover-body label { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .handover-body :deep(select) { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
 .handover-dialog__summary { display: flex; align-items: center; gap: var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }

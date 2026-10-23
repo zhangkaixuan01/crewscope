@@ -5,6 +5,7 @@ import { RouterLink, useRoute, useRouter, type LocationQuery, type LocationQuery
 import { oneOf, queryValue } from '../utils/queryParams'
 import { AUTH_PRINCIPAL, can, permissions } from '../app/auth'
 import { useNetworkStatus } from '../app/network'
+import { useConfirm } from '../composables/useConfirm'
 import { useToast } from '../composables/useToast'
 import { useCreationEntry } from '../composables/useCreationEntry'
 import { useBoardDrag } from '../composables/useBoardDrag'
@@ -137,6 +138,7 @@ const teamOpsStore = useTeamOpsStore()
 const knowledgeStore = useKnowledgeStore()
 const isOnline = useNetworkStatus()
 const toast = useToast()
+const { confirm } = useConfirm()
 /**
  * The URL owns the ordering, so a link pasted into a message reopens the same list. The key is the
  * server's own sort name (M9b-A06): the direction of every ordering is fixed in the server
@@ -307,6 +309,18 @@ const actionableSelectedItems = computed(() => selection.selectedItems.value)
 const selectedCount = selection.selectedCount
 const bulkTargets = computed(() => bulkTransitionTargets(actionableSelectedItems.value))
 const bulkResults = ref<readonly WorkItemBulkRowResult[] | null>(null)
+/**
+ * M13b-F11（I08）：行级失败持久化。失败意味着「命令是否落地」未知，4 秒自动消失的 toast 不是
+ * 充分反馈——失败留在页面上（哪一行、服务端原话），并给出「刷新确认」出路，danger toast 也不
+ * 再自动消失（useToast duration 0）。
+ */
+const rowFailure = ref<{ key: string; title: string; message: string } | null>(null)
+function clearRowFailureAndRefresh(): void {
+  rowFailure.value = null
+  void workStore.refresh()
+}
+/** M13b-F11（I09）：撤销不只活在自动消失的 toast 里——工具区一条键盘可达的内联入口。 */
+const undoOffer = computed(() => workStore.state.undoOffer)
 
 const boardStatuses = computed<WorkItemStatus[]>(() => {
   if (statusFilter.value !== 'all') return [statusFilter.value]
@@ -585,8 +599,21 @@ async function runBulkTransition(targetStatus: WorkItemStatus): Promise<void> {
   const scope = workScope.value
   const rows = actionableSelectedItems.value
   if (!scope || !rows.length) return
-  const label = bulkTargets.value.find(target => target.targetStatus === targetStatus)?.label
-    ?? statusLabels[targetStatus]
+  const target = bulkTargets.value.find(candidate => candidate.targetStatus === targetStatus)
+  const label = target?.label ?? statusLabels[targetStatus]
+  // M13b-F11（I01）：批量与单条同规——单条对不可逆边要第二次点击（useTransitionConfirm），批量
+  // 以前是全站唯一绕过面。不可逆批次先经同一确认面，明示影响范围；可逆批次不建撤销窗（批次
+  // 撤销超出详情槽位语义），由结果条明示不提供一键撤销。
+  if (target && !target.reversible) {
+    const agreed = await confirm({
+      title: `对选中的 ${rows.length} 项执行「${label}」`,
+      description: `该状态变更不可恢复，将一次性影响 ${rows.length} 项。确认前请核对批量结果将列出的每一项。`,
+      confirmLabel: label,
+      cancelLabel: '取消',
+      danger: true,
+    })
+    if (!agreed || !pageOwner.isCurrent()) return
+  }
   const results = await workStore.transitionRows(scope, rows, targetStatus, pageOwner.isCurrent)
   if (!pageOwner.isCurrent()) return
   reportBulk(results, label)
@@ -727,7 +754,16 @@ async function runRowAction(item: WorkItemSummary, target: WorkItemStatus): Prom
   // A refusal and a failure are different news: the first says the work item is not in a state that
   // allows the action, the second says we do not know whether the command landed. Reporting both as
   // a warning would let a member read a lost command as a rule they can work around.
-  toast.show(result.message, { tone: result.status === 'refused' ? 'warning' : 'danger' })
+  if (result.status === 'refused') {
+    toast.show(result.message, { tone: 'warning' })
+    return
+  }
+  rowFailure.value = { key: item.key, title: item.title, message: result.message }
+  toast.show(result.message, {
+    tone: 'danger',
+    duration: 0,
+    action: { label: '刷新确认', onClick: clearRowFailureAndRefresh },
+  })
 }
 
 /**
@@ -1156,6 +1192,18 @@ function retry(): void {
         @dismiss-results="bulkResults = null"
       />
 
+      <!-- M13b-F11（I09）：撤销窗口的内联入口——键盘顺序可达，不依赖自动消失的 toast。 -->
+      <div v-if="undoOffer" class="row-feedback panel" role="status">
+        <p>刚才的操作还在撤销窗口内（{{ undoOffer.actionLabel }}）。</p>
+        <BaseButton size="small" variant="secondary" @click="undoTransition()">撤销</BaseButton>
+      </div>
+      <!-- M13b-F11（I08）：行级失败持久在页——危险 toast 关闭后仍有事实与出路。 -->
+      <div v-if="rowFailure" class="row-feedback row-feedback--danger panel" role="alert">
+        <p><span class="mono">{{ rowFailure.key }}</span> {{ rowFailure.title }}：{{ rowFailure.message }}</p>
+        <BaseButton size="small" variant="secondary" @click="clearRowFailureAndRefresh">刷新确认</BaseButton>
+        <BaseButton size="small" variant="ghost" @click="rowFailure = null">知道了</BaseButton>
+      </div>
+
       <WorkItemsWorkspace
         :phase="workStore.state.phase"
         :error-message="workStore.state.errorMessage"
@@ -1335,5 +1383,9 @@ function retry(): void {
 /* M12b-F01⑦：看板/列表视图的样式已随 M11-F02 移入 WorkItemsWorkspace（自带 scoped 副本），
    本组件模板对那批类零引用——原样三行在此永不匹配，整段清除，只留本页仍在用的两块。 */
 .work-pins { margin: var(--cs-space-4) 0 var(--cs-space-4) var(--cs-space-2); }
+/* M13b-F11（I08/I09）：行级反馈条——失败持久化与撤销内联入口共用的轻量形态。 */
+.row-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-16); }
+.row-feedback p { flex: 1; margin: 0; font-size: var(--cs-text-xs); }
+.row-feedback--danger { border-color: var(--cs-danger); color: var(--cs-danger); }
 .scope-rule { display: flex; align-items: flex-start; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.scope-rule svg { flex: 0 0 auto; color: var(--cs-text-brand); }
 </style>

@@ -40,6 +40,8 @@ function sanitize(source: string): string {
     button.type = 'button'
     button.className = 'safe-markdown__code-copy'
     button.textContent = '复制代码'
+    // M13b-F11（C3）：复制结果要到达读屏——按钮自身就是 live 区域，成功/失败文案都播报。
+    button.setAttribute('aria-live', 'polite')
     pre.prepend(button)
   })
   return template.innerHTML
@@ -55,7 +57,13 @@ function copyCode(event: MouseEvent): void {
   const pre = button.closest('pre')
   const code = pre?.querySelector('code')?.textContent ?? pre?.textContent ?? ''
   void clipboard.copy(code).then(success => {
-    if (!success) return
+    // M13b-F11（C3）：降级也失败（非安全上下文/权限拒绝）不再静默——点击无果、粘贴出旧内容
+    // 是最差反馈。文案留在按钮上 4 秒，与组件形态 CopyButton 的失败态一致。
+    if (!success) {
+      button.textContent = '无法复制，请手动选择'
+      window.setTimeout(() => { button.textContent = '复制代码' }, 4000)
+      return
+    }
     button.textContent = '已复制'
     button.classList.add('safe-markdown__code-copy--done')
     window.setTimeout(() => {

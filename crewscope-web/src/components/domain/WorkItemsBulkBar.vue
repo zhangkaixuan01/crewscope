@@ -136,6 +136,8 @@ function runAssign(): void {
         <p>{{ summaryCounts }}</p>
         <BaseButton size="small" variant="ghost" @click="emit('dismissResults')"><X :size="13" />关闭结果</BaseButton>
       </header>
+      <!-- M13b-F11（I01）：可逆批次不建撤销窗（批次撤销超出详情槽位语义），在结果条明示。 -->
+      <p class="bulk-results__note">批量执行不提供一键撤销，请逐项核对结果。</p>
       <ul>
         <li v-for="result in results" :key="result.id" :class="`bulk-results__item bulk-results__item--${result.outcome}`">
           <span class="mono">{{ result.key }}</span>
@@ -161,6 +163,7 @@ function runAssign(): void {
 .bulk-results header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); }
 .bulk-results h3 { margin: 0; font-size: var(--cs-text-sm); }
 .bulk-results header p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }
+.bulk-results__note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .bulk-results ul { display: grid; max-height: 220px; gap: var(--cs-space-4); overflow-y: auto; margin: 0; padding: 0; list-style: none; }
 .bulk-results__item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--cs-space-8); align-items: baseline; padding: var(--cs-space-4) var(--cs-space-8); border-radius: var(--cs-radius-sm); background: var(--cs-surface); font-size: var(--cs-text-xs); }
 .bulk-results__item--failed, .bulk-results__item--refused { border-left: 3px solid var(--cs-danger); }

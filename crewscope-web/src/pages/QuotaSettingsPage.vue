@@ -114,6 +114,12 @@ watch([selectedMonth, anchorMonth], ([month]) => {
 }, { immediate: true })
 
 function selectMonth(month: string): void {
+  // M13b-F11（I05）：重选同月只 replace 同一 query，watch 不触发——失败月份从此是一条死路。
+  // 同月点击显式重发（loadUsageMonth 只缓存 ready，error 会重新请求）。
+  if (month === selectedMonth.value && organizationId.value) {
+    void store.loadUsageMonth(organizationId.value, month)
+    return
+  }
   void router.replace({ query: { ...route.query, month } })
 }
 
@@ -260,7 +266,8 @@ function formatTokens(value: number): string {
                 @click="selectMonth(month)"
               >{{ month }}</button>
             </nav>
-            <StatePanel v-if="selectedEntry?.phase === 'error'" state="error" :description="selectedEntry?.errorMessage ?? '该月用量读取失败。'" />
+            <!-- M13b-F11（I05）：单月错误不再是死路——面板自带重试，只重载该月（C2 局部重试局部）。 -->
+            <StatePanel v-if="selectedEntry?.phase === 'error'" state="error" :description="selectedEntry?.errorMessage ?? '该月用量读取失败。'" @retry="organizationId && store.loadUsageMonth(organizationId, selectedMonth)" />
             <StatePanel v-else-if="selectedEntry?.phase === 'loading'" state="loading" :title="`正在加载 ${selectedMonth} 用量`" />
             <template v-else-if="selectedUsage">
               <p v-if="!selectedUsage.materialized" class="quota-note" role="status">实际用量统计存在投影延迟，本视图可能尚未包含最近的模型调用。</p>

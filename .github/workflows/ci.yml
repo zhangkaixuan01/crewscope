@@ -273,6 +273,8 @@ jobs:
         run: node scripts/check-route-metadata.mjs
       - name: Check M9-Q01 disabled-control explanations
         run: node scripts/check-disabled-reasons.mjs
+      - name: Check StatePanel error recovery contract
+        run: node scripts/check-state-panel-recovery.mjs
       - name: Check M9-Q01 cursor-pagination filtering
         run: node scripts/check-web-pagination.mjs
       - name: Check M9-Q01 dialog focus contracts

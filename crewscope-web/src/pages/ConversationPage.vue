@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { useCreationEntry } from '../composables/useCreationEntry'
-import { useClipboard } from '../composables/useClipboard'
 import { useToast } from '../composables/useToast'
+import CopyButton from '../components/base/CopyButton.vue'
 import {
   ArrowLeft,
   ArrowRight,
   Bot,
-  Check,
   ChevronRight,
-  Copy,
   LockKeyhole,
   Maximize2,
   MessageSquarePlus,
@@ -88,8 +86,6 @@ useCreationEntry('conversation', () => scopeStore.state.phase === 'ready'
 const createError = ref<string | null>(null)
 const detailHeading = ref<HTMLElement | null>(null)
 const composer = ref<InstanceType<typeof ConversationComposer> | null>(null)
-// R40: “复制原文” hands members the raw Markdown behind a rendered message.
-const clipboard = useClipboard()
 let createdConversationFocusId: string | null = null
 const agentActionRegion = ref<HTMLElement | null>(null)
 const messageHistory = ref<HTMLElement | null>(null)
@@ -1180,7 +1176,8 @@ async function redirectIfForbidden(): Promise<void> {
                       <template v-else>{{ messageAuthor(message).slice(0, 1) }}</template>
                     </div>
                     <article>
-                      <header><strong>{{ messageAuthor(message) }}</strong><RelativeTime :value="message.createdAt" /><span>#{{ message.sequence }}</span><button type="button" class="message-copy" :aria-label="`复制第 ${message.sequence} 条消息的原文`" @click="clipboard.copy(message.content, message.id)"><Check v-if="clipboard.copied.value === message.id" :size="12" aria-hidden="true" /><Copy v-else :size="12" aria-hidden="true" /></button></header>
+                      <!-- M13b-F11（C3）：复制反馈统一走 CopyButton——失败显式「无法复制」，成功有播报。 -->
+                      <header><strong>{{ messageAuthor(message) }}</strong><RelativeTime :value="message.createdAt" /><span>#{{ message.sequence }}</span><CopyButton class="message-copy" icon-only :value="message.content" :copy-key="message.id" :label="`复制第 ${message.sequence} 条消息的原文`" /></header>
                       <SafeMarkdown :content="message.content" />
                     </article>
                   </li>

@@ -228,7 +228,15 @@ export function createCrewScopeRouter(
         meta: { title: '页面不存在' },
       },
     ],
-    scrollBehavior: () => ({ top: 0 }),
+    // M13b-F11（C1）：滚动契约——后退/前进恢复原位（savedPosition）；锚点交给元素自己的
+    // scroll-margin-top；同 path 的 query-only 变化是页内筛选/翻页，保留当前滚动；真正换页
+    // 才回顶部。此前一律 top:0，筛选一下就丢滚动位置。
+    scrollBehavior(to, from, savedPosition) {
+      if (savedPosition) return savedPosition
+      if (to.hash) return { el: to.hash }
+      if (to.path === from.path) return false
+      return { top: 0 }
+    },
   })
 
   router.beforeEach(async to => {

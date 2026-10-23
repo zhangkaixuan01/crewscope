@@ -15,6 +15,7 @@ import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { principalDisplayName, principalNameDirectory } from '../domains/scope/memberDirectory'
 import { useActivityRealtimeStore } from '../domains/teamops/activityRealtimeStore'
+import { useDetailPaneFocus } from '../composables/useDetailPaneFocus'
 import { useTeamOpsStore } from '../domains/teamops/store'
 import { activityCategories, type ActivityItem, type TeamOpsScope } from '../domains/teamops/types'
 import { enumLabel } from '../domains/shared/labels'
@@ -119,8 +120,24 @@ async function recoverCursor(): Promise<void> {
   realtime.retry(store.state.teamActivity.resumeCursor)
 }
 
-function select(item: ActivityItem): void { void router.replace({ query: { ...route.query, event: item.eventId } }) }
-function closeDetail(): void { const query = { ...route.query }; delete query.event; void router.replace({ query }) }
+/** M13b-F11（C4）：详情焦点生命周期——打开聚焦标题、关闭还原触发按钮；深链冷进入无触发按钮可还原。 */
+const detailHeading = ref<HTMLElement | null>(null)
+const detailFocus = useDetailPaneFocus(detailHeading)
+watch(selectedEventId, eventId => {
+  if (eventId) void detailFocus.focusHeading()
+  else detailFocus.restoreTrigger()
+})
+
+function select(item: ActivityItem): void {
+  detailFocus.captureTrigger()
+  void router.replace({ query: { ...route.query, event: item.eventId } })
+}
+function closeDetail(): void {
+  detailFocus.restoreTrigger()
+  const query = { ...route.query }
+  delete query.event
+  void router.replace({ query })
+}
 function updateCategory(value: string | number | null): void {
   const query = { ...route.query }
   if (!value || value === 'ALL') delete query.category
@@ -198,7 +215,7 @@ function actorName(principalId: string | null, type: string): string {
         />
 
         <aside v-if="selectedEventId" class="activity-detail panel" aria-label="Activity 事件详情">
-          <header><div><p class="eyebrow">Event detail</p><h2>事件详情</h2></div><button type="button" aria-label="关闭事件详情" @click="closeDetail"><X :size="17" /></button></header>
+          <header><div><p class="eyebrow">Event detail</p><h2 ref="detailHeading" tabindex="-1">事件详情</h2></div><button type="button" aria-label="关闭事件详情" @click="closeDetail"><X :size="17" /></button></header>
           <StatePanel v-if="!selectedDetail || selectedDetail.phase === 'loading'" compact state="loading" />
           <StatePanel v-else-if="selectedDetail.phase === 'error'" compact :state="selectedDetail.error?.kind === 'forbidden' ? 'forbidden' : 'error'" :description="selectedDetail.error?.message" @retry="store.loadActivityDetail(selectedEventId, null, true)" />
           <template v-else-if="selectedDetail.value">

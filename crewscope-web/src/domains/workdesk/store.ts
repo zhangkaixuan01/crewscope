@@ -11,8 +11,12 @@ export interface WorkDeskStoreState {
   errorMessage: string | null
   /** The section whose continuation page is in flight, if any; one at a time by design. */
   sectionLoadingKey: string | null
-  /** Why the last continuation failed, so a section can explain itself without tearing down the page. */
-  sectionErrorMessage: string | null
+  /**
+   * Why the last continuation failed, and in which section — M13b-F11（I03）errors belong to the
+   * section that failed, so its own footer can offer「重试本页」without other sections reporting
+   * a failure they never had.
+   */
+  sectionError: { sectionKey: string; message: string } | null
 }
 export interface WorkDeskStore {
   state: Readonly<WorkDeskStoreState>
@@ -34,7 +38,7 @@ const SECTION_PAGE_SIZE = 50
 
 /** Scope-isolated WorkDesk read model; stale responses are ignored after a Team switch. */
 export function createWorkDeskStore(gateway: WorkDeskGateway): WorkDeskStore {
-  const state = reactive<WorkDeskStoreState>({ phase: 'idle', scope: null, summary: null, errorMessage: null, sectionLoadingKey: null, sectionErrorMessage: null })
+  const state = reactive<WorkDeskStoreState>({ phase: 'idle', scope: null, summary: null, errorMessage: null, sectionLoadingKey: null, sectionError: null })
   let generation = 0
   let request: Promise<void> | null = null
   let filterKey = ''
@@ -45,7 +49,7 @@ export function createWorkDeskStore(gateway: WorkDeskGateway): WorkDeskStore {
     if (key === current) return
     generation += 1; request = null; filterKey = ''; activeFilter = {}
     state.scope = { ...scope }; state.summary = null; state.errorMessage = null
-    state.sectionLoadingKey = null; state.sectionErrorMessage = null; state.phase = 'idle'
+    state.sectionLoadingKey = null; state.sectionError = null; state.phase = 'idle'
   }
   async function load(filter: WorkDeskFilter = {}, force = false): Promise<void> {
     const scope = state.scope
@@ -56,7 +60,7 @@ export function createWorkDeskStore(gateway: WorkDeskGateway): WorkDeskStore {
     activeFilter = { ...filter }
     const currentGeneration = generation
     state.phase = 'loading'; state.errorMessage = null
-    state.sectionLoadingKey = null; state.sectionErrorMessage = null
+    state.sectionLoadingKey = null; state.sectionError = null
     const pending = gateway.get(scope, filter, SECTION_PAGE_SIZE).then(summary => {
       if (currentGeneration !== generation) return
       state.summary = summary; state.phase = summary.sections.some(section => section.items.length > 0) ? 'ready' : 'empty'
@@ -77,7 +81,7 @@ export function createWorkDeskStore(gateway: WorkDeskGateway): WorkDeskStore {
     const currentGeneration = generation
     const filter = { ...activeFilter }
     state.sectionLoadingKey = sectionKey
-    state.sectionErrorMessage = null
+    state.sectionError = null
     try {
       const page = await gateway.getSection(scope, sectionKey, filter, section.nextCursor, SECTION_PAGE_SIZE)
       if (currentGeneration !== generation) return
@@ -93,7 +97,10 @@ export function createWorkDeskStore(gateway: WorkDeskGateway): WorkDeskStore {
       state.phase = state.summary.sections.some(candidate => candidate.items.length > 0) ? 'ready' : 'empty'
     } catch (error) {
       if (currentGeneration === generation) {
-        state.sectionErrorMessage = error instanceof CrewScopeApiError ? error.envelope.message : '暂时无法加载该分组的更多内容，请稍后重试。'
+        state.sectionError = {
+          sectionKey,
+          message: error instanceof CrewScopeApiError ? error.envelope.message : '暂时无法加载该分组的更多内容，请稍后重试。',
+        }
       }
     } finally {
       if (currentGeneration === generation) state.sectionLoadingKey = null
@@ -102,7 +109,7 @@ export function createWorkDeskStore(gateway: WorkDeskGateway): WorkDeskStore {
   function reset(): void {
     generation += 1; request = null; filterKey = ''; activeFilter = {}
     state.phase = 'idle'; state.scope = null; state.summary = null; state.errorMessage = null
-    state.sectionLoadingKey = null; state.sectionErrorMessage = null
+    state.sectionLoadingKey = null; state.sectionError = null
   }
   return { state: readonly(state) as Readonly<WorkDeskStoreState>, activateScope, load, loadMore, reset }
 }

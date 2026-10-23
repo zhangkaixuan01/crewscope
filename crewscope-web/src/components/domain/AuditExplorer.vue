@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import BaseSelect from '../base/BaseSelect.vue'
 import { ArrowUpRight, Download, Filter, Link2, RefreshCw, ShieldCheck, X } from '@lucide/vue'
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { permissions } from '../../app/auth'
 import type { TeamOpsCorrelationResource, TeamOpsPhase } from '../../domains/teamops/store'
@@ -33,6 +33,7 @@ import ScanToolbar from '../base/ScanToolbar.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
 import RelativeTime from '../base/RelativeTime.vue'
+import { useDetailPaneFocus } from '../../composables/useDetailPaneFocus'
 
 interface AuditFilterForm {
   from: string
@@ -92,6 +93,17 @@ const advanced = ref(Object.values(props.initialFilter).slice(4).some(Boolean))
 const validation = ref('')
 const maximumRows = ref(1000)
 const detailHeading = ref<HTMLElement | null>(null)
+/** M13b-F11（C4）：详情焦点生命周期——打开聚焦标题、关闭还原触发按钮。 */
+const detailFocus = useDetailPaneFocus(detailHeading)
+
+function openDetail(eventId: string): void {
+  detailFocus.captureTrigger()
+  emit('select', eventId)
+}
+function closeDetailAndRestore(): void {
+  detailFocus.restoreTrigger()
+  emit('closeDetail')
+}
 const initialLoading = computed(() => (props.phase === 'idle' || props.phase === 'loading') && props.items.length === 0)
 const forbidden = computed(() => props.error?.kind === 'forbidden')
 const offline = computed(() => !props.online || props.error?.kind === 'offline')
@@ -130,10 +142,8 @@ function actorName(actorId: string | null, actorType: string): string {
 watch(() => props.initialFilter, value => Object.assign(form, value), { deep: true })
 watch(() => props.selectedEvent, async value => {
   if (!value) return
-  await nextTick()
   // Move focus after the activating key event completes so keyboard users enter the new detail region.
-  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => detailHeading.value?.focus())
-  else detailHeading.value?.focus()
+  await detailFocus.focusHeading()
 })
 
 function submit(): void {
@@ -250,7 +260,7 @@ function label(value: string | null | undefined, labels: Record<string, string>)
               <td data-label="Actor"><span>{{ actorName(item.identity.actorId, item.identity.actorType) }}</span><small class="mono">{{ shortId(item.identity.actorId) }}</small></td>
               <td data-label="Subject"><span>{{ label(item.subject.type, activitySubjectTypeLabels) }}</span><small class="mono">{{ shortId(item.subject.id) }}</small></td>
               <td data-label="发生时间"><RelativeTime :value="item.occurredAt" /></td>
-              <td data-label="操作"><button type="button" @click="emit('select', item.eventId)">查看详情</button></td>
+              <td data-label="操作"><button type="button" @click="openDetail(item.eventId)">查看详情</button></td>
             </tr></tbody>
           </BaseTable>
           <footer v-if="nextCursor"><BaseButton variant="secondary" size="small" :loading="loadingMore" :disabled="!online" @click="emit('loadMore')"><RefreshCw :size="13" />加载更多</BaseButton></footer>
@@ -258,7 +268,7 @@ function label(value: string | null | undefined, labels: Record<string, string>)
       </section>
 
       <aside v-if="selectedEvent" class="audit-detail panel" aria-label="审计事件详情">
-        <header><div><p>Public audit fact</p><h2 ref="detailHeading" tabindex="-1">审计详情</h2></div><button type="button" aria-label="关闭审计详情" @click="emit('closeDetail')"><X :size="17" /></button></header>
+        <header><div><p>Public audit fact</p><h2 ref="detailHeading" tabindex="-1">审计详情</h2></div><button type="button" aria-label="关闭审计详情" @click="closeDetailAndRestore()"><X :size="17" /></button></header>
         <section class="audit-detail__hero"><StatusBadge :tone="outcomeTone(selectedEvent.outcome)">{{ auditOutcomeLabels[selectedEvent.outcome] }}</StatusBadge><StatusBadge tone="neutral">{{ auditRetentionLevelLabels[selectedEvent.retentionLevel] }}</StatusBadge><h3>{{ selectedEvent.eventType }}</h3><span>{{ categoryLabel(selectedEvent.category) }} · Schema v{{ selectedEvent.sourceSchemaVersion }}</span></section>
         <dl>
           <div><dt>Event ID</dt><dd class="mono">{{ selectedEvent.eventId }}</dd></div>

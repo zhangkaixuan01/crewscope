@@ -10,7 +10,15 @@ const props = withDefaults(defineProps<{
   compact?: boolean
   /** Names the recovery action after the business it performs (R25);「刷新事实」 is the fallback. */
   retryLabel?: string
+  /**
+   * M13b-F11（C2）：error 面板必须给出恢复动作或显式承认没有。显式传 false = 此面板没有可
+   * 自动重试的动作（命令失败回显、恢复动作在面板之外），渲染内置「无自动恢复」说明；不传且未接
+   * @retry 的调用点由 check-state-panel-recovery 门禁拦截。offline 的恢复在网络层且 description
+   * 必然说明，不参与此契约。
+   */
+  retryable?: boolean
 }>(), {
+  retryable: true,
   title: '',
   description: '',
   compact: false,
@@ -33,6 +41,13 @@ const presentation = computed(() => ({
 
 const busy = computed(() => props.state === 'loading' || props.state === 'reconnecting' || props.state === 'recovering')
 const assertive = computed(() => props.state === 'error')
+/*
+ * M13b-F11（C2）：error/offline 面板必须给出恢复动作，或显式承认没有——两个都不做就是把用户
+ * 晾在死面板上。接了 @retry 的显示重试钮（offline 也能重试，此前只有 error/conflict 显示）；
+ * 没接的由组件兜底渲染一行「无法自动恢复」说明，调用点不接 retry 也逃不出契约。
+ */
+const recoverable = computed(() => props.state === 'error' || props.state === 'conflict' || props.state === 'offline')
+const recoveryStance = computed(() => props.state === 'error' && !retryWired.value && props.retryable === false)
 // R25: a retry button with no recovery action behind it is noise — only render one when the caller
 // actually wired @retry. Declared emits are stripped from $attrs, so read the raw vnode props —
 // which are not reactive, so the update tick re-evaluates a parent flipping the handler at run
@@ -53,10 +68,12 @@ const retryWired = computed(() => {
       <!-- The slot lets a description embed live content (e.g. a ticking 「最近同步于」 label). -->
       <p><slot name="description">{{ description || presentation.description }}</slot></p>
     </div>
-    <BaseButton v-if="(state === 'error' || state === 'conflict') && retryWired" variant="secondary" size="small" @click="$emit('retry')">
+    <BaseButton v-if="recoverable && retryWired" variant="secondary" size="small" @click="$emit('retry')">
       <template #icon><RefreshCw :size="14" aria-hidden="true" /></template>
       {{ retryLabel }}
     </BaseButton>
+    <!-- C2：没有任何恢复动作的 error 面板必须把这一点说出来，而不是留白。 -->
+    <p v-else-if="recoveryStance" class="state-panel__stance">此面板不提供自动恢复动作；请按提示处理后重试，或刷新页面重新加载。</p>
     <slot name="action" />
   </section>
 </template>
@@ -69,6 +86,8 @@ const retryWired = computed(() => {
 .state-panel.compact h3 { margin: 0 0 var(--cs-space-4); font-size: var(--cs-text-xs); }
 .state-panel.compact p { margin: 0; font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
 .state-panel.compact > svg { width: var(--cs-space-16); height: var(--cs-space-16); }
+.state-panel__stance { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.state-panel.compact .state-panel__stance { margin-bottom: 0; }
 /* spin keyframes live once in design/base.css (M12b-Q01); the scoped name resolves there. */
 .spinning { animation: spin var(--cs-motion-spin) linear infinite; }
 @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }

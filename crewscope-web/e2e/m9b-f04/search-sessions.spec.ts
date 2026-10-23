@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
 test('keeps the search page session when the palette opens, previews and closes', async ({ page }) => {
   const api = await mockSearchApi(page)
   await page.goto(`/search?team=${ids.team}&q=发布`)
-  await expect(page.getByText('找到 1 条结果')).toBeVisible()
+  await expect(page.getByText('已加载 1 条结果')).toBeVisible()
   await expect(page.getByRole('heading', { name: '工作项' })).toBeVisible()
 
   await page.keyboard.press('Meta+k')
@@ -24,11 +24,11 @@ test('keeps the search page session when the palette opens, previews and closes'
   await page.getByLabel('搜索动作或对象').fill('部署')
   await expect(page.getByRole('dialog', { name: '命令面板' }).getByText('部署 Agent')).toBeVisible()
   // The palette preview never replaces the search page's committed result underneath it.
-  await expect(page.getByText('找到 1 条结果')).toBeVisible()
+  await expect(page.getByText('已加载 1 条结果')).toBeVisible()
 
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: '命令面板' })).toHaveCount(0)
-  await expect(page.getByText('找到 1 条结果')).toBeVisible()
+  await expect(page.getByText('已加载 1 条结果')).toBeVisible()
   await expect(page.getByRole('heading', { name: '工作项' })).toBeVisible()
 })
 
@@ -46,13 +46,13 @@ test('submits the palette text to the search page only through 搜索全部', as
 
   await expect(page).toHaveURL(/\/search\?/)
   expect(new URL(page.url()).searchParams.get('q')).toBe('发布')
-  await expect(page.getByText('找到 1 条结果')).toBeVisible()
+  await expect(page.getByText('已加载 1 条结果')).toBeVisible()
 })
 
 test('keeps the last committed result beside a failed refresh and retries the committed conditions', async ({ page }) => {
   const api = await mockSearchApi(page)
   await page.goto(`/search?team=${ids.team}&q=发布`)
-  await expect(page.getByText('找到 1 条结果')).toBeVisible()
+  await expect(page.getByText('已加载 1 条结果')).toBeVisible()
 
   api.failNextSearches = 1
   await page.getByLabel('搜索内容').fill('部署')
@@ -65,14 +65,14 @@ test('keeps the last committed result beside a failed refresh and retries the co
   // A draft never rides along with the retry: only the committed query is resubmitted.
   await page.getByLabel('搜索内容').fill('永远不提交的草稿')
   await page.getByRole('button', { name: '刷新事实' }).click()
-  await expect(page.getByText('找到 1 条结果')).toBeVisible()
+  await expect(page.getByText('已加载 1 条结果')).toBeVisible()
   expect(api.searchTexts.at(-1)).toBe('部署')
 })
 
 test('treats a failed cursor page as local and retries only that page', async ({ page }) => {
   const api = await mockSearchApi(page)
   await page.goto(`/search?team=${ids.team}&q=发布`)
-  await expect(page.getByText('找到 1 条结果')).toBeVisible()
+  await expect(page.getByText('已加载 1 条结果')).toBeVisible()
 
   api.failNextSearches = 1
   await page.getByRole('button', { name: '加载更多' }).click()
@@ -82,7 +82,7 @@ test('treats a failed cursor page as local and retries only that page', async ({
   await expect(page.getByText('发布清单', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: '重试本页' }).click()
-  await expect(page.getByText('找到 2 条结果')).toBeVisible()
+  await expect(page.getByText('已加载 2 条结果')).toBeVisible()
   expect(api.searchTexts).toEqual(['发布', '发布', '发布'])
   expect(api.afterCursors.at(-1)).toBe('release-cursor')
 })
