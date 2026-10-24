@@ -63,6 +63,9 @@ test('UserAccountMenu：menuitem 导航菜单的同一份键盘合同', async ({
   await expect.poll(() => focusedText(page)).toBe('账号设置')
 
   // M13b-F08（R50）：主题三选 radio 组插在账号设置与退出之间——序列随之延长。
+  // M13b-F12（二轮 A22）：账号设置后新增「键盘快捷键」入口，序列再延长一项。
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => focusedText(page)).toBe('键盘快捷键')
   await page.keyboard.press('ArrowDown')
   await expect.poll(() => focusedText(page)).toBe('跟随系统')
   await page.keyboard.press('ArrowDown')

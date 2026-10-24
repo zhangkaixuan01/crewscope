@@ -11,9 +11,10 @@ test.describe('M9b-F05 local content trust', () => {
     await page.keyboard.press('Control+k')
     const palette = page.getByRole('dialog', { name: '命令面板' })
     await expect(palette).toBeVisible()
-    const firstAction = palette.locator('.command-palette__results li button').first()
-    const actionLabel = await firstAction.getAttribute('aria-label')
-    expect(actionLabel).toBeTruthy()
+    // M13b-F12（二轮 A01）：option 是 li[role=option]（可见文本即名），不再是带 aria-label 的按钮。
+    const firstAction = palette.locator('.command-palette__results li[role="option"]').first()
+    const actionLabel = await firstAction.textContent()
+    expect(actionLabel?.trim()).toBeTruthy()
     await firstAction.click()
     await expect(palette).toBeHidden()
 
@@ -25,7 +26,8 @@ test.describe('M9b-F05 local content trust', () => {
     // `filter({ has })` resolves the inner locator relative to each candidate section, so it
     // must not carry the palette prefix — that would look for another dialog inside the section.
     const recentGroup = palette.locator('section').filter({ has: page.getByRole('heading', { name: '最近访问' }) })
-    await expect(recentGroup.getByRole('button', { name: actionLabel! })).toBeVisible()
+    // M13b-F12（二轮 A01）：recent 行的 option 名就是条目 label（动作执行后记录「打开今日」）。
+    await expect(recentGroup.getByRole('option', { name: '打开今日' })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(palette).toBeHidden()
 

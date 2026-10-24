@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { LogOut, Monitor, Moon, Settings, Sun, UserRound } from '@lucide/vue'
+import { Keyboard, LogOut, Monitor, Moon, Settings, Sun, UserRound } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { isThemePreference, type ThemePreference } from '../../app/preference'
+import { SHORTCUT_HELP_EVENT } from '../../app/shortcuts'
 import { usePreference } from '../../composables/usePreference'
 import { platformRoleLabels } from '../../domains/principal/labels'
 import { enumLabel } from '../../domains/shared/labels'
@@ -37,6 +38,15 @@ const themeOptions: Array<{ value: ThemePreference, label: string, icon: typeof 
   { value: 'dark', label: '深色', icon: Moon },
 ]
 function setTheme(value: ThemePreference): void { themePreference.value.value = value }
+/**
+ * M13b-F12（二轮 A22）：快捷键帮助此前只能靠 "?" 键唤出，纯键盘入口对发现性反而是负循环——
+ * 菜单里给一个可见入口，与 shortcuts 管理器走同一条 SHORTCUT_HELP_EVENT 通道（CommandPalette 监听）。
+ * 主题三选里的「跟随系统」即默认外观（默认值 system），恢复默认一键可达，不再另设按钮。
+ */
+function openShortcuts(): void {
+  open.value = false
+  window.dispatchEvent(new CustomEvent(SHORTCUT_HELP_EVENT))
+}
 </script>
 
 <template>
@@ -58,6 +68,7 @@ function setTheme(value: ThemePreference): void { themePreference.value.value = 
     <div class="user-menu__summary"><span class="user-menu__avatar">{{ avatar }}</span><div><strong>{{ displayName }}</strong><small>{{ roleLabel }}</small></div></div>
     <p v-if="error" class="user-menu__error" role="alert">{{ error }}</p>
     <RouterLink role="menuitem" :to="{ name: 'account' }" @click="open = false"><UserRound :size="16" />账号设置</RouterLink>
+    <button role="menuitem" type="button" @click="openShortcuts"><Keyboard :size="16" />键盘快捷键</button>
     <div class="user-menu__theme" role="group" aria-label="主题">
       <button
         v-for="option in themeOptions"

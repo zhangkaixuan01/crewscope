@@ -98,7 +98,8 @@ test('saves a desk definition, reloads it as the default and never overrides an 
   // The palette offers the same definitions as jump targets.
   await page.keyboard.press('Meta+k')
   await page.getByLabel('搜索动作或对象').fill('执行面')
-  await page.getByRole('dialog', { name: '命令面板' }).getByRole('button', { name: '打开视图 我的执行面' }).click()
+  // M13b-F12（二轮 A01）：面板 option 是 listbox 的 li[role=option]，按可见文本定位（不再是带 aria-label 的按钮）。 */
+  await page.getByRole('dialog', { name: '命令面板' }).getByRole('option', { name: '我的执行面' }).click()
   await expect(page).toHaveURL(/deskRole=EXECUTOR&deskAction=true/)
 })
 

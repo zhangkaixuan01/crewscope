@@ -1,17 +1,19 @@
 <script setup lang="ts">
+// M13b-F12（二轮 S10）：与 BaseInput 同一张无障碍契约——错误态 aria-invalid、说明文本 aria-describedby。
 withDefaults(defineProps<{
   modelValue?: string
   rows?: number
   placeholder?: string
   disabled?: boolean
   invalid?: boolean
-}>(), { modelValue: '', rows: 4, placeholder: '', disabled: false, invalid: false })
+  ariaDescribedby?: string
+}>(), { modelValue: '', rows: 4, placeholder: '', disabled: false, invalid: false, ariaDescribedby: undefined })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 </script>
 
 <template>
-  <textarea class="base-textarea" :class="{ 'base-textarea--invalid': invalid }" :rows="rows" :value="modelValue" :placeholder="placeholder" :disabled="disabled" :aria-invalid="invalid || undefined" @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)" />
+  <textarea class="base-textarea" :class="{ 'base-textarea--invalid': invalid }" :rows="rows" :value="modelValue" :placeholder="placeholder" :disabled="disabled" :aria-invalid="invalid || undefined" :aria-describedby="ariaDescribedby" @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)" />
 </template>
 
 <style scoped>

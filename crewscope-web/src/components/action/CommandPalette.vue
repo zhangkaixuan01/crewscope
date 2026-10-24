@@ -93,23 +93,45 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
-// Keyboard order mirrors the rendered groups: saved views first, then actions, then objects —
-// a saved view must not be a mouse-only row inside an otherwise keyboard-driven palette (R27).
-const selectableCount = computed(() => savedViewItems.value.length + availableEntries.value.length + objectItems.value.length)
-function scrollSelectedIntoView(): void { void nextTick(() => paletteBody.value?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' })) }
+// M13b-F12（二轮 A01）：键盘索引与渲染顺序严格一致——最近访问 → 已保存视图 → 动作 → 对象。
+// 此前 selectableCount 排除 recentItems，「最近访问」是鼠标专属行；现在四段同权进入
+// aria-activedescendant 虚焦点模型（DOM 焦点留在 combobox 输入框，读屏按 option 播报）。
+const recentOptions = computed(() => recentItems.value.map(item => ({
+  key: `recent-${item.kind}-${item.id}`,
+  label: item.label,
+  run: () => { if (item.kind === 'action' && item.action) void executeAction(item.id); else openRecent(item) },
+})))
+const viewOptions = computed(() => savedViewItems.value.map(view => ({
+  key: `view-${view.id}`,
+  label: view.name,
+  run: () => openSavedView(view),
+})))
+const actionOptions = computed(() => availableEntries.value.map(entry => ({
+  key: `action-${entry.action.id}`,
+  label: entry.action.label,
+  run: () => void executeAction(entry.action.id),
+})))
+const objectOptions = computed(() => objectItems.value.map(item => ({
+  key: `object-${item.objectType}-${item.objectId}`,
+  label: item.title,
+  run: () => openObject(item),
+})))
+const flatOptions = computed(() => [...recentOptions.value, ...viewOptions.value, ...actionOptions.value, ...objectOptions.value])
+const selectableCount = computed(() => flatOptions.value.length)
+/** 段起始下标：模板里每段的 option id 需要全局序号与输入框 aria-activedescendant 对齐。 */
+const viewOptionOffset = computed(() => recentOptions.value.length)
+const actionOptionOffset = computed(() => viewOptionOffset.value + viewOptions.value.length)
+const objectOptionOffset = computed(() => actionOptionOffset.value + actionOptions.value.length)
+const activeDescendantId = computed(() => {
+  if (selectedIndex.value < 0 || selectedIndex.value >= flatOptions.value.length) return undefined
+  return `command-palette-option-${selectedIndex.value}`
+})
+function optionId(index: number): string { return `command-palette-option-${index}` }
+function scrollSelectedIntoView(): void { void nextTick(() => paletteBody.value?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' })) }
 
 async function executeSelected(): Promise<void> {
-  if (selectedIndex.value < savedViewItems.value.length) {
-    openSavedView(savedViewItems.value[selectedIndex.value])
-    return
-  }
-  const actionIndex = selectedIndex.value - savedViewItems.value.length
-  if (actionIndex < availableEntries.value.length) {
-    await executeAction(availableEntries.value[actionIndex].action.id)
-    return
-  }
-  const item = objectItems.value[actionIndex - availableEntries.value.length]
-  if (item) openObject(item)
+  const option = flatOptions.value[selectedIndex.value]
+  option?.run()
 }
 
 async function executeAction(id: string): Promise<void> {
@@ -236,23 +258,26 @@ onBeforeUnmount(() => {
             <p class="command-palette__note">输入框、弹窗和抽屉打开时，序列快捷键会自动暂停。</p>
           </div>
           <template v-else>
-            <label class="command-palette__search"><Search :size="18" aria-hidden="true" /><input v-model="query" type="search" autocomplete="off" placeholder="搜索动作或对象…" aria-label="搜索动作或对象" autofocus><kbd><Command :size="11" /> K</kbd></label>
+            <label class="command-palette__search"><Search :size="18" aria-hidden="true" /><input v-model="query" type="search" autocomplete="off" placeholder="搜索动作或对象…" role="combobox" aria-label="搜索动作或对象" aria-expanded="true" aria-haspopup="listbox" aria-controls="command-palette-results" aria-autocomplete="list" :aria-activedescendant="activeDescendantId" autofocus><kbd><Command :size="11" /> K</kbd></label>
             <div v-if="shortcutManager?.state.pending.length" class="command-palette__sequence" role="status">正在输入：{{ shortcutManager.state.pending.join(' ') }} …</div>
-            <div class="command-palette__results" role="listbox" aria-label="命令面板结果">
-              <section v-if="recentItems.length" class="command-palette__group"><h3>最近访问</h3><ul><li v-for="item in recentItems" :key="`${item.kind}:${item.id}`"><button type="button" :aria-label="item.label" @click="item.kind === 'action' && item.action ? executeAction(item.id) : openRecent(item)"><span>{{ item.label }}</span><ArrowRight :size="14" aria-hidden="true" /></button></li></ul></section>
-              <section v-if="savedViewItems.length" class="command-palette__group"><h3>已保存视图</h3><ul><li v-for="view in savedViewItems" :key="view.id"><button type="button" :aria-selected="savedViewItems.indexOf(view) === selectedIndex" :aria-label="`打开视图 ${view.name}`" @click="openSavedView(view)"><span>{{ view.name }}<small>{{ view.routeName === 'work' ? '工作项' : '今日工作台' }}</small></span><ArrowRight :size="14" aria-hidden="true" /></button></li></ul></section>
+            <!-- M13b-F12（二轮 A01）：option 行不可聚焦（li[role=option]，虚焦点由 combobox 的
+                 aria-activedescendant 承担）；鼠标点击保留，键盘 Enter 在输入框统一执行。
+                 「搜索全部」移出 listbox——listbox 的子项只允许 option，普通按钮会破坏子项契约。 -->
+            <div id="command-palette-results" class="command-palette__results" role="listbox" aria-label="命令面板结果">
+              <section v-if="recentItems.length" class="command-palette__group" role="group" aria-labelledby="command-palette-group-recent"><h3 id="command-palette-group-recent">最近访问</h3><ul><li v-for="(item, i) in recentItems" :id="optionId(i)" :key="`${item.kind}:${item.id}`" role="option" :aria-selected="i === selectedIndex" @click="item.kind === 'action' && item.action ? executeAction(item.id) : openRecent(item)"><span>{{ item.label }}</span><ArrowRight :size="14" aria-hidden="true" /></li></ul></section>
+              <section v-if="savedViewItems.length" class="command-palette__group" role="group" aria-labelledby="command-palette-group-views"><h3 id="command-palette-group-views">已保存视图</h3><ul><li v-for="(view, i) in savedViewItems" :id="optionId(viewOptionOffset + i)" :key="view.id" role="option" :aria-selected="viewOptionOffset + i === selectedIndex" @click="openSavedView(view)"><span>{{ view.name }}<small>{{ view.routeName === 'work' ? '工作项' : '今日工作台' }}</small></span><ArrowRight :size="14" aria-hidden="true" /></li></ul></section>
               <template v-for="group in ['导航', '创建', '视图', '执行控制'] as const" :key="group">
-                <section v-if="availableEntries.some(entry => entry.action.group === group)" class="command-palette__group"><h3>{{ group }}</h3><ul><li v-for="entry in availableEntries.filter(candidate => candidate.action.group === group)" :key="entry.action.id"><button type="button" :aria-label="entry.action.label" :aria-selected="savedViewItems.length + availableEntries.indexOf(entry) === selectedIndex" @click="executeAction(entry.action.id)"><component :is="entry.action.icon" v-if="entry.action.icon" :size="15" aria-hidden="true" /><span><strong>{{ entry.action.label }}</strong><small>{{ entry.action.description }}</small></span><kbd v-if="entry.action.shortcut">{{ entry.action.shortcut }}</kbd></button></li></ul></section>
+                <section v-if="availableEntries.some(entry => entry.action.group === group)" class="command-palette__group" role="group" :aria-labelledby="`command-palette-group-${group}`"><h3 :id="`command-palette-group-${group}`">{{ group }}</h3><ul><li v-for="entry in availableEntries.filter(candidate => candidate.action.group === group)" :id="optionId(actionOptionOffset + availableEntries.indexOf(entry))" :key="entry.action.id" role="option" :aria-selected="actionOptionOffset + availableEntries.indexOf(entry) === selectedIndex" @click="executeAction(entry.action.id)"><component :is="entry.action.icon" v-if="entry.action.icon" :size="15" aria-hidden="true" /><span><strong>{{ entry.action.label }}</strong><small>{{ entry.action.description }}</small></span><kbd v-if="entry.action.shortcut">{{ entry.action.shortcut }}</kbd></li></ul></section>
               </template>
               <section v-if="objectSearchLoading" class="command-palette__state" role="status">正在搜索对象…</section>
               <section v-else-if="objectSearchOffline" class="command-palette__state" role="status">当前离线，暂时无法搜索对象。</section>
               <section v-else-if="objectSearchError" class="command-palette__state" role="alert">搜索服务暂时不可用，请稍后重试。</section>
-              <section v-if="objectItems.length" class="command-palette__group"><h3>对象</h3><ul><li v-for="(item, index) in objectItems" :key="`${item.objectType}:${item.objectId}`"><button type="button" :aria-selected="savedViewItems.length + availableEntries.length + index === selectedIndex" @click="openObject(item)"><span><strong>{{ item.title }}</strong><small>{{ searchObjectTypeLabels[item.objectType] }} · {{ item.subtitle ?? item.status }}</small></span><ArrowRight :size="14" aria-hidden="true" /></button></li></ul></section>
-              <button v-if="query.trim()" type="button" class="command-palette__search-all" aria-label="搜索全部" @click="searchEverywhere"><Search :size="14" aria-hidden="true" />搜索全部「{{ query.trim() }}」<ArrowRight :size="14" aria-hidden="true" /></button>
+              <section v-if="objectItems.length" class="command-palette__group" role="group" aria-labelledby="command-palette-group-objects"><h3 id="command-palette-group-objects">对象</h3><ul><li v-for="(item, i) in objectItems" :id="optionId(objectOptionOffset + i)" :key="`${item.objectType}:${item.objectId}`" role="option" :aria-selected="objectOptionOffset + i === selectedIndex" @click="openObject(item)"><span><strong>{{ item.title }}</strong><small>{{ searchObjectTypeLabels[item.objectType] }} · {{ item.subtitle ?? item.status }}</small></span><ArrowRight :size="14" aria-hidden="true" /></li></ul></section>
               <section v-if="unavailableEntries.length && !availableEntries.length && !objectItems.length" class="command-palette__state command-palette__state--forbidden" role="status">当前身份没有可执行的匹配动作。</section>
               <section v-else-if="normalizedQuery && !hasResults && !objectSearchLoading && !objectSearchError && !objectSearchOffline" class="command-palette__state" role="status">没有找到匹配的动作或对象。</section>
               <section v-else-if="!normalizedQuery && !availableEntries.length" class="command-palette__state" role="status">当前范围暂无可用动作。</section>
             </div>
+            <button v-if="query.trim()" type="button" class="command-palette__search-all" aria-label="搜索全部" @click="searchEverywhere"><Search :size="14" aria-hidden="true" />搜索全部「{{ query.trim() }}」<ArrowRight :size="14" aria-hidden="true" /></button>
       </template>
     </div>
   </BaseDialog>
@@ -261,6 +286,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .command-palette__main { display: grid; }
 .command-palette__search { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); color: var(--cs-text-muted); }.command-palette__search input { min-width: 0; flex: 1; min-height: 32px; border: 0; outline: 0; background: transparent; color: var(--cs-text); font: inherit; }.command-palette__search kbd, .command-palette li kbd { display: inline-flex; align-items: center; gap: var(--cs-space-2); padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 5px; color: var(--cs-text-muted); font: var(--cs-text-sm) var(--cs-font-mono); }
-.command-palette__sequence { padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-xs); }.command-palette__results { max-height: calc(min(680px, 76vh) - 110px); overflow: auto; padding: var(--cs-space-8) 0 var(--cs-space-12); }.command-palette__group h3, .command-palette__hint { margin: var(--cs-space-8) var(--cs-space-16) var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .05em; text-transform: uppercase; }.command-palette__group ul { padding: 0; margin: 0; list-style: none; }.command-palette__group li button { display: flex; width: 100%; min-height: 48px; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-16); border: 0; background: transparent; color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.command-palette__group li button:hover, .command-palette__group li button[aria-selected='true'] { background: var(--cs-surface-accent); color: var(--cs-text); }.command-palette__group li button > span { display: grid; min-width: 0; flex: 1; gap: var(--cs-space-2); }.command-palette__group li strong { overflow: hidden; color: var(--cs-text); font-size: var(--cs-text-sm); text-overflow: ellipsis; white-space: nowrap; }.command-palette__group li small { overflow: hidden; color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.command-palette__state { padding: var(--cs-space-24) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-align: center; }.command-palette__state--forbidden { color: var(--cs-warning); }.command-palette__search-all { display: flex; width: 100%; align-items: center; justify-content: center; gap: var(--cs-space-8); margin-top: var(--cs-space-4); padding: var(--cs-space-12) var(--cs-space-16); border: 0; border-top: 1px solid var(--cs-border); background: transparent; color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }.command-palette__search-all:hover, .command-palette__search-all:focus-visible { background: var(--cs-surface-accent); }.command-palette__help { max-height: calc(min(680px, 76vh) - 65px); overflow: auto; }.command-palette__help ul { padding: 0; margin: 0; list-style: none; }.command-palette__help li { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.command-palette__help li span { display: grid; gap: var(--cs-space-2); }.command-palette__help li strong { font-size: var(--cs-text-sm); }.command-palette__help li small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.command-palette__note { margin: var(--cs-space-12) var(--cs-space-16) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.command-palette__sequence { padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-xs); }.command-palette__results { max-height: calc(min(680px, 76vh) - 110px); overflow: auto; padding: var(--cs-space-8) 0 var(--cs-space-12); }.command-palette__group h3, .command-palette__hint { margin: var(--cs-space-8) var(--cs-space-16) var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .05em; text-transform: uppercase; }.command-palette__group ul { padding: 0; margin: 0; list-style: none; }.command-palette__group li[role='option'] { display: flex; width: 100%; min-height: 48px; align-items: center; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-16); border: 0; background: transparent; color: var(--cs-text-secondary); text-align: left; cursor: pointer; }.command-palette__group li[role='option']:hover, .command-palette__group li[role='option'][aria-selected='true'] { background: var(--cs-surface-accent); color: var(--cs-text); }.command-palette__group li[role='option'] > span { display: grid; min-width: 0; flex: 1; gap: var(--cs-space-2); }.command-palette__group li strong { overflow: hidden; color: var(--cs-text); font-size: var(--cs-text-sm); text-overflow: ellipsis; white-space: nowrap; }.command-palette__group li small { overflow: hidden; color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-overflow: ellipsis; white-space: nowrap; }.command-palette__state { padding: var(--cs-space-24) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-align: center; }.command-palette__state--forbidden { color: var(--cs-warning); }.command-palette__search-all { display: flex; width: 100%; align-items: center; justify-content: center; gap: var(--cs-space-8); margin-top: var(--cs-space-4); padding: var(--cs-space-12) var(--cs-space-16); border: 0; border-top: 1px solid var(--cs-border); background: transparent; color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }.command-palette__search-all:hover, .command-palette__search-all:focus-visible { background: var(--cs-surface-accent); }.command-palette__help { max-height: calc(min(680px, 76vh) - 65px); overflow: auto; }.command-palette__help ul { padding: 0; margin: 0; list-style: none; }.command-palette__help li { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }.command-palette__help li span { display: grid; gap: var(--cs-space-2); }.command-palette__help li strong { font-size: var(--cs-text-sm); }.command-palette__help li small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.command-palette__note { margin: var(--cs-space-12) var(--cs-space-16) var(--cs-space-16); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .command-palette__global-sequence { position: fixed; z-index: var(--cs-z-toast); top: var(--cs-space-16); left: 50%; display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-raised); color: var(--cs-text-secondary); box-shadow: var(--cs-shadow-float); font-size: var(--cs-text-xs); transform: translateX(-50%); }.command-palette__global-sequence kbd { padding: var(--cs-space-2) var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 4px; font: var(--cs-text-sm) var(--cs-font-mono); }
 </style>

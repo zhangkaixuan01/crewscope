@@ -8,6 +8,7 @@ import type { TeamOpsErrorState } from '../../domains/teamops/errors'
 import type { ActivityItem } from '../../domains/teamops/types'
 import { enumLabel } from '../../domains/shared/labels'
 import {
+  activityEventTypeLabels,
   activityRealtimePhaseLabels,
   activityReferenceTypeLabels,
   activitySubjectTypeLabels,
@@ -63,9 +64,14 @@ function subject(item: ActivityItem): string {
   return `${enumLabel(item.subject.type, activitySubjectTypeLabels)} · ${item.subject.id.slice(0, 8)}`
 }
 
+/** M13b-F12（二轮 A18）：事件类型走词表；未登记的开放词表值由 enumLabel 回退原常量。 */
+function eventTypeLabel(item: ActivityItem): string {
+  return enumLabel(item.eventType, activityEventTypeLabels)
+}
+
 function outcome(item: ActivityItem): string {
   const values = item.payload.values
-  return values.outcome ?? values.status ?? values.result ?? values.decision ?? item.eventType
+  return values.outcome ?? values.status ?? values.result ?? values.decision ?? eventTypeLabel(item)
 }
 
 function outcomeTone(item: ActivityItem): 'success' | 'danger' | 'warning' | 'info' | 'neutral' {
@@ -97,7 +103,8 @@ function referenceLabel(type: string): string {
          区块头。实时徽标页面级由 ActivityPage 的 summary-strip 唯一持有，抽屉内仍需自报相位。 -->
     <header v-if="compact" class="activity-stream__header">
       <h2 id="activity-stream-title">{{ heading }}</h2>
-      <StatusBadge :tone="realtimePhase === 'live' ? 'success' : realtimePhase === 'reconnecting' || realtimePhase === 'connecting' ? 'warning' : 'neutral'" dot>
+<!-- M13b-F12（二轮 A18）：抽屉场景没有 strip，徽标是唯一的相位自报点——role=status 让相位变化可被礼貌播报。 -->
+      <StatusBadge role="status" :tone="realtimePhase === 'live' ? 'success' : realtimePhase === 'reconnecting' || realtimePhase === 'connecting' ? 'warning' : 'neutral'" dot>
         <Radio :size="12" aria-hidden="true" />{{ realtimeLabel }}
       </StatusBadge>
     </header>
@@ -117,12 +124,13 @@ function referenceLabel(type: string): string {
           <span class="activity-marker" aria-hidden="true"><CircleDot :size="13" /></span>
           <article>
             <header>
-              <div class="activity-kind"><Activity :size="14" aria-hidden="true" /><strong>{{ item.eventType }}</strong><StatusBadge :tone="outcomeTone(item)">{{ outcome(item) }}</StatusBadge></div>
+              <div class="activity-kind"><Activity :size="14" aria-hidden="true" /><strong>{{ eventTypeLabel(item) }}</strong><StatusBadge :tone="outcomeTone(item)">{{ outcome(item) }}</StatusBadge></div>
               <Clock3 :size="11" aria-hidden="true" /><RelativeTime :value="item.occurredAt" />
             </header>
             <dl>
-              <div><dt><UserRound :size="11" aria-hidden="true" />Actor</dt><dd>{{ actor(item) }}</dd></div>
-              <div><dt><ArrowRight :size="11" aria-hidden="true" />Subject</dt><dd>{{ subject(item) }}</dd></div>
+              <!-- M13b-F12（二轮 A18）：dt 与详情面板同一套中文词（操作者/关联对象），不再裸英文术语。 -->
+              <div><dt><UserRound :size="11" aria-hidden="true" />操作者</dt><dd>{{ actor(item) }}</dd></div>
+              <div><dt><ArrowRight :size="11" aria-hidden="true" />关联对象</dt><dd>{{ subject(item) }}</dd></div>
             </dl>
             <div class="activity-evidence">
               <span><Link2 :size="11" aria-hidden="true" />证据</span>

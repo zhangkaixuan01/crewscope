@@ -2287,7 +2287,8 @@ test('Work restores filters and groups matching items on the Board', async ({ pa
   await expect(page.getByLabel('评审中').getByRole('button', { name: '打开 CRW-21 审核协作入口' })).toBeVisible()
   await expect(page.getByText('修复工作项游标')).toHaveCount(0)
 
-  await page.getByRole('button', { name: '列表视图' }).click()
+  // M13b-F12（二轮 A20/S8）：视图切换按钮以可见文本（列表/看板/图谱）取代 aria-label。 */
+  await page.getByRole('button', { name: '列表', exact: true }).click()
   await expect(page).toHaveURL(/view=list/)
   await page.reload()
   await expect(page.getByLabel('工作项列表')).toBeVisible()
@@ -3533,7 +3534,7 @@ test('M1 Work visual baseline', async ({ page }, testInfo) => {
   await expect(page.getByLabel('工作项列表')).toBeVisible()
   await expect(page).toHaveScreenshot(`work-list-${testInfo.project.name}.png`, { fullPage: true })
 
-  await page.getByRole('button', { name: '看板视图' }).click()
+  await page.getByRole('button', { name: '看板', exact: true }).click()
   await expect(page.getByLabel('工作项看板')).toBeVisible()
   await expect(page).toHaveScreenshot(`work-board-${testInfo.project.name}.png`, { fullPage: true })
 

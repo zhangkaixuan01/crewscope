@@ -187,13 +187,29 @@ h3 {
  * 而不是改命中区。它们的命中区由包裹的 <label> 承担，所以约束加在 label 上。
  */
 @media (max-width: 767px) {
+  /* M13b-F12（二轮 S9/A08）：44px 命中区是系统规则不是逐点豁免——输入类控件
+     （input/select/textarea）与链接（a）一并纳入；min-height 对 inline 的 a 天然无效，
+     只有 flex/grid 化的导航链接会被抬起，正好覆盖导航链接触控缺口。 */
   button,
   summary,
+  a,
+  input,
+  select,
+  textarea,
   [role="button"],
   [role="tab"],
   [role="menuitem"],
   [role="option"] {
     min-height: var(--cs-touch-min);
+  }
+
+  /* 图标按钮的横向下限：32px 高的图标钮纵向被上面撑到 44，横向仍可能只有 20px——
+     min-inline-size 补齐方形命中区；文本按钮由内容自然撑宽不受影响。 */
+  button,
+  summary,
+  [role="button"],
+  [role="tab"] {
+    min-inline-size: var(--cs-touch-min);
   }
 
   label:has(> input[type="checkbox"]),

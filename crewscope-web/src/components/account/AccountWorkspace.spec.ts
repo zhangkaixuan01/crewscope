@@ -5,7 +5,8 @@ import type { AccountProfile } from '../../domains/account/types'
 describe('AccountWorkspace', () => {
   it('renders the public profile and derives a Unicode-safe avatar fallback', () => {
     const wrapper = mountWorkspace({ profile: profile({ displayName: '张凯旋' }) })
-    expect(wrapper.get('[aria-label="张凯旋 的头像回退"]').text()).toBe('张')
+    // M13b-F12（二轮 A21）：页头头像是纯装饰（首字符猜测无语义）——aria-hidden 取代 aria-label。
+    expect(wrapper.get('.account-avatar[aria-hidden="true"]').text()).toBe('张')
     expect(wrapper.text()).toContain('alice@example.com')
   })
 

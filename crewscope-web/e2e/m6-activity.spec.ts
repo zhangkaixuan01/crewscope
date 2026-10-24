@@ -15,8 +15,8 @@ test.beforeEach(async ({ page }) => mockActivityApi(page))
 
 test('renders, resumes, de-duplicates and passes Axe in both viewports', async ({ page }, testInfo) => {
   await page.goto(`/activity?team=${ids.team}&project=${ids.project}`)
-  await expect(page.getByText('TASK_COMPLETED')).toHaveCount(1)
-  await expect(page.getByText('REVIEW_APPROVED')).toBeVisible()
+  await expect(page.getByText('任务已完成')).toHaveCount(1)
+  await expect(page.getByText('评审已通过')).toBeVisible()
   await expect(page.getByText('实时').first()).toBeVisible()
 
   const results = await new AxeBuilder({ page }).analyze()
@@ -35,13 +35,13 @@ test('renders, resumes, de-duplicates and passes Axe in both viewports', async (
 
 test('keeps cached Activity readable while offline', async ({ page, context }) => {
   await page.goto(`/activity?team=${ids.team}&project=${ids.project}`)
-  await expect(page.getByText('TASK_COMPLETED')).toBeVisible()
+  await expect(page.getByText('任务已完成')).toBeVisible()
 
   await context.setOffline(true)
   // M13b-F10（L05）：离线提示收敛进 summary-strip 的 note（缓存事实可读 + R25 最近同步），
   // 列表前不再插恢复 panel——缓存事实位置不动。
   await expect(page.locator('.summary-strip__note')).toContainText('离线 · 缓存事实保持可读')
-  await expect(page.getByText('TASK_COMPLETED')).toBeVisible()
+  await expect(page.getByText('任务已完成')).toBeVisible()
   await context.setOffline(false)
 })
 

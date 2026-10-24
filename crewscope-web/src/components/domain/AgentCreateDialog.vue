@@ -103,10 +103,10 @@ function submit(): void {
     <form :id="formId" class="agent-create-content" @submit.prevent="submit">
       <fieldset class="ownership-picker">
         <legend>所有权</legend>
-        <button type="button" :class="{ active: ownershipType === 'USER' }" @click="switchOwnership('USER')">
+        <button type="button" :class="{ active: ownershipType === 'USER' }" :aria-pressed="ownershipType === 'USER'" @click="switchOwnership('USER')">
           <UserRound :size="18" /><span><strong>个人 Agent</strong><small>执行你的个人任务，可使用当前授权的 USER/TEAM/Organization 模型连接。</small></span>
         </button>
-        <button type="button" :disabled="!canManageTeamAgents" aria-label="团队 Agent" aria-describedby="agent-ownership-team-reason" :class="{ active: ownershipType === 'TEAM' }" @click="switchOwnership('TEAM')">
+        <button type="button" :disabled="!canManageTeamAgents" aria-label="团队 Agent" aria-describedby="agent-ownership-team-reason" :class="{ active: ownershipType === 'TEAM' }" :aria-pressed="ownershipType === 'TEAM'" @click="switchOwnership('TEAM')">
           <Building2 :size="18" /><span><strong>团队 Agent</strong><small id="agent-ownership-team-reason">{{ canManageTeamAgents ? '团队共享身份，只使用 TEAM/Organization 连接。' : '需要 Team Agent 管理权限。' }}</small></span>
         </button>
       </fieldset>

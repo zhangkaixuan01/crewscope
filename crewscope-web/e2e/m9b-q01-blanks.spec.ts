@@ -40,7 +40,9 @@ test('IME 组合中的 Enter 不会提交命令面板搜索', async ({ page }) =
 
   // Composition session: type pinyin, the Enter that confirms the candidate carries
   // isComposing — dispatch it synthetically because a real IME cannot run headless.
-  const query = dialog.getByRole('searchbox')
+  // M13b-F12（二轮 A01）：输入框升级为标准 combobox（aria-activedescendant 虚焦点），
+  // searchbox 隐式角色被显式 role 覆盖。
+  const query = dialog.getByRole('combobox')
   await query.focus()
   await query.type('gongzuo', { delay: 5 })
   await query.dispatchEvent('compositionstart')
@@ -52,6 +54,49 @@ test('IME 组合中的 Enter 不会提交命令面板搜索', async ({ page }) =
 
   await query.dispatchEvent('compositionend')
   await page.keyboard.press('Escape')
+  await expect(dialog).not.toBeVisible()
+})
+
+test('命令面板 combobox 契约：activedescendant 虚焦点与最近访问键盘可达（二轮 A01）', async ({ page }) => {
+  await mockApi(page)
+  await page.goto(`/today?team=${ids.team}`)
+  await expect(page.locator('.app-shell')).toBeVisible()
+
+  await page.getByRole('button', { name: '打开命令面板，搜索工作、成员或 Agent' }).click()
+  const dialog = page.getByRole('dialog', { name: '命令面板' })
+  await expect(dialog).toBeVisible()
+
+  // 输入框是标准 combobox：展开状态、弹出类型与 aria-controls 指向真实 listbox。
+  const input = dialog.getByRole('combobox')
+  await expect(input).toHaveAttribute('aria-expanded', 'true')
+  await expect(input).toHaveAttribute('aria-haspopup', 'listbox')
+  const listboxId = await input.getAttribute('aria-controls')
+  expect(listboxId, 'aria-controls 应指向 listbox 容器').toBeTruthy()
+  await expect(page.locator(`#${listboxId}`)).toHaveAttribute('role', 'listbox')
+
+  // 虚焦点模型：DOM 焦点留在输入框，aria-activedescendant 指向的 option 独占 aria-selected。
+  const firstId = await input.getAttribute('aria-activedescendant')
+  expect(firstId, '初始虚焦点应指向第一个 option').toBeTruthy()
+  await expect(page.locator(`#${firstId}`)).toHaveAttribute('aria-selected', 'true')
+  await input.press('ArrowDown')
+  const secondId = await input.getAttribute('aria-activedescendant')
+  expect(secondId).not.toBe(firstId)
+  await expect(page.locator(`#${secondId}`)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator(`#${firstId}`)).toHaveAttribute('aria-selected', 'false')
+
+  // Enter 执行高亮项并写入最近访问；重开后最近访问是第一组，且键盘虚焦点落在该组——
+  // 此前 selectableCount 排除 recentItems，「最近访问」是鼠标专属行。
+  await input.press('Enter')
+  await expect(dialog).not.toBeVisible()
+  await page.getByRole('button', { name: '打开命令面板，搜索工作、成员或 Agent' }).click()
+  await expect(dialog).toBeVisible()
+  const recentGroup = dialog.locator('[role="group"][aria-labelledby="command-palette-group-recent"]')
+  await expect(recentGroup).toBeVisible()
+  const reopened = dialog.getByRole('combobox')
+  const activeId = await reopened.getAttribute('aria-activedescendant')
+  expect(activeId).toBeTruthy()
+  await expect(recentGroup.locator(`#${activeId}`)).toHaveCount(1)
+  await reopened.press('Enter')
   await expect(dialog).not.toBeVisible()
 })
 

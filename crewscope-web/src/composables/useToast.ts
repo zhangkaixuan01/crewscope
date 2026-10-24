@@ -24,7 +24,9 @@ export function useToast() {
 
   function show(message: string, options: Partial<Omit<ToastMessage, 'id' | 'message'>> = {}): number {
     const id = nextId++
-    const toast: ToastMessage = { id, message, tone: 'info', duration: 4_000, ...options }
+    // M13b-F12（二轮 A07）：带操作的 toast 撤销/查看窗口默认 10 秒——4 秒读不完就消失等于
+    // 没有该操作；调用方显式传 duration 仍然优先（0 = 不自动消失）。
+    const toast: ToastMessage = { id, message, tone: 'info', duration: options.action ? 10_000 : 4_000, ...options }
     messages.value = [...messages.value, toast]
     if (toast.duration > 0) arm(id, toast.duration)
     return id

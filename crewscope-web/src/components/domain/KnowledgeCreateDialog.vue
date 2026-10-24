@@ -118,16 +118,18 @@ function submit(): void {
           :maxlength="KNOWLEDGE_TITLE_MAX + 100"
           :disabled="submitting"
           :aria-invalid="submitted && !titleValid || undefined"
+          :aria-describedby="submitted && !titleValid ? 'knowledge-create-title-error' : undefined"
           required
         >
-        <small v-if="submitted && title.trim() === ''" class="knowledge-dialog__error">标题不能为空。</small>
-        <small v-else-if="submitted && title.length > KNOWLEDGE_TITLE_MAX" class="knowledge-dialog__error">标题超出 {{ KNOWLEDGE_TITLE_MAX }} 字上限。</small>
+        <!-- M13b-F12（二轮 S10）：错误文本挂 id 供输入框 aria-describedby 关联（两个分支互斥渲染，同 id 安全）。 -->
+        <small v-if="submitted && title.trim() === ''" id="knowledge-create-title-error" class="knowledge-dialog__error">标题不能为空。</small>
+        <small v-else-if="submitted && title.length > KNOWLEDGE_TITLE_MAX" id="knowledge-create-title-error" class="knowledge-dialog__error">标题超出 {{ KNOWLEDGE_TITLE_MAX }} 字上限。</small>
       </label>
 
       <label class="knowledge-dialog__field">
         <span>正文 <span class="knowledge-dialog__count">{{ content.length }}/{{ KNOWLEDGE_CONTENT_MAX }}</span></span>
-        <BaseTextarea v-model="content" :rows="8" :disabled="submitting" :invalid="submitted && !contentValid || undefined" placeholder="纯文本内容；渲染增强在后续切片提供。" />
-        <small v-if="submitted && !contentValid" class="knowledge-dialog__error">正文超出 {{ KNOWLEDGE_CONTENT_MAX }} 字上限。</small>
+        <BaseTextarea v-model="content" :rows="8" :disabled="submitting" :invalid="submitted && !contentValid || undefined" :aria-describedby="submitted && !contentValid ? 'knowledge-create-content-error' : undefined" placeholder="纯文本内容；渲染增强在后续切片提供。" />
+        <small v-if="submitted && !contentValid" id="knowledge-create-content-error" class="knowledge-dialog__error">正文超出 {{ KNOWLEDGE_CONTENT_MAX }} 字上限。</small>
       </label>
 
       <p v-if="submissionError || errorMessage" class="knowledge-dialog__command-error" role="alert">{{ submissionError || errorMessage }}</p>

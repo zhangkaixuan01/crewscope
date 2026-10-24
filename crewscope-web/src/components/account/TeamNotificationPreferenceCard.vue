@@ -38,6 +38,22 @@ watch(() => props.teams, teams => {
 }, { immediate: true })
 watch(selectedTeamId, () => { void load() }, { immediate: true })
 
+/**
+ * M13b-F12（二轮 A03）：切换 Team 前拦截未保存草稿——此前 watch 立即 reload，静默丢弃
+ * 用户刚拨动的开关。守卫只拦切换；保存/放弃由用户显式选择（「保存偏好」钮仍可先点）。
+ */
+const pendingTeamId = ref<string | null>(null)
+function requestTeam(value: string | number | null): void {
+  const next = String(value ?? '')
+  if (dirty.value && next !== selectedTeamId.value) pendingTeamId.value = next
+  else selectedTeamId.value = next
+}
+function stayOnTeam(): void { pendingTeamId.value = null }
+function discardAndSwitch(): void {
+  selectedTeamId.value = pendingTeamId.value ?? selectedTeamId.value
+  pendingTeamId.value = null
+}
+
 const dirty = computed(() => {
   const value = loaded.value?.value
   if (!value) return false
@@ -122,16 +138,22 @@ async function save(): Promise<void> {
         <h2>当前团队通知偏好</h2>
         <p>偏好由你自己的成员资格保护：不要求管理员权限，移除成员后即不可读写。</p>
       </div>
-      <StatusBadge v-if="saved" tone="success" dot>已保存</StatusBadge>
+      <span v-if="saved" role="status"><StatusBadge tone="success" dot>已保存</StatusBadge></span>
     </div>
 
     <div v-if="teams.length > 1" class="team-preference__team">
       <label for="team-preference-team">Team</label>
-      <BaseSelect id="team-preference-team" v-model="selectedTeamId">
+      <BaseSelect id="team-preference-team" :model-value="selectedTeamId" @update:model-value="requestTeam">
         <option v-for="team in teams" :key="team.teamId" :value="team.teamId">{{ team.name }}</option>
       </BaseSelect>
     </div>
 
+    <p v-if="pendingTeamId" class="team-preference__problem" role="alert">当前 Team 的通知偏好有未保存更改，直接切换会丢弃它们。
+      <span class="team-preference__guard">
+        <BaseButton variant="secondary" size="small" @click="stayOnTeam">留在当前 Team</BaseButton>
+        <BaseButton variant="secondary" size="small" @click="discardAndSwitch">放弃更改并切换</BaseButton>
+      </span>
+    </p>
     <p v-if="phase === 'loading'" class="team-preference__status" role="status">正在读取你在{{ selectedTeam?.name ?? '这个 Team' }}的通知偏好…</p>
     <p v-else-if="phase === 'forbidden'" class="team-preference__problem" role="alert">{{ problem }}</p>
     <div v-else-if="phase === 'error'" class="team-preference__problem" role="alert">
@@ -181,5 +203,6 @@ async function save(): Promise<void> {
 .team-preference__types legend { padding-inline: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .team-preference__type { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .team-preference__actions { display: flex; justify-content: flex-end; }
+.team-preference__guard { display: inline-flex; flex: 0 0 auto; gap: var(--cs-space-8); }
 .team-preference__note { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 </style>

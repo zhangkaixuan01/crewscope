@@ -3,12 +3,14 @@ import { computed, ref } from 'vue'
 
 export interface BaseSelectOption { label: string; value: string | number | null; disabled?: boolean }
 
+// M13b-F12（二轮 S10）：与 BaseInput 同一张无障碍契约——错误态 aria-invalid、说明文本 aria-describedby。
 const props = withDefaults(defineProps<{
   modelValue?: string | number | null
   options?: readonly BaseSelectOption[]
   disabled?: boolean
   invalid?: boolean
-}>(), { modelValue: '', options: () => [], disabled: false, invalid: false })
+  ariaDescribedby?: string
+}>(), { modelValue: '', options: () => [], disabled: false, invalid: false, ariaDescribedby: undefined })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string | number | null] }>()
 
@@ -27,7 +29,7 @@ defineExpose({ focus: (options?: FocusOptions) => select.value?.focus(options) }
 </script>
 
 <template>
-  <select ref="select" v-model="proxy" class="base-select" :class="{ 'base-select--invalid': invalid }" :disabled="disabled" :aria-invalid="invalid || undefined">
+  <select ref="select" v-model="proxy" class="base-select" :class="{ 'base-select--invalid': invalid }" :disabled="disabled" :aria-invalid="invalid || undefined" :aria-describedby="ariaDescribedby">
     <option v-for="option in options" :key="String(option.value)" :value="option.value" :disabled="option.disabled">{{ option.label }}</option>
     <slot />
   </select>

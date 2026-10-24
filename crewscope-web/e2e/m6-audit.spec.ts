@@ -17,7 +17,7 @@ test('combines filters, de-duplicates pages, explores Correlation and passes Axe
   await page.goto(`/audit?team=${ids.team}&project=${ids.project}&from=2026-08-01T08:00&to=2026-08-27T08:00&auditEvent=${ids.event}`)
 
   await expect(page.getByRole('heading', { name: '团队审计中心' })).toBeVisible()
-  await expect(page.getByRole('table')).toContainText('TEAM_ACCESS_DENIED')
+  await expect(page.getByRole('table')).toContainText('团队访问被拒')
   await expect(page.getByRole('heading', { name: '审计详情' })).toBeVisible()
   await expect(page.locator('body')).not.toContainText(/Authorization Context|Credential|Endpoint|Trace ID|Provider Body|原始 Payload/)
 
@@ -62,7 +62,7 @@ test('combines filters, de-duplicates pages, explores Correlation and passes Axe
 test('exports only an explicit bounded range and reports server authorization failures', async ({ page }) => {
   await mockAuditApi(page)
   await page.goto(`/audit?team=${ids.team}&project=${ids.project}&from=2026-08-01T08:00&to=2026-08-27T08:00`)
-  await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
+  await expect(page.getByText('团队访问被拒')).toBeVisible()
 
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: '导出 CSV' }).click()
@@ -80,10 +80,10 @@ test('exports only an explicit bounded range and reports server authorization fa
 test('keeps cached Audit facts readable offline and on expired continuation', async ({ page, context }) => {
   await mockAuditApi(page, 'cursor-expired')
   await page.goto(`/audit?team=${ids.team}&project=${ids.project}&from=2026-08-01T08:00&to=2026-08-27T08:00`)
-  await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
+  await expect(page.getByText('团队访问被拒')).toBeVisible()
   await page.getByRole('button', { name: '加载更多' }).click()
   await expect(page.getByText('审计续页 Cursor 已过期')).toBeVisible()
-  await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
+  await expect(page.getByText('团队访问被拒')).toBeVisible()
 
   await context.setOffline(true)
   await expect(page.getByText('正在展示最近同步的审计事实')).toBeVisible()

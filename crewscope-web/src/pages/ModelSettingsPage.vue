@@ -344,7 +344,7 @@ function trainingPolicyLabel(value: string): string { return enumLabel(value, tr
         <StatePanel v-else-if="modelStore.state.providers.phase === 'empty'" state="empty" compact title="没有可用 Provider" />
         <div v-else class="catalog-layout">
           <nav class="provider-list" aria-label="模型 Provider">
-              <button v-for="provider in providers" :key="provider.key" type="button" :class="{ active: selectedProvider?.key === provider.key }" @click="selectProvider(provider)">
+              <button v-for="provider in providers" :key="provider.key" type="button" :class="{ active: selectedProvider?.key === provider.key }" :aria-pressed="selectedProvider?.key === provider.key" @click="selectProvider(provider)">
               <span><strong>{{ provider.displayName }}</strong><small class="mono">{{ provider.key }}</small></span><StatusBadge :tone="providerTone(provider.status)" dot>{{ connectionStatusLabel(provider.status) }}</StatusBadge>
               <small>{{ provider.availableRegions.join(' · ') }}</small>
             </button>

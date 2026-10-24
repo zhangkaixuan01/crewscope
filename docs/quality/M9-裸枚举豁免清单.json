@@ -2,21 +2,6 @@
   "$comment": "M9-Q01 裸枚举门禁的评审豁免清单。每一条都必须是「这个表达式不是服务端枚举」的事实性理由，而不是「还没做」。修好一处就必须从这里删掉一条——门禁会把失效条目当作失败，清单只能变短。",
   "waivers": [
     {
-      "file": "components/domain/ActivityStream.vue",
-      "expression": "item.eventType",
-      "reason": "领域事件名是开放词表（每个聚合自行新增），不是闭合枚举；Activity 的可读语义由 category / subject / outcome 三个已本地化的字段承担。"
-    },
-    {
-      "file": "components/domain/AuditExplorer.vue",
-      "expression": "item.eventType",
-      "reason": "同 ActivityStream：审计事件名是开放词表，审计的可读语义由 category 与 outcome 承担。"
-    },
-    {
-      "file": "components/domain/AuditExplorer.vue",
-      "expression": "selectedEvent.eventType",
-      "reason": "详情面板展示的同一开放词表事件名，审计导出需要它逐字可复制。"
-    },
-    {
       "file": "components/domain/AuditExplorer.vue",
       "expression": "exportDisabledReason",
       "reason": "本地 computed，返回的已经是中文原因句。"
@@ -55,11 +40,6 @@
       "file": "components/settings/ModelOptionPicker.vue",
       "expression": "model.price.currencyCode",
       "reason": "ISO 4217 货币代码，本身就是对外展示形态（CNY / USD）。"
-    },
-    {
-      "file": "pages/ActivityPage.vue",
-      "expression": "selectedDetail.value.eventType",
-      "reason": "同 ActivityStream：开放词表的领域事件名。"
     },
     {
       "file": "components/domain/ActionDeliveryWorkbench.vue",

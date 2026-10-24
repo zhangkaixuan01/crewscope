@@ -1142,7 +1142,7 @@ function retry(): void {
       <template v-else>
       <WorkItemsToolbar
         :result-count="filteredItems.length"
-        :view="collectionView"
+        :view="view"
         :status="statusFilter"
         :type="typeFilter"
         :priority="priorityFilter"

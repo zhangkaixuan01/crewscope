@@ -15,6 +15,7 @@ import {
 import { enumLabel } from '../../domains/shared/labels'
 import {
   activitySubjectTypeLabels,
+  activityEventTypeLabels,
   auditActorTypeLabels,
   auditEventCategoryLabels,
   auditOutcomeLabels,
@@ -253,12 +254,13 @@ function label(value: string | null | undefined, labels: Record<string, string>)
           <StatePanel v-else-if="cursorExpired" compact state="error" title="审计续页 Cursor 已过期" description="已加载事实保持可读，刷新首屏后可继续。" @retry="emit('retry')" />
           <StatePanel v-else-if="hardError" compact state="error" :description="error?.message" @retry="emit('retry')" />
           <BaseTable bare caption="审计事实列表">
-            <thead><tr><th>Category / Outcome</th><th>事件</th><th>Actor</th><th>Subject</th><th>发生时间</th><th><span class="sr-only">操作</span></th></tr></thead>
+            <!-- M13b-F12（二轮 A26/S13）：表头与 Activity 详情同一套中文术语（类别/结果/操作者/关联对象）。 -->
+            <thead><tr><th>类别 / 结果</th><th>事件</th><th>操作者</th><th>关联对象</th><th>发生时间</th><th><span class="sr-only">操作</span></th></tr></thead>
             <tbody><tr v-for="item in items" :key="item.eventId" :class="{ selected: selectedEvent?.eventId === item.eventId }">
-              <td data-label="Category / Outcome"><strong>{{ categoryLabel(item.category) }}</strong><StatusBadge :tone="outcomeTone(item.outcome)">{{ auditOutcomeLabels[item.outcome] }}</StatusBadge></td>
-              <td data-label="事件"><span>{{ item.eventType }}</span><small class="mono">{{ shortId(item.eventId) }}</small></td>
-              <td data-label="Actor"><span>{{ actorName(item.identity.actorId, item.identity.actorType) }}</span><small class="mono">{{ shortId(item.identity.actorId) }}</small></td>
-              <td data-label="Subject"><span>{{ label(item.subject.type, activitySubjectTypeLabels) }}</span><small class="mono">{{ shortId(item.subject.id) }}</small></td>
+              <td data-label="类别 / 结果"><strong>{{ categoryLabel(item.category) }}</strong><StatusBadge :tone="outcomeTone(item.outcome)">{{ auditOutcomeLabels[item.outcome] }}</StatusBadge></td>
+              <td data-label="事件"><span>{{ label(item.eventType, activityEventTypeLabels) }}</span><small class="mono">{{ shortId(item.eventId) }}</small></td>
+              <td data-label="操作者"><span>{{ actorName(item.identity.actorId, item.identity.actorType) }}</span><small class="mono">{{ shortId(item.identity.actorId) }}</small></td>
+              <td data-label="关联对象"><span>{{ label(item.subject.type, activitySubjectTypeLabels) }}</span><small class="mono">{{ shortId(item.subject.id) }}</small></td>
               <td data-label="发生时间"><RelativeTime :value="item.occurredAt" /></td>
               <td data-label="操作"><button type="button" @click="openDetail(item.eventId)">查看详情</button></td>
             </tr></tbody>
@@ -269,13 +271,13 @@ function label(value: string | null | undefined, labels: Record<string, string>)
 
       <aside v-if="selectedEvent" class="audit-detail panel" aria-label="审计事件详情">
         <header><div><p>Public audit fact</p><h2 ref="detailHeading" tabindex="-1">审计详情</h2></div><button type="button" aria-label="关闭审计详情" @click="closeDetailAndRestore()"><X :size="17" /></button></header>
-        <section class="audit-detail__hero"><StatusBadge :tone="outcomeTone(selectedEvent.outcome)">{{ auditOutcomeLabels[selectedEvent.outcome] }}</StatusBadge><StatusBadge tone="neutral">{{ auditRetentionLevelLabels[selectedEvent.retentionLevel] }}</StatusBadge><h3>{{ selectedEvent.eventType }}</h3><span>{{ categoryLabel(selectedEvent.category) }} · Schema v{{ selectedEvent.sourceSchemaVersion }}</span></section>
+        <section class="audit-detail__hero"><StatusBadge :tone="outcomeTone(selectedEvent.outcome)">{{ auditOutcomeLabels[selectedEvent.outcome] }}</StatusBadge><StatusBadge tone="neutral">{{ auditRetentionLevelLabels[selectedEvent.retentionLevel] }}</StatusBadge><h3>{{ label(selectedEvent.eventType, activityEventTypeLabels) }}</h3><span>{{ categoryLabel(selectedEvent.category) }} · Schema v{{ selectedEvent.sourceSchemaVersion }}</span></section>
         <dl>
-          <div><dt>Event ID</dt><dd class="mono">{{ selectedEvent.eventId }}</dd></div>
-          <div><dt>Initiator</dt><dd>{{ selectedEvent.identity.initiatorId ? actorName(selectedEvent.identity.initiatorId, 'INITIATOR') : '—' }}<small v-if="selectedEvent.identity.initiatorId" class="mono">{{ selectedEvent.identity.initiatorId }}</small></dd></div>
-          <div><dt>Actor</dt><dd>{{ actorName(selectedEvent.identity.actorId, selectedEvent.identity.actorType) }}<small class="mono">{{ selectedEvent.identity.actorId ?? '—' }}</small></dd></div>
-          <div><dt>Agent Principal</dt><dd class="mono">{{ selectedEvent.identity.agentPrincipalId ?? '—' }}</dd></div>
-          <div><dt>Subject</dt><dd>{{ label(selectedEvent.subject.type, activitySubjectTypeLabels) }}<small class="mono">{{ selectedEvent.subject.id }}</small></dd></div>
+          <div><dt>事件标识</dt><dd class="mono">{{ selectedEvent.eventId }}</dd></div>
+          <div><dt>发起者</dt><dd>{{ selectedEvent.identity.initiatorId ? actorName(selectedEvent.identity.initiatorId, 'INITIATOR') : '—' }}<small v-if="selectedEvent.identity.initiatorId" class="mono">{{ selectedEvent.identity.initiatorId }}</small></dd></div>
+          <div><dt>操作者</dt><dd>{{ actorName(selectedEvent.identity.actorId, selectedEvent.identity.actorType) }}<small class="mono">{{ selectedEvent.identity.actorId ?? '—' }}</small></dd></div>
+          <div><dt>Agent 身份</dt><dd class="mono">{{ selectedEvent.identity.agentPrincipalId ?? '—' }}</dd></div>
+          <div><dt>关联对象</dt><dd>{{ label(selectedEvent.subject.type, activitySubjectTypeLabels) }}<small class="mono">{{ selectedEvent.subject.id }}</small></dd></div>
           <div><dt>发生时间</dt><dd>{{ displayTime(selectedEvent.occurredAt) }}</dd></div>
         </dl>
         <section v-if="selectedEvent.provider" class="safe-reference"><ShieldCheck :size="15" /><div><strong>Provider 安全引用</strong><span class="mono">Binding {{ selectedEvent.provider.providerBindingId }}</span><span class="mono">Connection {{ selectedEvent.provider.connectionId }}</span><span v-if="selectedEvent.provider.externalOperationHash" class="mono">Operation {{ selectedEvent.provider.externalOperationHash }}</span></div></section>
@@ -292,7 +294,7 @@ function label(value: string | null | undefined, labels: Record<string, string>)
         <template v-else-if="correlation.value">
           <StatePanel v-if="correlation.error?.kind === 'cursor-expired'" compact state="error" title="关联链 Cursor 已过期" description="已加载节点保持可读，重新打开关联链可恢复。" @retry="emit('retryCorrelation', correlation.value.correlationId)" />
           <p class="correlation-id mono">{{ correlation.value.correlationId }}</p>
-          <ol><li v-for="item in correlation.value.events" :key="item.eventId"><span>{{ label(item.source, correlationEventSourceLabels) }}</span><strong>{{ item.eventType }}</strong><small>{{ label(item.actorType, auditActorTypeLabels) }} · {{ displayTime(item.occurredAt) }}</small><StatusBadge :tone="outcomeTone(item.outcome)">{{ item.outcome ? label(item.outcome, auditOutcomeLabels) : '已记录' }}</StatusBadge></li></ol>
+          <ol><li v-for="item in correlation.value.events" :key="item.eventId"><span>{{ label(item.source, correlationEventSourceLabels) }}</span><strong>{{ label(item.eventType, activityEventTypeLabels) }}</strong><small>{{ label(item.actorType, auditActorTypeLabels) }} · {{ displayTime(item.occurredAt) }}</small><StatusBadge :tone="outcomeTone(item.outcome)">{{ item.outcome ? label(item.outcome, auditOutcomeLabels) : '已记录' }}</StatusBadge></li></ol>
           <section class="correlation-objects"><h3>关联对象</h3><button v-for="item in correlation.value.objects" :key="`${item.type}:${item.id}`" type="button" @click="emit('navigate', item.href)"><span><strong>{{ label(item.type, correlationObjectTypeLabels) }}</strong><small class="mono">{{ item.id }}</small></span><ArrowUpRight :size="14" /></button></section>
           <footer v-if="correlation.nextCursor"><BaseButton variant="secondary" size="small" :loading="correlation.loadingMore" :disabled="!online" @click="emit('loadMoreCorrelation', correlation.value.correlationId)"><RefreshCw :size="13" />加载更多节点</BaseButton></footer>
         </template>

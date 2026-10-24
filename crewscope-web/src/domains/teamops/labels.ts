@@ -116,6 +116,31 @@ export const activityVisibilityLabels: Record<ActivityVisibility, string> = {
   TEAM_ADMINS: '团队管理员可见',
 }
 
+/**
+ * M13b-F12（二轮 A18/S13）：Activity 事件类型的用户词表。与受限枚举不同，eventType 是后端
+ * 开放词表（自定义事实、新增领域事件都会产生新值）——这里刻意类型为 Record<string, string>，
+ * 未登记的值经 enumLabel 回退原样常量而不是崩溃或漏成空白；新事件落地时在此补一行即可。
+ */
+export const activityEventTypeLabels: Record<string, string> = {
+  ACTION_DELIVERED: '动作已交付',
+  AGENT_RUN_EVENT_RECORDED: 'Agent 运行事件已记录',
+  CONVERSATION_MESSAGE_POSTED: '会话消息已发布',
+  CUSTOM_FACT: '自定义事实',
+  RESPONSIBILITY_ASSIGNED: '责任已指派',
+  REVIEW_APPROVED: '评审已通过',
+  RUN_STARTED: '运行已开始',
+  TASK_COMPLETED: '任务已完成',
+  TASK_EXECUTION_COMPLETED: '任务执行已完成',
+  TASK_PROGRESS_RECORDED: '任务进展已记录',
+  TASK_STARTED: '任务已开始',
+  TASK_STATUS_CHANGED: '任务状态已变更',
+  TEAM_ACCESS_DENIED: '团队访问被拒',
+  WORK_ITEM_CREATED: '工作项已创建',
+  WORK_UPDATED: '工作项已更新',
+  WORKSPACE_DIFF_DELTA: '工作区差异增量',
+  WORKSPACE_DIFF_RESET: '工作区差异已重置',
+}
+
 export const activitySubjectTypeLabels: Record<ActivitySubjectType, string> = {
   TEAM: '团队',
   WORK_ITEM: '工作项',

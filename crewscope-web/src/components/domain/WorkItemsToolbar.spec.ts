@@ -12,7 +12,10 @@ describe('WorkItemsToolbar', () => {
   it('emits filter and view changes', async () => {
     const wrapper = mount(WorkItemsToolbar, { props })
     await wrapper.findAll('select')[0]!.setValue('OPEN')
-    await wrapper.get('button[aria-label="看板视图"]').trigger('click')
+    // M13b-F12（二轮 A20/S8）：视图切换按钮以可见文本（列表/看板/图谱）+ aria-current 表达选中态。
+    const boardButton = wrapper.findAll('button').find(button => button.text() === '看板')
+    expect(boardButton).toBeTruthy()
+    await boardButton!.trigger('click')
     expect(wrapper.emitted('updateQuery')).toEqual([['status', 'OPEN'], ['view', 'board']])
   })
 

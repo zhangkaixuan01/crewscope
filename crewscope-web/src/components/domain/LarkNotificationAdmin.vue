@@ -321,7 +321,7 @@ function toLocalDate(value: string | null): string {
     <p id="lark-preference-reason" class="sr-only">至少保留一种通知类型才能保存偏好。</p>
 
     <nav class="tabs panel" aria-label="飞书管理视图">
-      <button v-for="item in ([['connection','连接与健康'],['mapping','成员映射'],['notification','通知中心']] as const)" :key="item[0]" type="button" :class="{ active: selectedTab === item[0] }" @click="emit('tab', item[0])">{{ item[1] }}</button>
+      <button v-for="item in ([['connection','连接与健康'],['mapping','成员映射'],['notification','通知中心']] as const)" :key="item[0]" type="button" :class="{ active: selectedTab === item[0] }" :aria-current="selectedTab === item[0] ? 'true' : undefined" @click="emit('tab', item[0])">{{ item[1] }}</button>
     </nav>
 
     <StatePanel v-if="command.phase === 'conflict'" compact state="conflict" title="命令使用的版本已过期" :description="`服务端当前版本 v${command.error?.currentVersion ?? '未知'}，已停止自动重放。`" @retry="emit('refresh')" />

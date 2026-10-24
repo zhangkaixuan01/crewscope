@@ -13,7 +13,7 @@ import ScanToolbar from '../base/ScanToolbar.vue'
 
 const props = defineProps<{
   resultCount: number
-  view: 'list' | 'board'
+  view: 'list' | 'board' | 'graph'
   status: string
   type: string
   priority: string
@@ -63,14 +63,16 @@ const sortScopeHint = computed(() => props.hasMore
       <label>优先级<BaseSelect :model-value="priority" @update:model-value="emit('updateQuery', 'priority', String($event))"><option value="all">全部优先级</option><option v-for="item in priorities" :key="item" :value="item">{{ priorityLabels[item] }}</option></BaseSelect></label>
     </template>
     <template #side>
-      <div class="view-switcher" aria-label="工作项视图">
-        <button type="button" :class="{ active: view === 'list' }" aria-label="列表视图" @click="emit('updateQuery', 'view', 'list')"><List :size="15" />List</button>
-        <button type="button" :class="{ active: view === 'board' }" aria-label="看板视图" @click="emit('updateQuery', 'view', 'board')"><Columns3 :size="15" />Board</button>
+      <!-- M13b-F12（二轮 A20/S8/S11）：容器补 role=group（div 的 aria-label 无角色会被忽略）；
+             可见文案与 aria-current 语义对齐 Inbox 视图母本——选中态不只靠视觉 class。 -->
+      <div class="view-switcher" role="group" aria-label="工作项视图">
+        <button type="button" :class="{ active: view === 'list' }" :aria-current="view === 'list' ? 'page' : undefined" @click="emit('updateQuery', 'view', 'list')"><List :size="15" aria-hidden="true" />列表</button>
+        <button type="button" :class="{ active: view === 'board' }" :aria-current="view === 'board' ? 'page' : undefined" @click="emit('updateQuery', 'view', 'board')"><Columns3 :size="15" aria-hidden="true" />看板</button>
         <!-- M11-F02: the third view entry. The graph shell renders its own switcher, so this button
              never carries the active state — it only promises the view exists and navigates to it.
              M13b-F05（R34）: the entry explains what the graph is for — it is not a third layout of
              the same list, it is the blocking-relation view of the whole project. -->
-        <button type="button" aria-label="依赖图视图：按阻塞关系查看整个项目的工作项" @click="emit('updateQuery', 'view', 'graph')"><Network :size="15" />Graph</button>
+        <button type="button" :class="{ active: view === 'graph' }" :aria-current="view === 'graph' ? 'page' : undefined" @click="emit('updateQuery', 'view', 'graph')"><Network :size="15" aria-hidden="true" />图谱</button>
       </div>
       <!-- 每个排序键自带服务端合同的固定方向（写进选项文本）；负责人以禁用选项出现，排序边界与
            原因由 aria-describedby 读出——M9b-A06 平铺按钮契约的 M13b-F09 菜单化形态。 -->

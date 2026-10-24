@@ -17,12 +17,15 @@ const props = withDefaults(defineProps<{
    * 必然说明，不参与此契约。
    */
   retryable?: boolean
+  /** M13b-F12（二轮 A16）：面板标题的 heading 层级——默认 h2（页面 h1 → 面板 h2 顺层）。 */
+  headingLevel?: 2 | 3 | 4
 }>(), {
   retryable: true,
   title: '',
   description: '',
   compact: false,
   retryLabel: '刷新事实',
+  headingLevel: 2,
 })
 
 defineEmits<{ retry: [] }>()
@@ -64,7 +67,9 @@ const retryWired = computed(() => {
   <section class="state-panel" :class="{ compact }" :aria-busy="busy" :aria-live="assertive ? 'assertive' : 'polite'" aria-atomic="true" :role="assertive ? 'alert' : 'status'">
     <component :is="presentation.icon" :class="{ spinning: state === 'loading' || state === 'reconnecting' || state === 'recovering' }" :size="22" aria-hidden="true" />
     <div>
-      <h3>{{ title || presentation.title }}</h3>
+      <!-- M13b-F12（二轮 A16）：标题层级交给调用面——默认 h2（页面 h1 → 面板 h2 顺层），
+           嵌套在 h2 分区里的面板传 heading-level=3 维持层级。此前固定 h3，全站 h1 直接跳 h3。 -->
+      <component :is="`h${headingLevel}`">{{ title || presentation.title }}</component>
       <!-- The slot lets a description embed live content (e.g. a ticking 「最近同步于」 label). -->
       <p><slot name="description">{{ description || presentation.description }}</slot></p>
     </div>

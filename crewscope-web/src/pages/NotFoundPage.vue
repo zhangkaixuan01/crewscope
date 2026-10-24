@@ -9,7 +9,8 @@ import AppShell from '../components/layout/AppShell.vue'
   <!-- M13b-F10（L13）：唯一 h1 在 context header；页内不再叠 h1/StatePanel，说明与行动收进一块，
     min-height 从 100vh 改为扣除 shell chrome（否则 workspace 内必然多出一屏滚动）。 -->
   <AppShell title="页面不存在" eyebrow="导航 · 找不到页面">
-    <main class="not-found">
+    <!-- M13b-F12（二轮 A05）：AppShell 已有唯一 main——这里再开 main 是重复 landmark；div 承担布局。 -->
+    <div class="not-found">
       <p class="mono">404</p>
       <h2>这个工作范围不存在</h2>
       <p class="not-found__note">链接可能已失效，或当前身份没有对应范围。请返回个人工作台，或使用搜索找到需要的内容。</p>
@@ -21,7 +22,7 @@ import AppShell from '../components/layout/AppShell.vue'
           <BaseButton variant="secondary" @click="navigate"><Search :size="15" />打开搜索</BaseButton>
         </RouterLink>
       </div>
-    </main>
+    </div>
   </AppShell>
 </template>
 

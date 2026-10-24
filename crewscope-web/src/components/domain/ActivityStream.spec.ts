@@ -32,8 +32,9 @@ describe('ActivityStream', () => {
   it('keeps cached events visible while reconnecting — without a panel pushing the list down', async () => {
     const wrapper = await mounted({ items: [activity()], realtimePhase: 'reconnecting' })
     // M13b-F10（L05）：连接态由页面 strip 收敛表达，组件不再在列表前插恢复提示。
+    // M13b-F12（二轮 A18）：事件类型经 activityEventTypeLabels 词表中文化。
     expect(wrapper.text()).not.toContain('正在恢复实时活动')
-    expect(wrapper.text()).toContain('TASK_COMPLETED')
+    expect(wrapper.text()).toContain('任务已完成')
   })
 
   it('renders every outcome family, system actors and approved reference destinations', async () => {
@@ -61,13 +62,13 @@ describe('ActivityStream', () => {
     const offline = await mounted({ items: [activity()], online: false, realtimePhase: 'offline', nextCursor: 'older' })
     // 离线时缓存事实仍在列表里（R25 的「最近同步于」由 ActivityPage 的 strip note 表达）。
     expect(offline.text()).not.toContain('正在展示最近同步的 Activity')
-    expect(offline.text()).toContain('TASK_COMPLETED')
+    expect(offline.text()).toContain('任务已完成')
     const more = offline.findAll('button').at(-1)!
     expect(more.attributes('disabled')).toBeDefined()
 
     const failed = await mounted({ phase: 'error', items: [activity()], error: error('unknown') })
     // 硬错误时缓存事实保持可读；错误细节由 ActivityPage 的 strip note 表达（L05 收敛）。
-    expect(failed.text()).toContain('TASK_COMPLETED')
+    expect(failed.text()).toContain('任务已完成')
   })
 
   it('M13b-F10 L05: drops the in-stream page header at page level but keeps a one-line section head when embedded', async () => {

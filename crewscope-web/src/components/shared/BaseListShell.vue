@@ -87,7 +87,8 @@ const reasonId = useId()
           :aria-describedby="offline ? reasonId : undefined"
           @click="emit('loadMore')"
         >{{ loadMoreLabel }}</BaseButton>
-        <p :id="reasonId" class="base-list-shell__reason">离线时续页读取保持关闭。</p>
+        <!-- M13b-F12（二轮 A19）：这条说明只描述离线态——在线时也渲染是常驻噪音。 -->
+        <p v-if="offline" :id="reasonId" class="base-list-shell__reason">离线时续页读取保持关闭。</p>
       </footer>
     </template>
   </section>

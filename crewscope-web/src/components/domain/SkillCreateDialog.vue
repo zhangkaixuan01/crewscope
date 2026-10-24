@@ -96,18 +96,18 @@ function submit(): void {
           autofocus
           :disabled="submitting"
           :aria-invalid="submitted && !keyValid || undefined"
-          aria-describedby="skill-create-key-hint"
+          :aria-describedby="`skill-create-key-hint${submitted && !keyValid ? ' skill-create-key-error' : ''}`"
           required
         >
         <small id="skill-create-key-hint" class="skill-dialog__hint">小写字母、数字与连字符（1-63 位，以小写字母或数字开头），例如 deploy-runbook-v2。</small>
-        <small v-if="submitted && !keyValid" class="skill-dialog__error">{{ keyError }}</small>
+        <small v-if="submitted && !keyValid" id="skill-create-key-error" class="skill-dialog__error">{{ keyError }}</small>
       </label>
 
       <label class="skill-dialog__field">
         <span>文档全文 <span class="skill-dialog__count">{{ content.length }}/{{ SKILL_CONTENT_MAX }}</span></span>
-        <BaseTextarea v-model="content" :rows="12" :disabled="submitting" :invalid="submitted && !contentValid || undefined" />
+        <BaseTextarea v-model="content" :rows="12" :disabled="submitting" :invalid="submitted && !contentValid || undefined" :aria-describedby="submitted && !contentValid ? 'skill-create-doc-error' : undefined" />
         <small class="skill-dialog__hint">frontmatter 恰好含 name（必须等于 skillKey）与 description（≤200 字）两字段；正文即运行时注入的指令来源。</small>
-        <small v-if="submitted && !contentValid" class="skill-dialog__error">{{ documentError }}</small>
+        <small v-if="submitted && !contentValid" id="skill-create-doc-error" class="skill-dialog__error">{{ documentError }}</small>
       </label>
 
       <p v-if="submissionError || errorMessage" class="skill-dialog__command-error" role="alert">{{ submissionError || errorMessage }}</p>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { KeyRound, LogOut, MonitorSmartphone, ShieldCheck, UserRound } from '@lucide/vue'
+import { KeyRound, LogOut, MonitorSmartphone, ShieldCheck } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BaseButton from '../base/BaseButton.vue'
 import BaseDialog from '../base/BaseDialog.vue'
@@ -214,17 +214,12 @@ function confirmSignOut(): void {
   <div class="account-workspace">
     <header class="account-heading">
       <div><p class="eyebrow">Account settings</p><h2 ref="pageHeading" tabindex="-1">身份与安全</h2><p>管理个人资料、密码和当前账号的登录会话。</p></div>
-      <span class="account-avatar" :aria-label="`${profile.displayName} 的头像回退`">{{ avatar }}</span>
+      <span class="account-avatar" aria-hidden="true">{{ avatar }}</span>
     </header>
 
-    <div class="account-layout">
-      <nav aria-label="账号设置导航">
-        <a href="#profile"><UserRound :size="16" />个人资料</a>
-        <a href="#security"><KeyRound :size="16" />密码与安全</a>
-        <a href="#sessions"><MonitorSmartphone :size="16" />登录会话</a>
-      </nav>
-
-      <div class="account-sections">
+    <!-- M13b-F12（二轮 A09）：页内分区导航删除——AccountPage 的 SettingsShell 目录已列同样的
+         锚点（且多「通知偏好」一项，hash 即 aria-current），这里再列一份是双导航重复。 -->
+    <div class="account-sections">
         <div
           v-if="(fieldProblem || problem || !online) && !revokeOpen"
           ref="errorSummary"
@@ -294,7 +289,6 @@ function confirmSignOut(): void {
           </BaseTable>
         </section>
       </div>
-    </div>
 
     <BaseDialog :open="revokeOpen" role="alertdialog" title="退出全部设备？" eyebrow="Security confirmation" width="min(440px, 100%)" :close-disabled="pending" close-label="取消操作" @close="closeRevoke">
       <template #icon><LogOut :size="20" /></template>
@@ -330,10 +324,6 @@ function confirmSignOut(): void {
 .account-heading h2 { margin-bottom: var(--cs-space-8); font-family: var(--cs-font-display); font-size: var(--cs-text-2xl); font-weight: var(--cs-weight-semibold); }
 .account-heading p:last-child { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-base); }
 .account-avatar { display: grid; width: 56px; height: 56px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--cs-brand-600); color: var(--cs-text-on-dark); font-size: var(--cs-text-lg); font-weight: var(--cs-weight-semibold); }
-.account-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: var(--cs-space-20); }
-.account-layout > nav { display: grid; height: fit-content; gap: var(--cs-space-4); position: sticky; top: 76px; }
-.account-layout > nav a { display: flex; min-height: 40px; align-items: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-12); border-radius: 9px; color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
-.account-layout > nav a:hover, .account-layout > nav a:focus-visible { background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); }
 .account-sections { display: grid; min-width: 0; gap: var(--cs-space-16); }
 .account-panel { scroll-margin-top: var(--cs-space-16); padding: var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-lg); background: var(--cs-surface); }
 .account-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); }
@@ -371,8 +361,6 @@ function confirmSignOut(): void {
 .account-dialog__description { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 @media (max-width: 767px) {
   .account-heading { align-items: flex-start; padding-inline: var(--cs-space-2); }.account-heading h2 { font-size: var(--cs-text-xl); }.account-avatar { width: 46px; height: 46px; }
-  .account-layout { grid-template-columns: 1fr; }.account-layout > nav { position: static; grid-template-columns: repeat(3, 1fr); overflow-x: auto; }
-  .account-layout > nav a { justify-content: center; padding-inline: var(--cs-space-8); white-space: nowrap; }
   .account-panel { padding: var(--cs-space-16); }.account-panel > header { align-items: stretch; flex-direction: column; }.account-panel > header button { width: 100%; }
   .account-form, .profile-facts { grid-template-columns: 1fr; }.account-form__wide { grid-column: auto; }.form-actions { display: grid; grid-template-columns: 1fr; }
 }

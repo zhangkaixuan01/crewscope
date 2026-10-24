@@ -149,9 +149,9 @@ function clearSecret(): void {
     <form :id="formId" class="credential-content" @submit.prevent="submit">
       <fieldset v-if="mode === 'create'" class="owner-picker">
         <legend>Connection 归属</legend>
-        <button type="button" :class="{ active: ownerType === 'USER' }" @click="ownerType = 'USER'"><UserRound :size="18" /><span><strong>我的连接</strong><small>只由你管理，可供你的 Personal 与 Specialist Agent 使用。</small></span></button>
-        <button type="button" :disabled="!canManageTeam" aria-label="团队连接" aria-describedby="model-owner-team-reason" :class="{ active: ownerType === 'TEAM' }" @click="ownerType = 'TEAM'"><Building2 :size="18" /><span><strong>团队连接</strong><small id="model-owner-team-reason">{{ canManageTeam ? '团队成员可查看，Provider Manager 可管理。' : '需要 Team Provider 管理权限。' }}</small></span></button>
-        <button v-if="canManageOrganization" type="button" :class="{ active: ownerType === 'ORGANIZATION' }" @click="ownerType = 'ORGANIZATION'"><ShieldCheck :size="18" /><span><strong>组织连接</strong><small>仅平台管理员可创建和管理。</small></span></button>
+        <button type="button" :class="{ active: ownerType === 'USER' }" :aria-pressed="ownerType === 'USER'" @click="ownerType = 'USER'"><UserRound :size="18" /><span><strong>我的连接</strong><small>只由你管理，可供你的 Personal 与 Specialist Agent 使用。</small></span></button>
+        <button type="button" :disabled="!canManageTeam" aria-label="团队连接" aria-describedby="model-owner-team-reason" :class="{ active: ownerType === 'TEAM' }" :aria-pressed="ownerType === 'TEAM'" @click="ownerType = 'TEAM'"><Building2 :size="18" /><span><strong>团队连接</strong><small id="model-owner-team-reason">{{ canManageTeam ? '团队成员可查看，Provider Manager 可管理。' : '需要 Team Provider 管理权限。' }}</small></span></button>
+        <button v-if="canManageOrganization" type="button" :class="{ active: ownerType === 'ORGANIZATION' }" :aria-pressed="ownerType === 'ORGANIZATION'" @click="ownerType = 'ORGANIZATION'"><ShieldCheck :size="18" /><span><strong>组织连接</strong><small>仅平台管理员可创建和管理。</small></span></button>
       </fieldset>
 
       <div v-if="mode === 'create'" class="field-grid">

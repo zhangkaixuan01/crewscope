@@ -83,11 +83,11 @@ defineExpose({
           :rows="14"
           :disabled="!canManage || saving"
           :invalid="validateSkillDocument(snapshot.content, skill.skillKey) !== null || snapshot.content.length > SKILL_CONTENT_MAX || undefined"
-          :aria-describedby="readonlyReason"
+          :aria-describedby="[readonlyReason, validateSkillDocument(snapshot.content, skill.skillKey) ? `${skill.id}-doc-error` : ''].filter(Boolean).join(' ') || undefined"
           placeholder="--- 开头的 frontmatter（name 与 skillKey 一致），随后是注入给任务的正文。"
         />
         <small class="draft-editor__hint">frontmatter 恰好含 name（必须等于 skillKey）与 description（≤200 字）两字段；正文即运行时注入的指令来源。</small>
-        <small v-if="validateSkillDocument(snapshot.content, skill.skillKey)" class="draft-editor__error">{{ validateSkillDocument(snapshot.content, skill.skillKey) }}</small>
+        <small v-if="validateSkillDocument(snapshot.content, skill.skillKey)" :id="`${skill.id}-doc-error`" class="draft-editor__error">{{ validateSkillDocument(snapshot.content, skill.skillKey) }}</small>
       </div>
     </template>
     <template #panels="{ snapshot }">

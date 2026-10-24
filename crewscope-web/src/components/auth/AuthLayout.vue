@@ -24,7 +24,9 @@ withDefaults(defineProps<{
   >
     <a class="auth-layout__skip" :href="`#${mainId}`">跳到主要内容</a>
     <AuthBrandPanel />
-    <main :id="mainId" class="auth-layout__stage">
+    <!-- M13b-F12（二轮 A15）：main 无 tabindex 时 hash 跳转只滚动不聚焦，键盘跳过链断在原地——
+         对齐 AppShell #main-workspace 的 tabindex=-1 可编程聚焦模式。 -->
+    <main :id="mainId" class="auth-layout__stage" tabindex="-1">
       <slot />
     </main>
   </div>

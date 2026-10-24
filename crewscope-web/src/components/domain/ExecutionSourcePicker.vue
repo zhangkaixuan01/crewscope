@@ -88,11 +88,12 @@ defineExpose({ reload: load })
       :options="selectOptions"
       :disabled="disabled"
       :invalid="phase === 'error'"
+      :aria-describedby="phase === 'error' ? 'execution-source-picker-error' : undefined"
       aria-label="选择一次执行"
     />
     <small v-if="phase === 'loading'" class="execution-source-picker__hint">正在读取最近执行…</small>
     <small v-else-if="phase === 'ready' && !options.length" class="execution-source-picker__hint">最近没有带执行的任务——可从 Task 详情的执行区一键带入，或在「高级」中粘贴执行 ID。</small>
-    <small v-else-if="phase === 'error'" class="execution-source-picker__error" role="alert">{{ errorMessage }} <button type="button" @click="load">重试</button></small>
+    <small v-else-if="phase === 'error'" id="execution-source-picker-error" class="execution-source-picker__error" role="alert">{{ errorMessage }} <button type="button" @click="load">重试</button></small>
   </div>
 </template>
 

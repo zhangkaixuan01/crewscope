@@ -73,10 +73,10 @@ defineProps<{
     <StatePanel v-else-if="phase === 'error'" state="error" :description="errorMessage ?? undefined" @retry="onRetry" />
     <StatePanel v-else-if="phase === 'empty' && hasAppliedFilters" state="empty" title="没有符合筛选条件的工作项" description="调整类型或优先级筛选即可恢复结果。"><template #action><BaseButton variant="secondary" @click="onClearFilters"><Filter :size="15" />清除筛选</BaseButton></template></StatePanel>
     <StatePanel v-else-if="phase === 'empty'" state="empty" title="当前范围还没有工作项" description="创建第一个 WorkItem，让团队目标进入可追踪的执行流。"><template #action><BaseButton v-if="canCreate" @click="onCreate"><Plus :size="15" />新建工作项</BaseButton></template></StatePanel>
-    <div v-else-if="view === 'list'" class="work-list" aria-label="工作项列表">
+    <div v-else-if="view === 'list'" class="work-list" role="group" aria-label="工作项列表">
       <WorkItemCard v-for="item in filteredItems" :key="item.id" :item="item" layout="list" :confirming-target="pendingItemId === item.id ? confirmingTarget : null" :busy="busyItemId === item.id" :selectable="selectable" :selected="selectable && isSelected(item.id)" :blocked-count="blockedCountOf(item.id)" @select="onSelect" @action="onAction(item, $event)" @toggle-select="onToggleSelect" @show-blockers="onShowBlockers(item)" />
     </div>
-    <div v-else class="work-board-wrap" aria-label="工作项看板" @keydown="onBoardKeydown">
+    <div v-else class="work-board-wrap" role="group" aria-label="工作项看板" @keydown="onBoardKeydown">
       <div class="work-board">
         <section v-for="status in boardStatuses" :key="status" class="board-column" :class="{ 'drop-target': dragOverStatus === status, 'drop-rejected': draggedWorkItem && !allowDrop(status) }" :aria-label="statusLabels[status]" @dragover.prevent="onDragOver(status)" @dragleave="onDragLeave" @drop.prevent="onDrop(status)">
           <header><span>{{ statusLabels[status] }}</span><StatusBadge>{{ itemsFor(status).length }}</StatusBadge></header>

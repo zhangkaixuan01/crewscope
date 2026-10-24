@@ -369,7 +369,7 @@ function queryText(value: unknown): string | null {
 .currency-table { font-size: var(--cs-text-sm); }
 .currency-table th, .currency-table td { padding: var(--cs-space-8) var(--cs-space-12); border-bottom: 1px solid var(--cs-border); text-align: left; }
 .currency-table thead th { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }
-.role-filter :deep(select) { min-height: 0; font-size: inherit; width: auto; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text); padding: var(--cs-space-4) var(--cs-space-8); }
+.role-filter :deep(select) { font-size: inherit; width: auto; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); color: var(--cs-text); padding: var(--cs-space-4) var(--cs-space-8); }
 .price-revision { font-variant-numeric: tabular-nums; }
 .unreported { color: var(--cs-text-muted); }
 /* L10：数值列右对齐 + tabular-nums——十列左对齐时费用埋在第 8 列且无法竖向比对。 */

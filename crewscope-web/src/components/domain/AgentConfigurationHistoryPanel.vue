@@ -31,6 +31,7 @@ const emit = defineEmits<{
       :key="item.revision"
       type="button"
       :class="{ active: (selectedRevision ?? currentRevision) === item.revision }"
+      :aria-pressed="(selectedRevision ?? currentRevision) === item.revision"
       @click="emit('selectRevision', item.revision)"
     >
       <Clock3 :size="14" /><span><strong>Revision {{ item.revision }}</strong><small>{{ item.createdAt.slice(0, 10) }} · {{ item.templateKey }}@{{ item.templateVersion }}</small></span><ChevronRight :size="14" />

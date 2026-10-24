@@ -87,7 +87,9 @@ function requestClose(): void {
       <p :id="impactId" class="action-confirm__impact">{{ impact }}</p>
       <label v-if="mode === 'reason'" class="action-confirm__field">
         <span>{{ reasonLabel }}<span class="action-confirm__count" :class="{ over: reasonOver }">{{ reason.length }}/{{ reasonMaxlength }}</span></span>
-        <BaseTextarea v-model="reason" :rows="3" :disabled="submitting" :invalid="reasonOver || undefined" :placeholder="reasonPlaceholder" />
+        <!-- M13b-F12（二轮 S10/S14）：超长此前只有计数变红，读屏拿不到原因——补可见错误并关联。 -->
+        <BaseTextarea v-model="reason" :rows="3" :disabled="submitting" :invalid="reasonOver || undefined" :aria-describedby="reasonOver ? 'action-confirm-reason-error' : undefined" :placeholder="reasonPlaceholder" />
+        <small v-if="reasonOver" id="action-confirm-reason-error" class="action-confirm__error">理由超出 {{ reasonMaxlength }} 字上限，请精简后提交。</small>
       </label>
       <label v-else-if="mode === 'confirm'" class="action-confirm__checkbox">
         <input v-model="checked" type="checkbox" :disabled="submitting" />{{ confirmCheckboxLabel }}

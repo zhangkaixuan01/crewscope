@@ -621,11 +621,13 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
       <section class="panel connection-directory">
         <div class="panel-heading"><div><p class="eyebrow">Authorized connections</p><h2>{{ connections.length }} 个 GitHub Connection</h2><p>Connection 是远程授权事实；GitHub Repository Catalog 用于 Push 和 Draft PR。Coding Agent 使用的 RepositoryBinding 仍需在 WorkProject 仓库设置中单独配置。</p></div><GitFork :size="24" /></div>
         <StatePanel v-if="connections.length === 0" state="empty" title="还没有 GitHub Connection" description="创建个人 OAuth 或团队 GitHub App Connection 后，才能同步 Repository Catalog。"><template #action><BaseButton size="small" :disabled="!online" @click="formOpen = true"><Plus :size="14" />创建第一个 Connection</BaseButton></template></StatePanel>
-        <div v-else class="connection-list" role="list" aria-label="GitHub Connection 列表">
-          <button v-for="connection in connections" :key="connection.id" class="connection-card" :class="{ selected: selectedId === connection.id }" type="button" role="listitem" @click="selectConnection(connection.id)">
+        <!-- M13b-F12（二轮 A12/S8）：role=listitem 挂在 button 上会覆盖 button 语义——改 ul/li 包裹
+               原生 button；选中态补 aria-pressed，不再只靠视觉 class。 -->
+        <ul v-else class="connection-list" aria-label="GitHub Connection 列表">
+          <li v-for="connection in connections" :key="connection.id"><button class="connection-card" :class="{ selected: selectedId === connection.id }" type="button" :aria-pressed="selectedId === connection.id" @click="selectConnection(connection.id)">
             <span class="connection-card__icon"><KeyRound :size="17" /></span><span class="connection-card__body"><strong>{{ connection.externalAccountLogin || 'GitHub account' }}</strong><small>{{ connectionIdentity(connection) }} · {{ connection.id.slice(0, 8) }}</small></span><StatusBadge :tone="statusTone(connection.status)" dot>{{ label(connection.status, providerConnectionStatusLabels) }}</StatusBadge>
-          </button>
-        </div>
+          </button></li>
+        </ul>
       </section>
 
       <section v-if="selectedConnection" class="panel connection-detail">

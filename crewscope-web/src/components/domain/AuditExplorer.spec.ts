@@ -10,7 +10,7 @@ describe('AuditExplorer', () => {
   it('renders the public Audit table and emits combination filters', async () => {
     const wrapper = mount(AuditExplorer, { props: props(), global: { stubs: routerLinkStub } })
 
-    expect(wrapper.get('table').text()).toContain('TEAM_ACCESS_DENIED')
+    expect(wrapper.get('table').text()).toContain('团队访问被拒')
     expect(wrapper.text()).toContain('SECURITY')
     expect(wrapper.text()).not.toMatch(/Authorization Context|Credential|Endpoint|Trace ID|Provider Body|原始 Payload/)
 
@@ -48,7 +48,7 @@ describe('AuditExplorer', () => {
     const graph = correlationGraph()
     const wrapper = mount(AuditExplorer, { props: props({ correlation: correlationResource(graph), correlationId: graph.correlationId }), global: { stubs: routerLinkStub } })
 
-    expect(wrapper.get('[aria-label="Correlation 关联链"]').text()).toContain('TEAM_ACCESS_DENIED')
+    expect(wrapper.get('[aria-label="Correlation 关联链"]').text()).toContain('团队访问被拒')
     await wrapper.get('.correlation-objects button').trigger('click')
     expect(wrapper.emitted('navigate')?.[0]).toEqual([graph.objects[0]!.href])
   })

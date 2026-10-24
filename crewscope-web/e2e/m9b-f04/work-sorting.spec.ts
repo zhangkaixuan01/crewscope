@@ -112,7 +112,8 @@ test('keeps the primary actions reachable on a phone while filters wrap', async 
 
   // 主操作不被筛选行挤走：新建入口与视图切换都保持可见可点（R16 的主操作承诺不变）。
   await expect(page.getByRole('button', { name: /新建工作项/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: '看板视图' })).toBeVisible()
+  // M13b-F12（二轮 A20/S8）：视图切换按钮以可见文本取代 aria-label。 */
+  await expect(page.getByRole('button', { name: '看板', exact: true })).toBeVisible()
 
   // M13b-F09：筛选在窄屏直接换行可见（不再折叠+badge），选择即应用 URL 更新。
   const selects = page.locator('.scan-toolbar__filters select')

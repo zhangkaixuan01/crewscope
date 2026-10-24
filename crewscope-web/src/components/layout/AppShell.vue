@@ -327,7 +327,7 @@ async function signOut(): Promise<void> {
       </div>
       <div class="topbar" role="region" aria-label="全局工具栏">
         <button class="mobile-menu-toggle" type="button" aria-label="打开主导航" :aria-expanded="mobileNavOpen" aria-controls="mobile-navigation" @click="mobileNavOpen = true"><PanelLeftOpen :size="18" aria-hidden="true" /></button>
-        <div v-if="canConversation || canReadScope" class="mode-switcher" aria-label="工作模式">
+        <div v-if="canConversation || canReadScope" class="mode-switcher" role="group" aria-label="工作模式">
           <RouterLink v-if="canConversation" :class="{ active: activeMode === 'conversation' }" :to="modeTarget('conversation')" :aria-current="activeMode === 'conversation' ? 'page' : undefined">
             <MessageSquare :size="16" aria-hidden="true" />对话
           </RouterLink>
@@ -499,7 +499,7 @@ async function signOut(): Promise<void> {
    * 换不换行取决于 webfont 加载竞速——header 高度在 132/180 间抖动，mobile-back 的落位
    * 跟着抖（M9b-Q01 axe 定位 target-size 时的伴生发现）。固定 2+1 两行布局，高度确定。 */
   .context-header__actions :deep(.base-button) { flex: 1 1 calc(50% - var(--cs-space-8)); }
-  .mobile-mode { position: fixed; inset: auto 0 0; z-index: var(--cs-z-sticky); display: grid; height: 60px; max-width: 100vw; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
+  .mobile-mode { position: fixed; inset: auto 0 0; z-index: var(--cs-z-sticky); display: grid; height: calc(60px + env(safe-area-inset-bottom)); max-width: 100vw; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 1fr auto; padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
   .mobile-mode a { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
   .mobile-mode a.active { color: var(--cs-text-brand); }
   .network-banner { min-height: 40px; padding-inline: var(--cs-space-12); font-size: var(--cs-text-xs); }

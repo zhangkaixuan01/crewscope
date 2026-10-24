@@ -22,6 +22,7 @@ import { enumLabel } from '../domains/shared/labels'
 import RelativeTime from '../components/base/RelativeTime.vue'
 import {
   activityCategoryLabels,
+  activityEventTypeLabels,
   activityRealtimePhaseLabels,
   activityReferenceTypeLabels,
   activitySubjectTypeLabels,
@@ -189,13 +190,13 @@ function actorName(principalId: string | null, type: string): string {
           <template v-else-if="store.state.teamActivity.error">权威读取异常（{{ store.state.teamActivity.error.message }}）· 已加载事实保持可读</template>
           <template v-else>实时流只推进公开 Activity DTO，领域详情仍由权威 API 回读</template>
         </p>
-        <StatusBadge :tone="realtime.state.phase === 'live' ? 'success' : 'warning'" dot>{{ activityRealtimePhaseLabels[realtime.state.phase] }}</StatusBadge>
+        <StatusBadge role="status" :tone="realtime.state.phase === 'live' ? 'success' : 'warning'" dot>{{ activityRealtimePhaseLabels[realtime.state.phase] }}</StatusBadge>
       </section>
 
       <ScanToolbar aria-label="Activity 筛选">
         <template #count>{{ filteredItems.length }} 条当前结果</template>
         <template #filters>
-          <label>Category<BaseSelect :model-value="selectedCategory" @update:model-value="updateCategory"><option value="ALL">全部类别</option><option v-for="category in categories" :key="category" :value="category">{{ activityCategoryLabels[category] }}</option></BaseSelect></label>
+          <label>类别<BaseSelect :model-value="selectedCategory" @update:model-value="updateCategory"><option value="ALL">全部类别</option><option v-for="category in categories" :key="category" :value="category">{{ activityCategoryLabels[category] }}</option></BaseSelect></label>
           <label>Actor<BaseSelect :model-value="selectedActor" aria-label="按成员筛选" @update:model-value="updateActor"><option value="">全部成员</option><option v-for="member in actorOptions" :key="member.userPrincipalId" :value="member.userPrincipalId">{{ member.displayName }}</option></BaseSelect></label>
         </template>
         <template #side>
@@ -219,7 +220,9 @@ function actorName(principalId: string | null, type: string): string {
           <StatePanel v-if="!selectedDetail || selectedDetail.phase === 'loading'" compact state="loading" />
           <StatePanel v-else-if="selectedDetail.phase === 'error'" compact :state="selectedDetail.error?.kind === 'forbidden' ? 'forbidden' : 'error'" :description="selectedDetail.error?.message" @retry="store.loadActivityDetail(selectedEventId, null, true)" />
           <template v-else-if="selectedDetail.value">
-            <dl><div><dt>Event</dt><dd class="mono">{{ selectedDetail.value.eventId }}</dd></div><div><dt>类型</dt><dd>{{ selectedDetail.value.eventType }}</dd></div><div><dt>Category</dt><dd>{{ enumLabel(selectedDetail.value.category, activityCategoryLabels) }}</dd></div><div><dt>Actor</dt><dd>{{ actorName(selectedDetail.value.actor.principalId, selectedDetail.value.actor.type) }}</dd></div><div><dt>Subject</dt><dd>{{ enumLabel(selectedDetail.value.subject.type, activitySubjectTypeLabels) }}<template v-for="reference in selectedDetail.value.references" :key="`${reference.type}:${reference.id}`"> <RouterLink :to="referenceTarget(reference, selectedDetail.value.eventId)">{{ referenceLabel(reference.type) }}</RouterLink></template></dd></div><div><dt>发生时间</dt><dd>{{ displayTime(selectedDetail.value.occurredAt) }}</dd></div></dl>
+            <!-- M13b-F12（二轮 A18）：详情字段统一中文术语（与术语表对齐：事件标识/类别/操作者/关联对象），
+             事件类型走词表而非裸常量。 -->
+            <dl><div><dt>事件标识</dt><dd class="mono">{{ selectedDetail.value.eventId }}</dd></div><div><dt>类型</dt><dd>{{ enumLabel(selectedDetail.value.eventType, activityEventTypeLabels) }}</dd></div><div><dt>类别</dt><dd>{{ enumLabel(selectedDetail.value.category, activityCategoryLabels) }}</dd></div><div><dt>操作者</dt><dd>{{ actorName(selectedDetail.value.actor.principalId, selectedDetail.value.actor.type) }}</dd></div><div><dt>关联对象</dt><dd>{{ enumLabel(selectedDetail.value.subject.type, activitySubjectTypeLabels) }}<template v-for="reference in selectedDetail.value.references" :key="`${reference.type}:${reference.id}`"> <RouterLink :to="referenceTarget(reference, selectedDetail.value.eventId)">{{ referenceLabel(reference.type) }}</RouterLink></template></dd></div><div><dt>发生时间</dt><dd>{{ displayTime(selectedDetail.value.occurredAt) }}</dd></div></dl>
             <section><h3>公开摘要</h3><p v-if="Object.keys(selectedDetail.value.payload.values).length === 0">此事件没有公开摘要字段。</p><dl v-else><div v-for="(value, key) in selectedDetail.value.payload.values" :key="key"><dt>{{ key }}</dt><dd>{{ value }}</dd></div></dl></section>
           </template>
         </aside>

@@ -82,7 +82,7 @@ test('names the audit subject through the picker, including former team identiti
   const world: World = { principalQueries: [], auditQueries: [], exportBodies: [], pointReads: [] }
   await mockAuditApi(page, world)
   await page.goto(`/audit?team=${ids.team}&from=2026-09-01T08:00&to=2026-09-26T08:00`)
-  await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
+  await expect(page.getByText('团队访问被拒')).toBeVisible()
 
   // M13b-F09：高级筛选收进 BaseMenu 弹层（trigger「高级筛选」，initial-focus none 不抢输入焦点）。
   await page.getByRole('button', { name: '高级筛选' }).click()
@@ -106,7 +106,7 @@ test('blocks export while the draft drifted and restores it through the apply en
   const world: World = { principalQueries: [], auditQueries: [], exportBodies: [], pointReads: [] }
   await mockAuditApi(page, world)
   await page.goto(`/audit?team=${ids.team}&from=2026-09-01T08:00&to=2026-09-26T08:00`)
-  await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
+  await expect(page.getByText('团队访问被拒')).toBeVisible()
   await expect(page.getByText('已应用条件')).toBeVisible()
 
   await page.getByLabel('Category').selectOption('SECURITY')
@@ -124,7 +124,7 @@ test('exports the applied conditions and reports the shipped count with truncati
   const world: World = { principalQueries: [], auditQueries: [], exportBodies: [], pointReads: [] }
   await mockAuditApi(page, world)
   await page.goto(`/audit?team=${ids.team}&from=2026-09-01T08:00&to=2026-09-26T08:00&category=SECURITY`)
-  await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
+  await expect(page.getByText('团队访问被拒')).toBeVisible()
 
   await page.getByLabel('导出上限').fill('1')
   const download = page.waitForEvent('download')
@@ -139,7 +139,7 @@ test('opens a second-page event from a deep link in a fresh load', async ({ page
   const world: World = { principalQueries: [], auditQueries: [], exportBodies: [], pointReads: [] }
   await mockAuditApi(page, world)
   await page.goto(`/audit?team=${ids.team}&from=2026-09-01T08:00&to=2026-09-26T08:00`)
-  await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
+  await expect(page.getByText('团队访问被拒')).toBeVisible()
 
   // Load page two first so the target is known, then arrive by deep link in a fresh document:
   // the first page does not contain the row, so the by-id point read must fill the detail.
@@ -148,7 +148,7 @@ test('opens a second-page event from a deep link in a fresh load', async ({ page
   await page.goto(`/audit?team=${ids.team}&from=2026-09-01T08:00&to=2026-09-26T08:00&auditEvent=${ids.olderEvent}`)
 
   await expect(page.getByRole('heading', { name: '审计详情' })).toBeVisible()
-  await expect(page.locator('.audit-detail__hero')).toContainText('ACTION_DELIVERED')
+  await expect(page.locator('.audit-detail__hero')).toContainText('动作已交付')
   expect(world.pointReads).toContain(ids.olderEvent)
 })
 
@@ -156,7 +156,7 @@ test('explains a deep-linked event that is not visible in the current Team', asy
   const world: World = { principalQueries: [], auditQueries: [], exportBodies: [], pointReads: [] }
   await mockAuditApi(page, world)
   await page.goto(`/audit?team=${ids.team}&from=2026-09-01T08:00&to=2026-09-26T08:00&auditEvent=${ids.unknownEvent}`)
-  await expect(page.getByText('TEAM_ACCESS_DENIED')).toBeVisible()
+  await expect(page.getByText('团队访问被拒')).toBeVisible()
   await expect(page.getByText('深链的审计事件在当前 Team 不可见')).toBeVisible()
   await expect(page.getByRole('heading', { name: '审计详情' })).toBeHidden()
 })

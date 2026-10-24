@@ -41,9 +41,10 @@ describe('M9-F03 interaction kernel', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))
     await flushPromises()
     expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('命令面板')
-    const actionButton = document.body.querySelector<HTMLButtonElement>('button[aria-label="打开今日"]')
-    expect(actionButton).toBeTruthy()
-    actionButton?.click()
+    // M13b-F12（二轮 A01）：option 从 button[aria-label] 改为 listbox 的 li[role=option]，按可见文本定位。
+    const actionOption = [...document.body.querySelectorAll<HTMLElement>('[role="option"]')].find(el => el.textContent?.includes('打开今日'))
+    expect(actionOption).toBeTruthy()
+    actionOption?.click()
     await flushPromises()
     await router.isReady()
     expect(execute).toHaveBeenCalledOnce()

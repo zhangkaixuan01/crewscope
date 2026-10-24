@@ -15,7 +15,7 @@ import crewScopeMark from '../../design/crewscope-mark.svg'
       <h1>把 AI 执行带回团队</h1>
       <p>每位成员拥有自己的 Personal Agent，任务、责任、Review 与交付证据在同一个团队工作空间汇合。</p>
 
-      <div class="auth-crew-map" aria-label="成员、Personal Agent 与团队协作关系">
+      <div class="auth-crew-map" aria-hidden="true">
         <div class="auth-crew-map__node">
           <UserRound :size="17" aria-hidden="true" />
           <span>你<small>最终责任人</small></span>
