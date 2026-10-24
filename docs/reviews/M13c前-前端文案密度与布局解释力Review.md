@@ -175,3 +175,35 @@ StatePanel.vue:34–41 九态默认对象中四条是纯填充句：loading「�
 - 证据性质：全部代码确认（静态文案走查）；未跑实机（纯文案密度问题，代码即完整证据；删行后的布局效果需在 C05 用四视口量测复核）。
 - 未覆盖：后端文案（API 错误 message/通知正文）；邮件/飞书模板；e2e 断言文案的连锁面（C01–C04 实施时按 F12 教训逐批 rg）；竞品文案密度对照。
 - 与前两轮的分工：M13 后 Review 看旅程断点、M13b 前 Review 看布局与语义契约，本轮只看文字量与布局解释力的重叠——三论正交，本文编号 W1–W8/S1–S4 独立。
+
+## 8. M13c 整改回填（2026-10-24，C01–C05 完成）
+
+整改基线 `8db4ca74`（M13c 计划冻结）之后五包全量交付，逐项关闭标注：
+
+| 编号 | 处置 | 提交 |
+| --- | --- | --- |
+| S1 | ✅ StatePanel 改「无传入不渲染」：九态默认对象去 loading/empty/forbidden/recovering 四态 description；BaseListShell loadingDescription/emptyDescription 同契约改可选（C03 连带） | C01 `8fde9b18` |
+| S2 | ✅ `view.*` 四条并入 `nav.*`，快捷键语义挂 nav 条目 | C01 |
+| W2 | ✅ 24 条 action description 逐条清理：纯复述 title 删、补范围的留 | C01 |
+| W8 | ✅ 随 S1 根治，~40 调用点零改动自动减行 | C01 |
+| W1 | ✅ 13 组同页重复全部收敛（Search 范围句/AgentSettings 分类学/Quota 留空/TeamObserver 只读/GitHub Token 单向/Catalog/Setup 边界/Onboarding 完成态/两蒸馏/Delegate/Model 治理卡/Operations 证据链接/Conversation 欢迎态/Register） | C02 `8c48519e` |
+| S3 | ✅ 3 族单源化（403 句与幂等回执 → `domains/shared/stateCopy.ts`；frontmatter hint 与恢复生效 → `skill/labels.ts`，文案一字未改）；5 族登记不合并（裁定 3/4） | C02 |
+| W3 | ✅ auth 卡 desc/status 两层 ×3 页 + 「正在读取」描述 ×14 删；孤儿 CSS 同步清 | C03 `3326e7a0` |
+| W4 | ✅ 9 组副标题/分区描述删（有增量的待确认/异常两条保留）；两蒸馏 subtitle 翻案（裁定 1） | C03 |
+| W5 | ✅ 样板句 13 处 + 空态二句 8 处删；InboxPage:274 按红线 7 处理（裁定 5） | C03 |
+| W6 | ✅ 10 处布局自指删（ConversationParticipantsPanel 预告 div + 孤儿 import/CSS 连带清） | C03 |
+| W7 | ✅ 9 组拆句/删除（TeamMembers/Operations/ModelConnectionDetail/两蒸馏 placeholder/AuthBrandPanel/Setup/Quota/Repository/GitHub） | C04 `6bb47b8c` |
+| S4 | ✅ 裁决「限页面级页头 + 品牌位」：面板级 eyebrow ×24、section-heading/抽屉 ×16、对话框属性 ×10 删；数据三处保数据去英文标签；保留清单见裁定 6 | C04 |
+
+裁定登记（存疑项最终裁决，均经实测复核）：
+
+1. **两蒸馏 subtitle 翻案保留**（W4）：C02 已删同信息 hint，subtitle 成为单源——「删其一」意图已满足，不删第二处。
+2. **TeamObserverWorkspace:178 翻案保留**：C02 删 :106 汇总条后，:178 成为唯一「重新授权」路径说明。
+3. **待索引 hint 族不收敛**（S3）：实测 BaseVersionHistory hint 槽只对 selected 渲染一次，每屏 ≤2 处在容忍线内，不引入 v-if 首现复杂度。
+4. **近似句族不合并**（S3）：回滚 impact（跨页近似非逐字）、Task 详情复制 ×3（变体）、离线关闭句 ×11（变体族）——逐字同句才单源化，变体承载语义差异。
+5. **InboxPage:274 红线 7**：`id="inbox-scope-reason"` 与刷新按钮 aria-describedby 接线保留，scope 语义由面板 title「请选择 Team」承担；check-disabled-reasons 对 aria-describedby 上下文豁免。
+6. **中文/数据眉题保留清单**（S4）：AgentConfigurationPanel:454、WorkGraphWorkspace:141（纯数据）、TodayPage:492、AccessDeniedPage:45、SetupPage:262「能力清单」——均非英文装饰，不属收敛面。
+
+红线核对（计划 §3 七条）：正面基线行为语义文案、StatePanel offline/conflict/cancelled/error 四态默认句、术语表技术详情折叠区、sr-only/aria-describedby/禁用原因、输入格式契约句式、空态一句标题+按钮、InboxPage aria 语义——全部未动，删除的均为冗余层。
+
+C05 验证记录：vitest 全量 1992/1992 绿（275 文件）；e2e 全量 704 passed/13 skipped，唯一失败 e2e/m9b-f03/reading-anchors.spec.ts:250 判定**负载时序 flake**（全量 run1 绿 / run2 偏差 881px / run3 偏差 793px 值非确定；单独复跑 ×3 恒绿；M13c 纯文案删行不触碰虚拟列表机制，无因果通路——400ms resize 收敛窗在 4-worker 满载下击穿）；快照基线 38 张重写，全部为纯高度收缩（ratio 0.03–0.05，零增行、零断言失败），逐一归因到删行面；七门禁（check:quality / enum-labels / q01 / sensitive / design-tokens / bundle / doc-links）全绿（quality 需先清 8 处 patch 残留行尾空格）。净改动：C01–C04 合计 79 文件 +218/−229（src 77 文件 +216/−227）+ C05 快照 38 张与行尾清理 7 文件。

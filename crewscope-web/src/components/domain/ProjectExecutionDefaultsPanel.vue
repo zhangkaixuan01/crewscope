@@ -112,7 +112,7 @@ async function save(): Promise<void> {
     <details class="execution-defaults__details">
       <summary class="execution-defaults__summary">
         <span>
-          
+
           <h2 id="execution-defaults-title">项目默认执行配置</h2>
         </span>
         <span v-if="defaults" class="muted">版本 {{ defaults.version }}</span>

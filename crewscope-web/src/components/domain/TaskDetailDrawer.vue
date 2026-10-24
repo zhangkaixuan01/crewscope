@@ -284,7 +284,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
   <BaseDrawer open :title="details ? `${details.objective} Task 详情` : 'Task 详情'" width="min(1040px, 96vw)" padding="var(--cs-space-12)" close-label="关闭 Task 详情" @close="$emit('close')">
     <template #header>
       <div class="task-detail-header__text">
-        
+
         <strong>Task 工作区</strong>
       </div>
     </template>

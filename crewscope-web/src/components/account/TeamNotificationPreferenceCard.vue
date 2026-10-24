@@ -134,7 +134,7 @@ async function save(): Promise<void> {
     <div class="team-preference__heading">
       <i><BellRing :size="18" /></i>
       <div>
-        
+
         <h2>当前团队通知偏好</h2>
         <p>偏好由你自己的成员资格保护：不要求管理员权限，移除成员后即不可读写。</p>
       </div>

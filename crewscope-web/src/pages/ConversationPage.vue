@@ -901,7 +901,7 @@ async function redirectIfForbidden(): Promise<void> {
       <section class="panel conversation-list-panel" :class="{ collapsed: leftPaneCollapsed }" aria-label="对话列表">
         <header class="conversation-list-header">
           <div>
-            
+
             <h2>{{ teamName }}</h2>
           </div>
           <div class="conversation-list-header__actions">
@@ -1267,7 +1267,7 @@ async function redirectIfForbidden(): Promise<void> {
         </template>
         <div v-else class="conversation-welcome">
           <span><MessageSquarePlus :size="26" aria-hidden="true" /></span>
-          
+
           <h2>从一个对话开始</h2>
           <p v-if="focus">你正在处理 <strong>{{ focus }}</strong>。</p>
           <BaseButton @click="openCreate">

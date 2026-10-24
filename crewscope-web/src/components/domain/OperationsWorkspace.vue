@@ -182,7 +182,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
     <template v-if="summary">
       <section class="health-hero" aria-labelledby="health-heading">
         <div>
-          
+
           <h2 id="health-heading"><Gauge :size="20" aria-hidden="true" />团队执行链路</h2>
         </div>
         <div class="health-hero__status">
