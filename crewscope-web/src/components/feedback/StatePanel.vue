@@ -30,15 +30,21 @@ const props = withDefaults(defineProps<{
 
 defineEmits<{ retry: [] }>()
 
+/*
+ * M13c-C01（S1/W8）：loading/empty/forbidden/recovering 四态不再兜底通用 description——
+ * 调用点只传 title 时通用填充句会渗进具体语境（既不匹配又多一行）；无传入就不渲染。
+ * error/conflict/offline/cancelled 四态的默认句是行为语义（C5/stale 契约 + e2e 锚定），
+ * 一字不动；reconnecting 的「上次已知坐标」句保留（Review 判存疑，从保守）。
+ */
 const presentation = computed(() => ({
-  loading: { icon: LoaderCircle, title: '正在加载', description: '正在获取最新团队事实。' },
-  empty: { icon: FileQuestion, title: '暂无内容', description: '这里还没有可显示的工作。' },
+  loading: { icon: LoaderCircle, title: '正在加载' },
+  empty: { icon: FileQuestion, title: '暂无内容' },
   error: { icon: AlertTriangle, title: '加载失败', description: '服务暂时无法完成请求，请稍后重试。' },
-  forbidden: { icon: Ban, title: '无权查看', description: '当前身份没有访问此范围的权限。' },
+  forbidden: { icon: Ban, title: '无权查看' },
   conflict: { icon: Scale, title: '内容已发生变化', description: '其他成员更新了这份事实，请刷新后重新应用变更。' },
   offline: { icon: WifiOff, title: '当前离线', description: '已加载事实和本地草稿会保留，联网后可继续。' },
   reconnecting: { icon: RefreshCw, title: '正在重新连接', description: '正在从上次已知坐标恢复实时事实。' },
-  recovering: { icon: RotateCcw, title: '执行正在恢复', description: 'Runtime 正在从最近的耐久检查点恢复执行。' },
+  recovering: { icon: RotateCcw, title: '执行正在恢复' },
   cancelled: { icon: CircleStop, title: '已取消', description: '本次操作已终止，已提交的业务事实保持不变。' },
 })[props.state])
 
@@ -70,8 +76,9 @@ const retryWired = computed(() => {
       <!-- M13b-F12（二轮 A16）：标题层级交给调用面——默认 h2（页面 h1 → 面板 h2 顺层），
            嵌套在 h2 分区里的面板传 heading-level=3 维持层级。此前固定 h3，全站 h1 直接跳 h3。 -->
       <component :is="`h${headingLevel}`">{{ title || presentation.title }}</component>
-      <!-- The slot lets a description embed live content (e.g. a ticking 「最近同步于」 label). -->
-      <p><slot name="description">{{ description || presentation.description }}</slot></p>
+      <!-- The slot lets a description embed live content (e.g. a ticking 「最近同步于」 label).
+           M13c-C01：无传入且该态无契约默认句时整行不渲染——布局自己解释空缺。 -->
+      <p v-if="description || presentation.description"><slot name="description">{{ description || presentation.description }}</slot></p>
     </div>
     <BaseButton v-if="recoverable && retryWired" variant="secondary" size="small" @click="$emit('retry')">
       <template #icon><RefreshCw :size="14" aria-hidden="true" /></template>
