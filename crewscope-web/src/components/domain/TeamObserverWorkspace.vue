@@ -37,10 +37,10 @@ const statusText = computed(() => ({
   reconnecting: '连接中断，正在恢复同一次调用', completed: '团队摘要已生成', cancelling: '正在取消本次调用',
   cancelled: '本次调用已取消', error: store.state.errorMessage ?? 'Team Observer 暂时不可用',
 })[store.state.phase])
-const sections: Array<{ key: TeamSummarySection, label: string, description: string, icon: typeof Activity }> = [
-  { key: 'progress', label: '进展', description: '最近推进或完成的团队工作', icon: CheckCircle2 },
-  { key: 'blockers', label: '阻塞', description: '正在妨碍交付的事实', icon: CircleStop },
-  { key: 'reviewBacklog', label: 'Review', description: '等待 Review 或复核的工作', icon: ClipboardCheck },
+const sections: Array<{ key: TeamSummarySection, label: string, description?: string, icon: typeof Activity }> = [
+  { key: 'progress', label: '进展', icon: CheckCircle2 },
+  { key: 'blockers', label: '阻塞', icon: CircleStop },
+  { key: 'reviewBacklog', label: 'Review', icon: ClipboardCheck },
   { key: 'pendingConfirmations', label: '待确认', description: '等待成员确认的受控动作', icon: ShieldCheck },
   { key: 'anomalies', label: '异常', description: '需要关注的执行与交付异常', icon: AlertTriangle },
 ]
@@ -152,7 +152,7 @@ function requiredStore(value: TeamObserverStore | undefined): TeamObserverStore 
       </header>
       <div class="observer-section-grid">
         <section v-for="section in sections" :key="section.key" class="observer-section panel" :aria-labelledby="`observer-${section.key}`">
-          <header><span><component :is="section.icon" :size="15" aria-hidden="true" /></span><div><h4 :id="`observer-${section.key}`">{{ section.label }}</h4><p>{{ section.description }}</p></div><strong>{{ store.state.summary[section.key].length }}</strong></header>
+          <header><span><component :is="section.icon" :size="15" aria-hidden="true" /></span><div><h4 :id="`observer-${section.key}`">{{ section.label }}</h4><p v-if="section.description">{{ section.description }}</p></div><strong>{{ store.state.summary[section.key].length }}</strong></header>
           <p v-if="store.state.summary[section.key].length === 0" class="observer-empty">当前没有可披露的{{ section.label }}事实</p>
           <ol v-else>
             <li v-for="entry in store.state.summary[section.key]" :key="entry.evidenceIndex">

@@ -204,7 +204,7 @@ function formatDate(value: string): string {
 
     <StatePanel v-if="store.state.managementPhase === 'idle' || (store.state.managementPhase === 'loading' && !store.state.items.length)" state="loading" />
     <StatePanel v-else-if="store.state.managementPhase === 'error' && !store.state.items.length" state="error" :description="store.state.managementProblem?.message" @retry="store.loadManagement(organizationId, teamId)" />
-    <StatePanel v-else-if="!store.state.items.length" state="empty" title="还没有团队邀请" description="创建一次性链接后，邀请状态会显示在这里。"><template v-if="!createOpen" #action><BaseButton size="small" :disabled="!online" @click="openCreate"><UserRoundPlus :size="14" />创建邀请</BaseButton></template></StatePanel>
+    <StatePanel v-else-if="!store.state.items.length" state="empty" title="还没有团队邀请"><template v-if="!createOpen" #action><BaseButton size="small" :disabled="!online" @click="openCreate"><UserRoundPlus :size="14" />创建邀请</BaseButton></template></StatePanel>
     <ul v-else class="invitation-list" aria-label="团队邀请列表">
       <li v-for="invitation in store.state.items" :key="invitation.id" class="invitation-row">
         <span class="invitation-row__icon"><Mail :size="16" /></span>

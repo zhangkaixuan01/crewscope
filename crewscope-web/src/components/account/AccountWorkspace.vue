@@ -213,7 +213,7 @@ function confirmSignOut(): void {
 <template>
   <div class="account-workspace">
     <header class="account-heading">
-      <div><p class="eyebrow">Account settings</p><h2 ref="pageHeading" tabindex="-1">身份与安全</h2><p>管理个人资料、密码和当前账号的登录会话。</p></div>
+      <div><p class="eyebrow">Account settings</p><h2 ref="pageHeading" tabindex="-1">身份与安全</h2></div>
       <span class="account-avatar" aria-hidden="true">{{ avatar }}</span>
     </header>
 

@@ -48,7 +48,6 @@ const agentGroups = computed(() => [
     key: 'personal', title: '默认 Personal Agent', directoryId: 'personal-agent-directory',
     description: '每位成员唯一的对话入口，生命周期由平台管理。', agents: personalAgents.value,
     emptyTitle: 'Personal Agent 尚未完成初始化',
-    emptyDescription: '完成 Team 初始化后，平台会在这里展示你的默认对话 Agent。',
   },
   {
     key: 'specialist', title: '我的 Specialist', directoryId: 'specialist-agent-directory',
@@ -328,7 +327,7 @@ function bindingLabel(binding: BindingView): string {
       @submit="createAgent"
     />
     <StatePanel v-if="scopeStore.state.phase === 'loading' || scopeStore.state.phase === 'idle'" state="loading" />
-    <StatePanel v-else-if="!scopeStore.state.selectedTeamId" state="empty" title="请选择 Team" description="Agent 始终属于明确的 Organization 与 Team。" />
+    <StatePanel v-else-if="!scopeStore.state.selectedTeamId" state="empty" title="请选择 Team" />
     <StatePanel
       v-else-if="forbidden"
       state="forbidden"

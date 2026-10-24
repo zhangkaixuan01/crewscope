@@ -271,7 +271,7 @@ async function batchDisposition(itemIds: string[], status: InboxBatchStatus): Pr
   <AppShell title="我的 Inbox" eyebrow="协作 · 成员队列">
     <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scopeMissing ? 'inbox-scope-reason' : undefined" @click="reload"><RefreshCw :size="14" />刷新</BaseButton></template>
 
-    <StatePanel v-if="scopeMissing" id="inbox-scope-reason" state="empty" title="请选择 Team" description="Inbox 始终属于明确的 Organization 与 Team。" />
+    <StatePanel v-if="scopeMissing" id="inbox-scope-reason" state="empty" title="请选择 Team" />
 
     <InboxWorkspace
       v-if="scopeStore.state.phase === 'ready' && scope"

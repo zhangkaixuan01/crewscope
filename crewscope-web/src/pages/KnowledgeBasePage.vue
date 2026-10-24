@@ -260,7 +260,7 @@ function openDistilledEntry(entryId: string): void {
       <BaseButton variant="secondary" size="small" :disabled="!online" @click="openDistill"><Sparkles :size="14" />从执行蒸馏</BaseButton>
     </template>
 
-    <StatePanel v-if="scopeMissing" id="knowledge-scope-reason" state="empty" title="请选择 Team" description="知识库始终属于明确的 Organization 与 Team。" />
+    <StatePanel v-if="scopeMissing" id="knowledge-scope-reason" state="empty" title="请选择 Team" />
 
     <!-- R04：横幅只列能力名（契约 §5：不暴露 env 名）；全开或开关未知时不渲染。 -->
     <p

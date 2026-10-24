@@ -353,7 +353,7 @@ function updatedAt(value: string): string {
           <BaseButton variant="ghost" size="small" @click="clearLocatedBinding()">清除定位</BaseButton>
         </p>
 
-        <StatePanel v-if="repositories.length === 0" state="empty" title="还没有 RepositoryBinding" description="从服务端 Repository Catalog 选择一个可用仓库并完成 Preflight。">
+        <StatePanel v-if="repositories.length === 0" state="empty" title="还没有 RepositoryBinding">
           <template v-if="availableCatalog.length > 0" #action><BaseButton data-repository-create-trigger="empty" size="small" :disabled="!canCreateRepository" :aria-describedby="catalogReason ? 'repository-catalog-reason' : undefined" @click="openCreate"><Plus :size="14" />绑定第一个仓库</BaseButton></template>
         </StatePanel>
 

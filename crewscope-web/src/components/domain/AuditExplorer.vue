@@ -193,7 +193,6 @@ function label(value: string | null | undefined, labels: Record<string, string>)
   <section class="audit-explorer" aria-label="团队审计中心">
     <section class="summary-strip panel" aria-label="审计概览">
       <h2>团队审计中心</h2>
-      <p class="summary-strip__note">按公开审计事实追踪人员、Agent、对象与 Provider 操作</p>
       <p class="summary-strip__meta">{{ items.length }} 条已加载</p>
     </section>
 
@@ -246,7 +245,7 @@ function label(value: string | null | undefined, labels: Record<string, string>)
         <StatePanel v-else-if="forbidden" state="forbidden" title="无权查看团队审计" description="当前成员没有这个 Team 的 Audit 读取权限。"><template #action><RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.auditRead } }"><BaseButton variant="secondary" size="small"><ShieldCheck :size="15" />查看权限说明</BaseButton></RouterLink></template></StatePanel>
         <StatePanel v-else-if="offline && items.length === 0" state="offline" title="离线时没有可用审计事实" />
         <StatePanel v-else-if="hardError && items.length === 0" state="error" :description="error?.message" @retry="emit('retry')" />
-        <StatePanel v-else-if="items.length === 0" state="empty" title="当前筛选没有审计事实" description="调整时间或组合筛选后重新查询。"><template #action><BaseButton variant="secondary" @click="reset"><Filter :size="15" />清空筛选</BaseButton></template></StatePanel>
+        <StatePanel v-else-if="items.length === 0" state="empty" title="当前筛选没有审计事实"><template #action><BaseButton variant="secondary" @click="reset"><Filter :size="15" />清空筛选</BaseButton></template></StatePanel>
         <template v-else>
           <StatePanel v-if="offline" compact state="offline" title="正在展示最近同步的审计事实" description="离线期间筛选续页与导出保持关闭。">
             <template v-if="lastSyncedAt" #description>离线期间筛选续页与导出保持关闭。最近同步于 <RelativeTime :value="lastSyncedAt" />。</template>

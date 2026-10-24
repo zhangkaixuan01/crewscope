@@ -342,7 +342,7 @@ function rowSubtitle(item: InboxItem): string {
 
     <div class="inbox-content" :class="{ 'has-detail': selectedItemId }">
       <section class="inbox-list panel" aria-label="Inbox 项目列表">
-        <StatePanel v-if="initialLoading" state="loading" title="正在同步我的 Inbox" description="正在读取当前 Team 的成员专属投影。" />
+        <StatePanel v-if="initialLoading" state="loading" title="正在同步我的 Inbox" />
         <StatePanel v-else-if="forbidden" state="forbidden" title="无权读取 Inbox" :description="teamMemberUnresolvedDescription"><template #action><RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.scopeRead } }"><BaseButton variant="secondary" size="small">查看权限说明</BaseButton></RouterLink></template></StatePanel>
         <StatePanel v-else-if="offline && !hasItems" state="offline" title="离线时没有可用 Inbox" description="联网后会回读当前成员的权威投影。" />
         <StatePanel v-else-if="cursorExpired && !hasItems" state="error" title="Inbox Cursor 已过期" description="刷新首屏后会从当前投影代际继续读取。" @retry="emit('retry')" />

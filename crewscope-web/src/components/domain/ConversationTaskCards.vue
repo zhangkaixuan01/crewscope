@@ -89,14 +89,12 @@ function displayDate(value: string): string {
         <p>Durable execution</p>
         <h3 id="conversation-task-heading">关联 Task <span v-if="associations.length">{{ associations.length }}</span></h3>
       </div>
-      <span>服务端事实</span>
     </header>
 
     <StatePanel
       v-if="phase === 'loading' && associations.length === 0"
       state="loading"
       title="正在恢复关联 Task"
-      description="Task 卡片独立于对话流，从耐久关联事实恢复。"
     />
     <StatePanel
       v-else-if="phase === 'error' && associations.length === 0"

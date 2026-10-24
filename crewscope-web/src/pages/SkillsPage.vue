@@ -285,7 +285,7 @@ function openDistilledSkill(skillId: string): void {
       <BaseButton variant="secondary" size="small" :disabled="!online" @click="openDistill"><Sparkles :size="14" />从执行蒸馏</BaseButton>
     </template>
 
-    <StatePanel v-if="scopeMissing" id="skills-scope-reason" state="empty" title="请选择 Team" description="Skill 目录始终属于明确的 Organization 与 Team。" />
+    <StatePanel v-if="scopeMissing" id="skills-scope-reason" state="empty" title="请选择 Team" />
     <StatePanel v-else-if="deepLinkMiss" compact state="empty" :title="`未在目录中找到 Skill ${deepLinkMiss}`" description="它可能属于其他团队、已被移除，或超出本次翻页范围。" />
 
     <div v-if="scopeStore.state.phase === 'ready' && scope" class="skills-workspace" :class="{ 'has-detail': Boolean(selectedSkillId) }">

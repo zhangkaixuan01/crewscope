@@ -346,7 +346,7 @@ function toLocalDate(value: string | null): string {
         </section>
 
         <section class="panel connection-detail" aria-label="飞书连接详情">
-          <StatePanel v-if="!selectedConnection" state="empty" title="选择一条 Connection" description="查看公开元数据、预检和实时安全健康。" />
+          <StatePanel v-if="!selectedConnection" state="empty" title="选择一条 Connection" />
           <template v-else>
             <header><div><p>Public metadata only</p><h3>{{ selectedConnection.maskedAppId }}</h3></div><StatusBadge :tone="connectionTone(selectedConnection.status)">{{ label(selectedConnection.status, larkConnectionStatusLabels) }}</StatusBadge></header>
             <dl><div><dt>Binding</dt><dd class="mono">{{ selectedConnection.providerBindingId ?? '未创建' }}</dd></div><div><dt>Binding 强版本</dt><dd class="mono">{{ selectedConnection.providerBindingVersion == null ? '—' : `v${selectedConnection.providerBindingVersion}` }}</dd></div><div><dt>Credential</dt><dd>{{ label(selectedConnection.credentialStatus, larkCredentialStatusLabels) }}</dd></div><div><dt>Credential 强版本</dt><dd class="mono">v{{ selectedConnection.version }}</dd></div><div><dt>过期时间</dt><dd>{{ displayTime(selectedConnection.expiresAt) }}</dd></div><div><dt>更新时间</dt><dd>{{ displayTime(selectedConnection.updatedAt) }}</dd></div></dl>

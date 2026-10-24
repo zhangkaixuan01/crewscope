@@ -28,7 +28,7 @@ const scope = computed<TeamObserverScope | null>(() => principal && scopeStore.s
     </template>
     <StatePanel v-if="scopeStore.state.phase === 'loading' || scopeStore.state.phase === 'idle'" state="loading" title="正在加载团队观测"><template #action><RouterLink :to="{ name: 'today' }"><BaseButton size="small" variant="secondary">前往 Today</BaseButton></RouterLink></template></StatePanel>
     <StatePanel v-else-if="scopeStore.state.phase === 'error'" state="error" title="团队观测暂时不可用" :description="scopeStore.state.errorMessage ?? undefined" @retry="scopeStore.reload"><template #action><BaseButton size="small" variant="secondary" @click="scopeStore.reload">重新加载</BaseButton></template></StatePanel>
-    <StatePanel v-else-if="!scope" state="empty" title="请选择 Team" description="Team Observer 需要明确的团队范围。">
+    <StatePanel v-else-if="!scope" state="empty" title="请选择 Team">
       <template #action><RouterLink :to="{ name: 'today' }"><BaseButton size="small">前往 Today</BaseButton></RouterLink></template>
     </StatePanel>
     <template v-else>

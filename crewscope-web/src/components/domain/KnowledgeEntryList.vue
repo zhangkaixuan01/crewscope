@@ -84,7 +84,6 @@ function clearFilters(): void {
     :online="online"
     label="知识条目列表"
     loading-title="正在读取知识条目"
-    loading-description="正在读取当前 Team 的知识资产。"
     forbidden-title="无权读取知识库"
     :forbidden-description="teamMemberUnresolvedDescription"
     offline-empty-title="离线时没有可用知识条目"

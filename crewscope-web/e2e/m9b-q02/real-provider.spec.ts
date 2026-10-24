@@ -132,7 +132,7 @@ test('the settings page shows the healthy connection and the catalog price with 
   // server registry (A03), never an invented number — the currency code precedes each amount
   // (ModelSettingsPage formatPrice renders `USD 0.44 · USD 1.32 / 1M tokens`).
   await expect(pageA.getByText(/Input [A-Z]{3} [\d.]+ · Output [A-Z]{3} [\d.]+ \/ 1M tokens/).first()).toBeVisible()
-  await expect(pageA.getByText('目录修订、Region、Retention、Capability 与当前生效价格均为服务端事实。')).toBeVisible()
+  await expect(pageA.getByText('Provider 与模型目录')).toBeVisible()
 })
 
 test('the personal agent binds to the verified connection', async () => {

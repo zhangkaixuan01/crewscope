@@ -177,7 +177,7 @@ function actorName(principalId: string | null, type: string): string {
     <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scope ? undefined : 'activity-scope-reason'" @click="reload"><RefreshCw :size="14" aria-hidden="true" />刷新</BaseButton></template>
 
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
-    <StatePanel v-else-if="!scope" id="activity-scope-reason" state="empty" title="请选择 Team" description="Activity 始终属于一个明确的 Organization 与 Team。" />
+    <StatePanel v-else-if="!scope" id="activity-scope-reason" state="empty" title="请选择 Team" />
 
     <div v-else class="activity-page page-shell">
       <section class="summary-strip panel" aria-label="Activity 概览">

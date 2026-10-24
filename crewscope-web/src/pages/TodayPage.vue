@@ -530,7 +530,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
         <BaseButton size="small" variant="ghost" @click="rowFailure = null">知道了</BaseButton>
       </div>
 
-      <StatePanel v-if="firstLoad" state="loading" compact title="正在汇总你的工作" description="正在从各个 WorkProject 读取责任、决策与执行事实。" />
+      <StatePanel v-if="firstLoad" state="loading" compact title="正在汇总你的工作"  />
       <StatePanel
         v-else-if="failedFirstLoad"
         :state="failurePhase ?? 'error'"
@@ -545,7 +545,6 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
           v-if="!scopeStore.state.projects.length"
           state="empty"
           title="这个 Team 还没有 WorkProject"
-          description="创建第一个 WorkProject 后，即可进入 Work 管理并绑定代码仓库。"
         >
           <template #action>
             <div class="empty-actions">
@@ -576,7 +575,6 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
             state="empty"
             compact
             title="没有需要你行动的事项"
-            description="等我决策、待我 Review 与被我阻塞的队列都是空的。你可以查看正在推进的工作，或进入 Work 取一个新任务。"
           >
             <template #action><RouterLink class="desk-empty-link touch-target" :to="{ name: 'work', query: route.query }">进入 Work <ArrowRight :size="13" /></RouterLink></template>
           </StatePanel>
@@ -601,7 +599,6 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
           </div>
           <!-- A row here can be a WorkItem the member must move; that is what the board below is
                for, and saying so avoids the reader hunting for an action that lives one screen down. -->
-          <p v-if="actionRequiredRows.some(canExecute)" class="desk-hint">阻塞的工作项可以直接在下面的看板上推进；决策类事项需要进入对应页面处理。</p>
           <div v-if="['HUMAN_GATE', 'REVIEW', 'BLOCKED'].some(sectionHasMore)" class="desk-more">
             <BaseButton size="small" variant="secondary" :disabled="!online" :loading="panelLoading(['HUMAN_GATE', 'REVIEW', 'BLOCKED'])" @click="loadMoreDeskSections(['HUMAN_GATE', 'REVIEW', 'BLOCKED'])">加载更多需要处理的事项</BaseButton>
             <p v-if="sectionErrorFor(['HUMAN_GATE', 'REVIEW', 'BLOCKED'])" class="desk-more__error" role="alert">

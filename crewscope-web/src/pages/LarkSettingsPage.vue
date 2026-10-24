@@ -256,7 +256,7 @@ function patchQuery(values: Record<string, string | null>): Promise<unknown> {
   <SettingsShell title="飞书与通知" eyebrow="设置 · 团队集成">
     <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scope ? undefined : 'lark-settings-scope-reason'" @click="loadAll(true)"><RefreshCw :size="14" />刷新</BaseButton></template>
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
-    <StatePanel v-else-if="!scope" id="lark-settings-scope-reason" state="empty" title="请选择 Team" description="飞书连接和通知配置始终属于明确的 Organization 与 Team。" />
+    <StatePanel v-else-if="!scope" id="lark-settings-scope-reason" state="empty" title="请选择 Team" />
     <!-- M12b-Q01: no remount key. The admin's connectionCoordinate watch already resets the
          open-id, revoke draft and credential dialog on connection change; coordinate() also
          carries the selected connection, so a key here remounted the whole panel on every

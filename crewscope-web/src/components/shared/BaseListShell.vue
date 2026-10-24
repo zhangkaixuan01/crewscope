@@ -23,13 +23,15 @@ const props = defineProps<OnlineProps & ErrorMessageProps & {
   /** Section aria-label (named `label` — an `ariaLabel` prop would collide with the native attribute). */
   label: string
   loadingTitle: string
-  loadingDescription: string
+  /** M13c-W3：loading 描述层可选——title 已表达，无传入不渲染。 */
+  loadingDescription?: string
   forbiddenTitle: string
   forbiddenDescription: string
   offlineEmptyTitle: string
   offlineEmptyDescription: string
   emptyTitle: string
-  emptyDescription: string
+  /** M13c-W5/W6：空态第二句可选——标题（+在场按钮）已表达，无传入不渲染。 */
+  emptyDescription?: string
   compactOfflineTitle: string
   compactOfflineDescription: string
   loadMoreLabel: string

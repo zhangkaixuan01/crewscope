@@ -903,7 +903,6 @@ async function redirectIfForbidden(): Promise<void> {
           <div>
             <p class="eyebrow">Collaborate</p>
             <h2>{{ teamName }}</h2>
-            <span>选择一个对话继续协作</span>
           </div>
           <div class="conversation-list-header__actions">
             <button type="button" aria-label="新建对话" @click="openCreate"><MessageSquarePlus :size="18" /></button>
@@ -915,7 +914,6 @@ async function redirectIfForbidden(): Promise<void> {
           v-if="scopeStore.state.phase === 'loading' || conversationStore.state.phase === 'loading'"
           state="loading"
           title="正在加载对话"
-          description="正在恢复当前 Team 的可见对话。"
         />
         <StatePanel
           v-else-if="scopeStore.state.phase === 'empty'"
@@ -1015,7 +1013,6 @@ async function redirectIfForbidden(): Promise<void> {
           v-if="conversationStore.state.detailPhase === 'loading'"
           state="loading"
           title="正在恢复对话"
-          description="正在读取服务端当前会话与参与者事实。"
         />
         <StatePanel
           v-else-if="conversationStore.state.detailPhase === 'error'"
@@ -1055,7 +1052,6 @@ async function redirectIfForbidden(): Promise<void> {
               v-if="messageStore.state.phase === 'loading'"
               state="loading"
               title="正在加载消息"
-              description="正在按服务端 Sequence 恢复最新会话历史。"
             />
             <StatePanel
               v-else-if="messageStore.state.phase === 'error'"
@@ -1082,7 +1078,6 @@ async function redirectIfForbidden(): Promise<void> {
                 v-if="taskIntentStore.state.phase === 'loading'"
                 state="loading"
                 title="正在读取任务提案"
-                description="正在同步服务端最新 TaskIntent 事实。"
               />
               <StatePanel
                 v-else-if="taskIntentStore.state.phase === 'error'"
@@ -1094,7 +1089,7 @@ async function redirectIfForbidden(): Promise<void> {
               <!-- M13b-F09（R51）：结构块默认折叠为单行摘要；待确认（READY）的提案在摘要行
                    保留「待确认」状态词，M9b-Q01 的例外突出语义从「默认展开」降为「单行可见」。 -->
               <details v-if="taskIntentStore.state.intent && principal" class="conversation-structure">
-                <summary>任务意图 <span>{{ taskIntentStore.state.intent.status === 'READY' ? '待确认' : '可折叠' }}</span></summary>
+                <summary>任务意图 <span v-if="taskIntentStore.state.intent.status === 'READY'">待确认</span></summary>
                 <TaskIntentCard
                   :intent="taskIntentStore.state.intent"
                   :current-principal-id="principal.id"

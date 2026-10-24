@@ -442,7 +442,7 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
         </ul>
 
         <div v-if="effectiveMode !== 'assign-only'" class="preflight-shell" aria-live="polite" aria-atomic="true">
-          <div v-if="preflightResource?.phase === 'loading'" class="preflight-state"><RefreshCw class="spin" :size="15" />正在解析 ExecutionScope、Binding、模型与 PolicySnapshot…</div>
+          <div v-if="preflightResource?.phase === 'loading'" class="preflight-state"><RefreshCw class="spin" :size="15" aria-hidden="true" /></div>
           <div v-else-if="preflightCurrent && approvedPreflight" class="preflight-card">
             <div class="preflight-header"><div><CheckCircle2 :size="16" /><strong>PolicySnapshot Preflight 通过</strong></div><span :class="approvedPreflight.executionScope.toLowerCase()">{{ enumLabel(approvedPreflight.executionScope, agentExecutionScopeLabels) }}</span></div>
             <dl>

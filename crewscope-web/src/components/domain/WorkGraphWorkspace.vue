@@ -153,7 +153,7 @@ watch(() => props.focusId, id => {
     <StatePanel v-else-if="blocked?.phase === 'error'" state="error" :description="blocked.errorMessage ?? undefined" @retry="scope && graphStore?.loadBlockedGraph({ organizationId: scope.organizationId, teamId: scope.teamId }, scope.projectId, true)" />
     <!-- An empty graph is a door back to the work itself, not a dead end: the M9-Q01 empty-state
          contract wants the next member step right here. -->
-    <StatePanel v-else-if="blocked?.phase === 'empty'" state="empty" title="当前没有阻塞中的工作项" description="当有进行中的工作项阻塞其他工作项时，这里会呈现依赖图。">
+    <StatePanel v-else-if="blocked?.phase === 'empty'" state="empty" title="当前没有阻塞中的工作项">
       <template #action><BaseButton variant="secondary" @click="emit('switch-view', 'list')"><List :size="15" />回到列表视图</BaseButton></template>
     </StatePanel>
     <template v-else>

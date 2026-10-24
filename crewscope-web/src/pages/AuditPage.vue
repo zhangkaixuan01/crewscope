@@ -200,7 +200,7 @@ function toAuditFilter(value: AuditFilterForm): AuditFilter {
   <AppShell title="审计中心" eyebrow="治理 · 审计查询">
     <template #actions><BaseButton variant="secondary" size="small" :disabled="!scope || !online" :aria-describedby="scope ? undefined : 'audit-scope-reason'" @click="store.loadAudit(activeFilter, false, true)"><RefreshCw :size="14" />刷新</BaseButton></template>
     <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
-    <StatePanel v-else-if="!scope" id="audit-scope-reason" state="empty" title="请选择 Team" description="审计事实始终属于明确的 Organization 与 Team。" />
+    <StatePanel v-else-if="!scope" id="audit-scope-reason" state="empty" title="请选择 Team" />
     <template v-else>
       <StatePanel v-if="deepLinkError" class="audit-deeplink-error" compact state="error" :description="deepLinkError.message" @retry="selectedEventId && store.loadAuditEvent(selectedEventId, true)" />
       <AuditExplorer

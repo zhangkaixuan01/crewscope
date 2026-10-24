@@ -59,11 +59,9 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
       v-if="loading"
       kicker="准备团队入口"
       title="正在检查你的工作空间"
-      description="确认当前账号是否需要建立第一个团队。"
       busy
       focus-on-mount
     >
-      <p class="onboarding__status" role="status">正在读取 Onboarding 状态…</p>
     </AuthCard>
 
     <AuthCard
@@ -213,7 +211,6 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
 .onboarding__notice { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin: 0 0 var(--cs-space-16); padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
 .onboarding__notice svg { flex: 0 0 auto; }
 .onboarding__entry { display: grid; gap: var(--cs-space-8); }
-.onboarding__status { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .onboarding__progress { display: grid; gap: var(--cs-space-16); }
 .onboarding__progress > p { margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); }
 .onboarding__progress ul { display: grid; gap: var(--cs-space-12); padding: 0; margin: 0; list-style: none; }

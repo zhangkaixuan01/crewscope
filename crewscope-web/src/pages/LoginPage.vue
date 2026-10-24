@@ -227,11 +227,9 @@ async function timedRequest<T>(
       v-if="phase === 'loading'"
       kicker="正在恢复工作入口"
       title="正在确认你的会话"
-      description="检查服务端登录配置后继续。"
       busy
       focus-on-mount
     >
-      <p class="login-page__status" role="status">正在准备安全登录…</p>
     </AuthCard>
 
     <AuthCard
@@ -347,7 +345,6 @@ async function timedRequest<T>(
 .login-page__sso { display: flex; width: 100%; min-height: var(--cs-auth-control-height); align-items: center; justify-content: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-16); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); text-decoration: none; }
 .login-page__sso:hover, .login-page__sso:focus-visible { border-color: var(--cs-border-accent-strong); box-shadow: var(--cs-focus-ring); }
 .login-page__divider { margin: var(--cs-space-4) 0 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: center; }
-.login-page__status,
 .login-page__registration { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .login-page__registration { display: grid; justify-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-20); text-align: center; }
 .login-page__registration p { margin: 0; }

@@ -109,7 +109,7 @@ function referenceLabel(type: string): string {
       </StatusBadge>
     </header>
 
-    <StatePanel v-if="initialLoading" state="loading" :compact="compact" title="正在同步 Activity" description="正在读取权威快照和实时恢复坐标。" />
+    <StatePanel v-if="initialLoading" state="loading" :compact="compact" title="正在同步 Activity"  />
     <StatePanel v-else-if="forbidden" state="forbidden" :compact="compact" title="无权查看团队活动" description="服务端未授予当前成员这个 Team 的 Activity 读取权限。"><template #action><RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.scopeRead } }"><BaseButton variant="secondary" size="small">查看权限说明</BaseButton></RouterLink></template></StatePanel>
     <StatePanel v-else-if="cursorExpired" state="error" :compact="compact" title="Activity Cursor 已过期" description="刷新权威快照后将从新的耐久坐标继续补发。" @retry="emit('retry')" />
     <StatePanel v-else-if="offline && items.length === 0" state="offline" :compact="compact" title="离线时没有可用 Activity" description="联网后将读取快照并从耐久 Cursor 恢复。" />

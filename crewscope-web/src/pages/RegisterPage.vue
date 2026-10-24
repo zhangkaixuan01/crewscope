@@ -269,11 +269,9 @@ async function timedRequest<T>(
       v-if="phase === 'loading'"
       kicker="正在准备账号入口"
       title="正在确认注册方式"
-      description="检查部署策略与注册配置后继续。"
       busy
       focus-on-mount
     >
-      <p class="register-page__status" role="status">正在准备安全注册…</p>
     </AuthCard>
 
     <AuthCard
@@ -407,7 +405,6 @@ async function timedRequest<T>(
 .register-page__form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-16); }
 .register-page__span { grid-column: 1 / -1; }
 .register-page__primary { width: 100%; min-height: var(--cs-auth-control-height); }
-.register-page__status { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .register-page__invite {
   display: flex;
   align-items: center;

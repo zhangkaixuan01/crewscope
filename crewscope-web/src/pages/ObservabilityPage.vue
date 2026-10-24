@@ -174,7 +174,7 @@ function queryText(value: unknown): string | null {
       </BaseButton>
     </template>
 
-    <StatePanel v-if="scopeMissing" id="observability-scope-reason" state="empty" title="请选择 Team" description="用量与成本始终属于明确的 Organization 与 Team。" />
+    <StatePanel v-if="scopeMissing" id="observability-scope-reason" state="empty" title="请选择 Team" />
 
     <div v-if="scopeStore.state.phase === 'ready' && scope" class="observability-workspace">
       <!-- M13b-F04（R21）: the budget face is its own resource — it reads the current month the
@@ -215,7 +215,7 @@ function queryText(value: unknown): string | null {
       <!-- M13b-F11（C5）：stale-while-refresh——刷新保留旧内容，只有首载（无旧值）才用整块面板。 -->
       <StatePanel v-if="store.state.months.phase === 'loading' && !store.state.months.value" state="loading" title="正在加载用量月份" />
       <StatePanel v-else-if="store.state.months.phase === 'error' && !store.state.months.value" state="error" :title="store.state.months.errorMessage ?? '暂时无法加载用量月份'" retry-label="重试" @retry="refresh" />
-      <StatePanel v-else-if="store.state.months.phase === 'empty'" state="empty" title="本月还没有模型用量事实" description="执行任务、提炼知识或构建索引后，用量会按月聚合在这里。" />
+      <StatePanel v-else-if="store.state.months.phase === 'empty'" state="empty" title="本月还没有模型用量事实" />
 
       <template v-if="selectedSummary && selectedMonth">
         <nav class="month-nav" aria-label="用量月份">
@@ -315,7 +315,7 @@ function queryText(value: unknown): string | null {
           <h2 id="quality-heading" class="panel__title">{{ selectedMonth }} 质量统计</h2>
           <StatePanel v-if="store.state.quality.phase === 'loading' && !store.state.quality.value" state="loading" title="正在加载当月质量统计" />
           <StatePanel v-else-if="store.state.quality.phase === 'error' && !store.state.quality.value" state="error" :title="store.state.quality.errorMessage ?? '暂时无法加载当月质量统计'" retry-label="重试" @retry="store.loadMonth(selectedMonth)" />
-          <StatePanel v-else-if="!store.state.quality.value" state="empty" title="当月暂无质量统计" description="本月的执行与模型调用记录出现后，这里会给出成功率与质量指标。" />
+          <StatePanel v-else-if="!store.state.quality.value" state="empty" title="当月暂无质量统计" />
           <div v-else class="quality-grid">
             <div class="quality-card">
               <h3>执行成功率</h3>

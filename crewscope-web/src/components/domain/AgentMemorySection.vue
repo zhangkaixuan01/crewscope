@@ -69,7 +69,7 @@ function clearMemory(): void {
 
     <template v-else-if="memoryState">
       <!-- Unconfigured: the policy switch lives in the configuration form above, not here. -->
-      <p v-if="memoryState.kind === 'unconfigured'" class="memory-section__note">当前 Agent 配置未启用辅助记忆。在上方配置里选择记忆策略后，模型写入的偏好会出现在这里。</p>
+      <p v-if="memoryState.kind === 'unconfigured'" class="memory-section__note">当前 Agent 配置未启用辅助记忆。在上方配置里选择记忆策略。</p>
 
       <template v-else>
         <!-- The three view states never blur: degraded means the policy cannot be resolved, and
@@ -103,7 +103,7 @@ function clearMemory(): void {
               <td><RelativeTime :value="entry.expiresAt" /></td>
             </tr>
             <tr v-if="memoryState.kind === 'degraded' || (view?.entries.length ?? 0) === 0">
-              <td colspan="4" class="memory-section__note">{{ memoryState.kind === 'degraded' ? '策略不可用期间无法读取条目。' : '还没有记忆条目。模型写入的偏好会出现在这里。' }}</td>
+              <td colspan="4" class="memory-section__note">{{ memoryState.kind === 'degraded' ? '策略不可用期间无法读取条目。' : '还没有记忆条目。' }}</td>
             </tr>
           </tbody>
         </BaseTable>

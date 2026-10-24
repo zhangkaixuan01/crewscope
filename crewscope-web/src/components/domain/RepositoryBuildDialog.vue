@@ -97,7 +97,6 @@ function reloadBindings(): void {
     open
     title="构建仓库索引"
     eyebrow="Knowledge index"
-    subtitle="选择项目与受管仓库绑定的提交，为该版本建立向量索引。"
     width="min(560px, 100%)"
     :close-disabled="submitting"
     close-label="关闭构建仓库索引"

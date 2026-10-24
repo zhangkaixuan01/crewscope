@@ -56,7 +56,6 @@ function statusTone(status: SkillStatus): 'neutral' | 'info' | 'danger' {
     :online="online"
     label="Skill 目录列表"
     loading-title="正在读取 Skill 目录"
-    loading-description="正在读取当前 Team 的 Skill 资产。"
     forbidden-title="无权读取 Skill 目录"
     :forbidden-description="teamMemberUnresolvedDescription"
     offline-empty-title="离线时没有可用 Skill"

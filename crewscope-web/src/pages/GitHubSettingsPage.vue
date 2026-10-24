@@ -580,7 +580,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
       <BaseButton v-if="canManage" size="small" :disabled="!scope || !online" :aria-describedby="scope ? undefined : 'github-settings-scope-reason'" @click="formOpen ? closeForm() : formOpen = true"><Plus :size="14" />创建 Connection</BaseButton>
     </template>
 
-    <StatePanel v-if="!scope" id="github-settings-scope-reason" state="empty" title="请选择 Team" description="GitHub Connection 属于 Organization 与 Team 的明确范围。" />
+    <StatePanel v-if="!scope" id="github-settings-scope-reason" state="empty" title="请选择 Team" />
     <StatePanel v-else-if="loading && connections.length === 0" state="loading" title="正在加载 GitHub Connection" />
     <StatePanel v-else-if="!canManage" state="forbidden" title="需要 Provider 管理权限" description="只有具备 Provider 管理权限的成员可以查看和创建 GitHub Connection。"><template #action><BaseButton variant="secondary" size="small" @click="router.push({ name: 'access-denied', query: { requiredPermission: permissions.providerManage } })">查看权限说明</BaseButton></template></StatePanel>
     <div v-else class="github-page page-shell">

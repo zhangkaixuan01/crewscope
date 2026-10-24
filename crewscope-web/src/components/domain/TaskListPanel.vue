@@ -67,7 +67,6 @@ function ownerName(task: TaskSummary, owners: Array<{ principalId: string, displ
       <div>
         <p class="eyebrow">Control Mode · Durable runtime</p>
         <h2 id="control-task-heading">Agent Tasks</h2>
-        <span>团队可观测的委托任务、当前 attempt 与等待原因。</span>
       </div>
       <div class="task-filters" aria-label="Task 筛选">
         <label><span>状态</span><BaseSelect :model-value="status" @update:model-value="onStatusChange($event as TaskStatus | 'all')"><option value="all">全部状态</option><option v-for="value in taskStatuses" :key="value" :value="value">{{ statusLabels[value] }}</option></BaseSelect></label>

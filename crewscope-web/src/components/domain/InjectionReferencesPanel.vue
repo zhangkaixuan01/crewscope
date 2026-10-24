@@ -65,7 +65,7 @@ function mark(reference: InjectionFeedbackInput): void {
     <p v-if="executionId === null" class="injection-panel__note">选择一次执行后，这里会展示它的注入清单与模型声明引用。</p>
 
     <template v-else>
-      <StatePanel v-if="loading" state="loading" title="正在读取注入清单" description="正在读取这次执行的注入证据。" />
+      <StatePanel v-if="loading" state="loading" title="正在读取注入清单" />
       <StatePanel v-else-if="forbidden" state="forbidden" title="无权读取注入与引用" :description="teamMemberUnresolvedDescription">
         <template #action>
           <RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.workRead } }">

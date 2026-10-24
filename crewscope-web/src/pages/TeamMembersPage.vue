@@ -313,7 +313,7 @@ function roleLabels(roles?: string[]): string {
         </form>
 
         <section class="panel member-directory">
-          <div class="panel-heading"><div><p class="eyebrow">Member directory</p><h2>团队成员</h2><p>展示身份目录中的显示名、成员状态与加入事实；行内菜单按状态与权限提供生命周期动作。</p></div><BaseButton v-if="canManageMembers && !showAddMember" variant="secondary" size="small" @click="showAddMember = true"><Plus :size="14" />添加成员</BaseButton></div>
+          <div class="panel-heading"><div><p class="eyebrow">Member directory</p><h2>团队成员</h2><p>行内菜单按状态与权限提供生命周期动作。</p></div><BaseButton v-if="canManageMembers && !showAddMember" variant="secondary" size="small" @click="showAddMember = true"><Plus :size="14" />添加成员</BaseButton></div>
           <p v-if="locatedId" class="locate-note" role="status">
             <span v-if="locatedMember">已定位到 {{ locatedMember.displayName }}。</span>
             <span v-else-if="store.state.membersLoading">正在加载成员名单，加载完成后显示定位结果。</span>

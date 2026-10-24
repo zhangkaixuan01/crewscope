@@ -1120,7 +1120,7 @@ function retry(): void {
     <StatePanel v-if="scopeStore.state.phase === 'loading' || scopeStore.state.phase === 'idle'" state="loading" />
     <StatePanel v-else-if="scopeStore.state.phase === 'error'" state="error" :description="scopeStore.state.errorMessage ?? undefined" @retry="scopeStore.reload" />
     <StatePanel v-else-if="scopeStore.state.phase === 'empty'" state="empty" title="还没有可访问的 Team" description="创建你的第一个 Team；收到邀请链接？直接打开即可加入。"><template #action><RouterLink :to="{ name: 'onboarding' }"><BaseButton size="small">创建 Team</BaseButton></RouterLink></template></StatePanel>
-    <StatePanel v-else-if="!project" state="empty" title="这个 Team 还没有 WorkProject" description="创建 WorkProject 后即可管理团队工作项。">
+    <StatePanel v-else-if="!project" state="empty" title="这个 Team 还没有 WorkProject">
       <template v-if="canManageProjects" #action><BaseButton size="small" @click="projectCreation.show"><Plus :size="14" />创建 WorkProject</BaseButton></template>
     </StatePanel>
 

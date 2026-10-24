@@ -176,7 +176,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
 
 <template>
   <div class="operations-workspace">
-    <StatePanel v-if="phase === 'loading' && !summary" state="loading" title="正在读取运行健康" description="聚合 Projection、Outbox、Dead Letter、Cursor 与 Notification 的低基数摘要。" />
+    <StatePanel v-if="phase === 'loading' && !summary" state="loading" title="正在读取运行健康" />
     <StatePanel v-else-if="isInitialFailure" state="error" title="运行健康暂时不可用" :description="error?.message" @retry="emit('refresh')" />
 
     <template v-if="summary">

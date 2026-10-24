@@ -248,7 +248,7 @@ function closeBuild(): void {
       </BaseMenu>
     </template>
 
-    <StatePanel v-if="scopeMissing" id="knowledge-index-scope-reason" state="empty" title="请选择 Team" description="索引作业始终属于明确的 Organization 与 Team。" />
+    <StatePanel v-if="scopeMissing" id="knowledge-index-scope-reason" state="empty" title="请选择 Team" />
 
     <div v-if="scopeStore.state.phase === 'ready' && scope" class="index-workspace">
       <p v-if="banner?.phase === 'success'" class="index-banner index-banner--success" role="status">

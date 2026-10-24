@@ -90,7 +90,7 @@ async function runProjectionCommand(command: ProjectionCommand, idempotencyKey: 
     </template>
     <div class="operations-page page-shell">
       <StatePanel v-if="scopeStore.state.phase === 'loading'" state="loading" title="正在恢复 Team Scope" />
-      <StatePanel v-else-if="!scope" id="operations-scope-reason" state="empty" title="请选择 Team" description="运行健康属于明确的 Organization 与 Team。" />
+      <StatePanel v-else-if="!scope" id="operations-scope-reason" state="empty" title="请选择 Team" />
       <OperationsWorkspace
         v-else :key="scope.teamId" :phase="store.state.operationsHealth.phase" :error="store.state.operationsHealth.error"
         :health="store.state.operationsHealth.value" :diagnostics-phase="store.state.diagnostics.phase"

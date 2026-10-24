@@ -328,7 +328,7 @@ function trainingPolicyLabel(value: string): string { return enumLabel(value, tr
     />
 
     <StatePanel v-if="scopeStore.state.phase === 'loading' || scopeStore.state.phase === 'idle'" state="loading" />
-    <StatePanel v-else-if="!scopeStore.state.selectedTeamId" state="empty" title="请选择 Team" description="模型连接与凭证始终属于明确的 Organization 与 Team。" />
+    <StatePanel v-else-if="!scopeStore.state.selectedTeamId" state="empty" title="请选择 Team" />
     <div v-else class="model-page page-shell">
       <section class="summary-strip panel" aria-labelledby="model-overview-title">
         <h2 id="model-overview-title">目录、连接与凭证健康</h2>
@@ -338,7 +338,7 @@ function trainingPolicyLabel(value: string): string { return enumLabel(value, tr
       </section>
 
       <section class="catalog-panel panel" aria-labelledby="provider-catalog-title">
-        <header class="panel-heading"><div><p class="eyebrow">Server registry</p><h2 id="provider-catalog-title">Provider 与模型目录</h2><p>目录修订、Region、Retention、Capability 与当前生效价格均为服务端事实。</p></div><BaseButton size="small" variant="ghost" @click="loadProviders(true)"><RefreshCw :size="14" />刷新</BaseButton></header>
+        <header class="panel-heading"><div><p class="eyebrow">Server registry</p><h2 id="provider-catalog-title">Provider 与模型目录</h2></div><BaseButton size="small" variant="ghost" @click="loadProviders(true)"><RefreshCw :size="14" />刷新</BaseButton></header>
         <StatePanel v-if="modelStore.state.providers.phase === 'loading' || modelStore.state.providers.phase === 'idle'" state="loading" compact title="正在加载 Provider" />
         <StatePanel v-else-if="modelStore.state.providers.phase === 'error'" state="error" compact :description="modelStore.state.providers.errorMessage ?? undefined" @retry="loadProviders(true)" />
         <StatePanel v-else-if="modelStore.state.providers.phase === 'empty'" state="empty" compact title="没有可用 Provider" />
