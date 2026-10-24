@@ -399,7 +399,7 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
     open
     title="交给 Agent 处理"
     :eyebrow="`Durable Task · ${workItem.key}`"
-    subtitle="一次读取责任、候选与项目默认值；选定后预检并形成可恢复命令。"
+    subtitle="选定后预检并形成可恢复命令。"
     width="min(780px, 100%)"
     :close-disabled="submitting"
     close-label="关闭交给 Agent 对话框"

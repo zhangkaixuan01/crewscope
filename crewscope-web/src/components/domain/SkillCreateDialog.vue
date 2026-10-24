@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { skillFrontmatterContractHint, skillRepublishRestores } from '../../domains/skill/labels'
 import { ListPlus } from '@lucide/vue'
 import { computed, ref, useId, watch } from 'vue'
 import { useDirtyForm } from '../../composables/useDirtyForm'
@@ -106,7 +107,7 @@ function submit(): void {
       <label class="skill-dialog__field">
         <span>文档全文 <span class="skill-dialog__count">{{ content.length }}/{{ SKILL_CONTENT_MAX }}</span></span>
         <BaseTextarea v-model="content" :rows="12" :disabled="submitting" :invalid="submitted && !contentValid || undefined" :aria-describedby="submitted && !contentValid ? 'skill-create-doc-error' : undefined" />
-        <small class="skill-dialog__hint">frontmatter 恰好含 name（必须等于 skillKey）与 description（≤200 字）两字段；正文即运行时注入的指令来源。</small>
+        <small class="skill-dialog__hint">{{ skillFrontmatterContractHint }}</small>
         <small v-if="submitted && !contentValid" id="skill-create-doc-error" class="skill-dialog__error">{{ documentError }}</small>
       </label>
 

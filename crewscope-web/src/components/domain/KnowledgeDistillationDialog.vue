@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { distillReplayedNote } from '../../domains/shared/stateCopy'
 import { Sparkles } from '@lucide/vue'
 import { computed, ref, useId, watch } from 'vue'
 import { useClipboard } from '../../composables/useClipboard'
@@ -181,7 +182,6 @@ function distillAnother(): void {
             <small id="knowledge-distill-execution-hint" class="knowledge-dialog__hint">粘贴任务执行 ID（UUID）；Task 详情的执行区可一键复制。</small>
             <small v-if="submitted && !executionValid" class="knowledge-dialog__error">任务执行 ID 需为有效的 UUID。</small>
           </details>
-          <small class="knowledge-dialog__hint">选择一次执行，系统会生成知识条目草稿。</small>
         </div>
 
         <label class="knowledge-dialog__field">
@@ -214,7 +214,7 @@ function distillAnother(): void {
         v-else
         label="蒸馏回执"
         :replayed="receipt!.replayed"
-        replayed-note="此蒸馏命令此前已确认过，本次为幂等重放，没有重复创建内容。"
+        :replayed-note="distillReplayedNote"
         open-label="打开条目"
         :open-available="receipt!.entryId != null"
         :hint="receipt!.indexStatus ? (knowledgeIndexStatusHint(receipt!.indexStatus, indexEnabled) || undefined) : undefined"

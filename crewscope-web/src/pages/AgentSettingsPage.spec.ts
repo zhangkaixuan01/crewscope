@@ -38,7 +38,7 @@ describe('AgentSettingsPage', () => {
 
     expect(wrapper.text()).toContain('Agent 中心')
     expect(wrapper.get('.agent-entry--personal').text()).toContain('个人 Agent')
-    expect(wrapper.get('.agent-entry--team').text()).toContain('通过 WorkItem 责任链')
+    expect(wrapper.get('.agent-entry--team').text()).toContain('团队 Agent')
     expect(wrapper.text()).toContain('默认 Personal Agent')
     expect(wrapper.text()).toContain('我的 Specialist')
     expect(wrapper.text()).toContain('团队 Agent')

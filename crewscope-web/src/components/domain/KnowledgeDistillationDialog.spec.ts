@@ -99,7 +99,7 @@ describe('KnowledgeDistillationDialog', () => {
     expect((inputs[0]!.element as HTMLInputElement).value).toBe(taskIds.execution)
     expect((inputs[1]!.element as HTMLInputElement).value).toBe(`exec-${taskIds.execution.slice(0, 8)}`)
     expect(wrapper.text()).toContain('完成 Task Gateway')
-    expect(wrapper.text()).toContain('选择一次执行，系统会生成知识条目草稿')
+    expect(wrapper.text()).toContain('将一次任务执行的过程与结论沉淀为团队知识草稿')
 
     // 用户改过 Key 后切换执行不再覆盖用户的选择。
     await inputs[1]!.setValue('postmortem-cache')

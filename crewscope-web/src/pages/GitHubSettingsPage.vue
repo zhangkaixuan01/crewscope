@@ -597,7 +597,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
             </BaseSelect>
           </label>
           <label>Access Token
-            <input v-model="accessToken" required type="password" autocomplete="new-password" placeholder="只在提交时发送，不会回显">
+            <input v-model="accessToken" required type="password" autocomplete="new-password">
           </label>
           <label>凭证过期时间（可选）
             <input v-model="expiresAt" type="datetime-local">
@@ -606,13 +606,13 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
             <summary>高级：使用已有固定仓库范围（可选）</summary>
             <p class="form-hint">普通路径不需要这些字段。保留它们是为了兼容已有部署；留空时服务端先识别身份，再从 Catalog 选择仓库。</p>
             <label>GitHub Account ID（兼容字段）
-              <input v-model="externalAccountId" maxlength="100" autocomplete="off" placeholder="留空，由 GitHub 凭据自动识别">
+              <input v-model="externalAccountId" maxlength="100" autocomplete="off">
             </label>
             <label>Repository Allowlist（兼容字段）
-              <textarea v-model="repositoryAllowlist" rows="2" placeholder="留空，验证后从 Catalog 选择" />
+              <textarea v-model="repositoryAllowlist" rows="2" />
             </label>
           </details>
-          <p class="form-hint"><ShieldCheck :size="14" />{{ isTeamConnection ? '团队 App Connection 将以当前 Team 身份执行。' : '个人 OAuth Connection 仅用于当前成员授权的个人任务。' }} GitHub 身份和可用仓库由服务端验证，不需要填写 Account ID 或 Allowlist。</p>
+          <p class="form-hint"><ShieldCheck :size="14" />{{ isTeamConnection ? '团队 App Connection 将以当前 Team 身份执行。' : '个人 OAuth Connection 仅用于当前成员授权的个人任务。' }}</p>
           <div class="form-actions"><BaseButton type="button" variant="secondary" :disabled="submitting" @click="closeForm">取消</BaseButton><BaseButton type="submit" :loading="submitting"><Plus :size="15" />创建</BaseButton></div>
           <p v-if="formError && !submitting" class="field-message error" role="alert"><TriangleAlert :size="14" />{{ formError }}</p>
         </form>
@@ -635,7 +635,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
         <div class="fact-grid"><div><span>授权状态</span><StatusBadge :tone="statusTone(selectedConnection.status)">{{ label(selectedConnection.status, providerConnectionStatusLabels) }}</StatusBadge></div><div><span>凭证状态</span><StatusBadge :tone="statusTone(selectedConnection.credentialStatus ?? 'UNKNOWN')">{{ selectedConnection.credentialStatus ? label(selectedConnection.credentialStatus, providerCredentialStatusLabels) : '未记录' }}</StatusBadge></div><div><span>验证时间</span><strong>{{ formatDate(selectedConnection.verifiedAt) }}</strong></div><div><span>Allowlist</span><strong>{{ selectedConnection.repositoryAllowlist.length }} 个仓库</strong></div></div>
         <div v-if="health" class="health-strip"><HeartPulse :size="16" /><span>可交付仓库 {{ health.deliverableRepositoryCount }} 个 · Rate limit {{ health.rateLimit?.remaining ?? '—' }}/{{ health.rateLimit?.limit ?? '—' }}</span><StatusBadge :tone="health.connectionUsable ? 'success' : 'danger'">{{ health.connectionUsable ? '可用' : '不可用' }}</StatusBadge></div>
         <p v-if="selectedConnection.status !== 'REVOKED'" class="edit-hint"><KeyRound :size="14" />凭证和 Allowlist 不支持原地编辑；需要变更时创建新 Connection，验证成功后再撤销旧连接。</p>
-        <div class="catalog-heading"><div><h3>Repository Catalog</h3><p>来自该 Connection 的远程可访问仓库，用于 GitHub Delivery（Push / Draft PR）。选择团队连接下的仓库，可导入当前 WorkProject 形成受管 RepositoryBinding。</p></div><BaseButton variant="secondary" size="small" :loading="syncing" :disabled="!online" @click="synchronize"><RefreshCw :size="14" />同步 Catalog</BaseButton></div>
+        <div class="catalog-heading"><div><h3>Repository Catalog</h3></div><BaseButton variant="secondary" size="small" :loading="syncing" :disabled="!online" @click="synchronize"><RefreshCw :size="14" />同步 Catalog</BaseButton></div>
         <p id="github-binding-reason" class="sr-only">{{ bindingMissingReason }}</p>
         <StatePanel v-if="loadingDetail" state="loading" compact title="正在读取 Connection 事实" />
         <StatePanel v-else-if="repositories.length === 0" state="empty" compact title="暂无可访问仓库" description="检查 Token 权限和 Repository Allowlist 后重新同步。"><template #action><BaseButton variant="secondary" size="small" :loading="syncing" :disabled="!online" @click="synchronize">重新同步 Catalog</BaseButton></template></StatePanel>

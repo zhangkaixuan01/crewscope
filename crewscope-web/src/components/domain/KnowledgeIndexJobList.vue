@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { teamMemberUnresolvedDescription } from '../../domains/shared/stateCopy'
 import { computed } from 'vue'
 import {
   knowledgeIndexJobSourceLabels,
@@ -83,7 +84,7 @@ function clearFilters(): void {
     loading-title="正在读取索引作业"
     loading-description="正在读取当前 Team 的索引作业。"
     forbidden-title="无权读取索引作业"
-    forbidden-description="服务端没有为当前身份解析出这个 Team 的活动成员。"
+    :forbidden-description="teamMemberUnresolvedDescription"
     offline-empty-title="离线时没有可用索引作业"
     offline-empty-description="联网后会回读当前 Team 的索引作业。"
     empty-title="暂无索引作业"

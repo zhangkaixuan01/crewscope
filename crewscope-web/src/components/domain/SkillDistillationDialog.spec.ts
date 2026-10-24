@@ -75,7 +75,7 @@ describe('SkillDistillationDialog', () => {
     expect((inputs[0]!.element as HTMLInputElement).value).toBe(executionId)
     expect((inputs[1]!.element as HTMLInputElement).value).toBe(`skill-${executionId.slice(0, 8)}`)
     expect(wrapper.text()).toContain('建立团队看板')
-    expect(wrapper.text()).toContain('选择一次执行，系统会生成 Skill 草稿')
+    expect(wrapper.text()).toContain('将一次任务执行的过程与结论沉淀为团队 Skill 草稿')
 
     await wrapper.get('form').trigger('submit')
     expect(wrapper.emitted('distill')![0]![0]).toMatchObject({ taskExecutionId: executionId })

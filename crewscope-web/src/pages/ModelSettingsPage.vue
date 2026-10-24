@@ -402,7 +402,7 @@ function trainingPolicyLabel(value: string): string { return enumLabel(value, tr
 
       <section class="governance-panel panel" aria-labelledby="governance-title">
         <header class="panel-heading"><div><p class="eyebrow">Governance facts</p><h2 id="governance-title">默认、允许列表与预算</h2><p>治理策略由服务端目录和 Agent Preflight 统一计算；本页只展示当前生效事实。</p></div></header>
-        <div class="governance-grid"><article><ShieldCheck :size="18" /><div><h3>Team 模型默认</h3><p>Agent Preflight 会按 Team 与 Organization 的默认策略解析模型来源。</p></div><StatusBadge tone="success">服务端生效</StatusBadge></article><article><Layers3 :size="18" /><div><h3>Provider / Catalog 允许列表</h3><p>候选模型由健康度、能力、区域和治理策略求交集。</p></div><StatusBadge tone="success">服务端生效</StatusBadge></article><article><Coins :size="18" /><div><h3>预算与配额</h3><p>配置 Revision 会保留预算策略引用并在运行时执行。</p></div><StatusBadge tone="success">服务端生效</StatusBadge></article></div>
+        <div class="governance-grid"><article><ShieldCheck :size="18" /><div><h3>Team 模型默认</h3></div></article><article><Layers3 :size="18" /><div><h3>Provider / Catalog 允许列表</h3></div></article><article><Coins :size="18" /><div><h3>预算与配额</h3></div></article></div>
       </section>
 
       <section class="security-note" aria-label="模型凭证安全说明"><ShieldCheck :size="18" /><div><strong>凭证不进入浏览器状态</strong><span>API Key 不进入 Store、URL、Toast、Telemetry、错误详情或可重放闭包；Connection DTO 只展示稳定、安全的公开字段。</span></div></section>

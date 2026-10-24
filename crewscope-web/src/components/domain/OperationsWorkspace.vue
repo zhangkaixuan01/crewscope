@@ -212,11 +212,11 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
     <section class="evidence-panel" aria-labelledby="evidence-heading">
       <header><div><p class="eyebrow">MVP evidence</p><h2 id="evidence-heading">一键演示证据入口</h2></div><span>入口集合 · 不代替验收结论</span></header>
       <nav class="evidence-links" aria-label="MVP 演示证据">
-        <RouterLink :to="{ name: 'activity', query: $route.query }"><Activity :size="17" /><span>Team Activity<small>执行事实与 Correlation</small></span></RouterLink>
-        <RouterLink :to="{ name: 'inbox', query: $route.query }"><Inbox :size="17" /><span>我的 Inbox<small>待办、确认与异常</small></span></RouterLink>
-        <RouterLink :to="{ name: 'team-observer', query: $route.query }"><Gauge :size="17" /><span>Team Observer<small>只读团队摘要</small></span></RouterLink>
-        <RouterLink v-if="canManage" :to="{ name: 'audit', query: $route.query }"><ShieldCheck :size="17" /><span>审计中心<small>操作者与结果证据</small></span></RouterLink>
-        <RouterLink v-if="canManage" :to="{ name: 'lark-settings', query: $route.query }"><Send :size="17" /><span>飞书与通知<small>Provider 与投递状态</small></span></RouterLink>
+        <RouterLink :to="{ name: 'activity', query: $route.query }"><Activity :size="17" /><span>Team Activity</span></RouterLink>
+        <RouterLink :to="{ name: 'inbox', query: $route.query }"><Inbox :size="17" /><span>我的 Inbox</span></RouterLink>
+        <RouterLink :to="{ name: 'team-observer', query: $route.query }"><Gauge :size="17" /><span>Team Observer</span></RouterLink>
+        <RouterLink v-if="canManage" :to="{ name: 'audit', query: $route.query }"><ShieldCheck :size="17" /><span>审计中心</span></RouterLink>
+        <RouterLink v-if="canManage" :to="{ name: 'lark-settings', query: $route.query }"><Send :size="17" /><span>飞书与通知</span></RouterLink>
       </nav>
     </section>
 

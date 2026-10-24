@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { teamMemberUnresolvedDescription } from '../../domains/shared/stateCopy'
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { permissions } from '../../app/auth'
@@ -57,7 +58,7 @@ function clearMemory(): void {
     <div><p class="eyebrow">Memory</p><h3>辅助记忆</h3><span>这里只显示你本人的记忆偏好；清除立即生效且不可恢复。</span></div>
 
     <StatePanel v-if="loading" state="loading" title="正在读取辅助记忆" description="正在读取当前身份在这名 Agent 上的记忆。" />
-    <StatePanel v-else-if="forbidden" state="forbidden" title="无权读取辅助记忆" description="服务端没有为当前身份解析出这个 Team 的活动成员。">
+    <StatePanel v-else-if="forbidden" state="forbidden" title="无权读取辅助记忆" :description="teamMemberUnresolvedDescription">
       <template #action>
         <RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.scopeRead } }">
           <BaseButton variant="secondary" size="small">查看权限说明</BaseButton>

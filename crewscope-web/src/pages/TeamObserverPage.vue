@@ -32,7 +32,7 @@ const scope = computed<TeamObserverScope | null>(() => principal && scopeStore.s
       <template #action><RouterLink :to="{ name: 'today' }"><BaseButton size="small">前往 Today</BaseButton></RouterLink></template>
     </StatePanel>
     <template v-else>
-      <section class="observer-note panel"><strong>只读团队观测</strong><span>这里展示团队运行摘要；需要修改配置或推进工作项时，请前往对应工作台。</span><RouterLink class="touch-target" :to="{ name: 'work', query: { team: scope.teamId } }">前往工作项</RouterLink></section>
+      <section class="observer-note panel"><strong>只读团队观测</strong><span>需要修改配置或推进工作项时，请前往对应工作台。</span><RouterLink class="touch-target" :to="{ name: 'work', query: { team: scope.teamId } }">前往工作项</RouterLink></section>
       <TeamObserverWorkspace :scope="scope" :team-name="scopeStore.selectedTeam.value?.name ?? '当前团队'" :online="online" variant="summary" />
     </template>
   </AppShell>

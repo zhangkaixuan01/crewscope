@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { skillRepublishRestores } from '../domains/skill/labels'
 import { ListPlus, RefreshCw, Sparkles } from '@lucide/vue'
 import { computed, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -219,7 +220,7 @@ const actionImpact = computed(() => {
   const intent = actionIntent.value
   if (!intent) return ''
   if (intent.kind === 'publish') return `发布会产出新的不可变修订 r${intent.nextRevision} 并更新生效指针。服务端会对全部内容（frontmatter 与正文）执行无条件披露扫描——Skill 会注入未来任务的指令，审核标准比知识条目更严。发布后仍可回滚。`
-  if (intent.kind === 'disable') return '禁用即下线：后续任务不再装载这个 Skill，但目录与历史版本全部保留（没有删除操作）。修改草稿并再次发布即可产出新修订、恢复生效。'
+  if (intent.kind === 'disable') return '禁用即下线：后续任务不再装载这个 Skill，但目录与历史版本全部保留（没有删除操作）。' + skillRepublishRestores
   return `回滚不是删除：会产出一个新的不可变修订，其内容与哈希与 r${intent.toRevision} 完全相同（相邻修订同哈希属正常形态），当前生效的 r${intent.effectiveRevision} 之后的中间修订全部保留在历史中。`
 })
 const actionConfirmLabel = computed(() => {

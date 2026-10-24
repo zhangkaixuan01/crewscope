@@ -70,7 +70,6 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
       v-else-if="phase === 'complete'"
       kicker="团队已准备好"
       title="你的工作入口已经就绪"
-      description="Team、Owner 权限、共享工作空间和默认 Personal Agent 已由服务端逐一确认。"
       size="wide"
       focus-on-mount
     >
@@ -143,9 +142,9 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
         <section class="onboarding__creation" aria-label="将要创建的内容">
           <h3>服务端将一次性准备好</h3>
           <ul>
-            <li><span><UsersRound :size="15" />团队工作空间</span><small>成员与任务的共享边界</small></li>
-            <li><span><Bot :size="15" />你的 Personal Agent</span><small>默认对话式执行入口</small></li>
-            <li><span><ShieldCheck :size="15" />Owner 责任与权限</span><small>可邀请成员并管理团队</small></li>
+            <li><span><UsersRound :size="15" />团队工作空间</span></li>
+            <li><span><Bot :size="15" />你的 Personal Agent</span></li>
+            <li><span><ShieldCheck :size="15" />Owner 责任与权限</span></li>
           </ul>
         </section>
         <BaseButton class="onboarding__primary" type="submit" :disabled="!online" :loading="busy">

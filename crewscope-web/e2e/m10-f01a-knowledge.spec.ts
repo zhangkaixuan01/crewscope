@@ -443,7 +443,7 @@ test('蒸馏默认走最近执行选择器并自动生成条目 Key（M13b-F03/A
   await page.getByRole('button', { name: '从执行蒸馏' }).first().click()
 
   const dialog = page.getByRole('dialog', { name: '从执行蒸馏知识' })
-  await expect(dialog.getByText('选择一次执行，系统会生成知识条目草稿')).toBeVisible()
+  await expect(dialog.getByText('将一次任务执行的过程与结论沉淀为团队知识草稿')).toBeVisible()
   // 选中最近执行即给出预览并生成可编辑的默认 Key——不再手抄 UUID、不再自发明 Key。
   await dialog.getByLabel('选择一次执行').selectOption(ids.distillExecution)
   await expect(dialog.locator('.knowledge-dialog__preview')).toContainText('修复知识检索超时')

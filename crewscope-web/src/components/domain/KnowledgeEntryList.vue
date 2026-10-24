@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { teamMemberUnresolvedDescription } from '../../domains/shared/stateCopy'
 import { BookOpen, ChevronRight } from '@lucide/vue'
 import {
   knowledgeCategoryLabels,
@@ -85,7 +86,7 @@ function clearFilters(): void {
     loading-title="正在读取知识条目"
     loading-description="正在读取当前 Team 的知识资产。"
     forbidden-title="无权读取知识库"
-    forbidden-description="服务端没有为当前身份解析出这个 Team 的活动成员。"
+    :forbidden-description="teamMemberUnresolvedDescription"
     offline-empty-title="离线时没有可用知识条目"
     offline-empty-description="联网后会回读当前 Team 的知识资产。"
     empty-title="暂无知识条目"

@@ -52,13 +52,13 @@ const agentGroups = computed(() => [
   },
   {
     key: 'specialist', title: '我的 Specialist', directoryId: 'specialist-agent-directory',
-    description: '个人创建的 Coding、Reviewer 与其他受批准专业 Agent。', agents: specialistAgents.value,
+    agents: specialistAgents.value,
     emptyTitle: '还没有个人 Specialist',
-    emptyDescription: '从批准 Template 创建 Coding、Reviewer 或其他个人执行 Agent。',
+
   },
   {
     key: 'team', title: '团队 Agent', directoryId: 'team-agent-directory',
-    description: '团队共享的执行身份；配置受管模型后，在 WorkItem 责任链中担任 Executor。', agents: teamAgents.value,
+    agents: teamAgents.value,
     emptyTitle: '这个 Team 还没有团队 Agent',
     emptyDescription: canManageTeamAgents.value
       ? '创建后配置 TEAM 模型连接，再前往 Work 将它分配为 WorkItem Executor。'
@@ -349,20 +349,19 @@ function bindingLabel(binding: BindingView): string {
     <div v-else class="agent-page page-shell">
       <section class="summary-strip panel" aria-labelledby="agent-overview-title">
         <h2 id="agent-overview-title">{{ agents.length }} 个可协作 Agent</h2>
-        <p class="summary-strip__note">Personal Agent 承接对话，Specialist 执行专业任务，团队 Agent 使用稳定的 Team 身份和配置</p>
         <p class="summary-strip__meta" aria-label="Agent 分类汇总">默认 Personal {{ personalAgents.length }} · 我的 Specialist {{ specialistAgents.length }} · 团队 {{ teamAgents.length }} · 平台托管 {{ platformManagedAgents.length }}</p>
       </section>
 
       <section class="agent-entry-grid" aria-label="Agent 类型入口">
         <article class="agent-entry agent-entry--personal">
           <span class="agent-entry__icon"><UserRound :size="21" aria-hidden="true" /></span>
-          <div><p class="eyebrow">Personal ownership</p><h2>个人 Agent</h2><p>默认 Personal Agent 承接对话；个人 Specialist 执行你的专业任务。</p></div>
+          <div><p class="eyebrow">Personal ownership</p><h2>个人 Agent</h2></div>
           <strong>{{ personalAgents.length + specialistAgents.length }} 个</strong>
           <footer><a class="touch-target" href="#personal-agent-directory">查看个人 Agent</a><BaseButton class="entry-create" size="small" variant="ghost" @click="openCreate($event, 'USER')"><Plus :size="13" />创建个人 Agent</BaseButton></footer>
         </article>
         <article class="agent-entry agent-entry--team">
           <span class="agent-entry__icon"><Building2 :size="21" aria-hidden="true" /></span>
-          <div><p class="eyebrow">Team ownership</p><h2>团队 Agent</h2><p>使用 TEAM/Organization 连接，通过 WorkItem 责任链承接团队耐久任务。</p></div>
+          <div><p class="eyebrow">Team ownership</p><h2>团队 Agent</h2></div>
           <strong>{{ teamAgents.length }} 个</strong>
           <footer><a class="touch-target" href="#team-agent-directory">查看团队 Agent</a><BaseButton v-if="canManageTeamAgents" class="entry-create" size="small" variant="ghost" @click="openCreate($event, 'TEAM')"><Plus :size="13" />创建团队 Agent</BaseButton></footer>
         </article>

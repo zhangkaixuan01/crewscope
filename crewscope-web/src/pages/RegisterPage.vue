@@ -315,7 +315,6 @@ async function timedRequest<T>(
       size="wide"
       :kicker="invitation.kind === 'valid' ? '加入团队' : '创建个人账号'"
       title="开始使用 CrewScope"
-      :description="invitation.kind === 'valid' ? '创建账号后直接加入邀请你的团队。' : '创建账号后设置你的第一个团队。'"
       :busy="submitting"
     >
       <div v-if="invitation.kind === 'valid'" class="register-page__invite" role="status">

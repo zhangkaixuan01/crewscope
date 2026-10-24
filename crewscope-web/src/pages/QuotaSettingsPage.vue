@@ -204,7 +204,7 @@ function formatTokens(value: number): string {
                   @input="dirtyForm.markDirty()"
                 />
                 <p id="quota-intake-reason" class="quota-reason" aria-live="polite">
-                  {{ submitted && !intakeValid ? '限额必须不小于 1。' : '留空表示不限制每月任务受理数。' }}
+                  {{ submitted && !intakeValid ? '限额必须不小于 1。' : '' }}
                 </p>
               </div>
               <div class="quota-field">
@@ -220,7 +220,7 @@ function formatTokens(value: number): string {
                   @input="dirtyForm.markDirty()"
                 />
                 <p id="quota-budget-reason" class="quota-reason" aria-live="polite">
-                  {{ submitted && !budgetValid ? '限额必须不小于 1。' : '留空表示不限制每月 Token 预算。' }}
+                  {{ submitted && !budgetValid ? '限额必须不小于 1。' : '' }}
                 </p>
               </div>
               <p v-if="command.phase === 'error'" role="alert" class="quota-error">

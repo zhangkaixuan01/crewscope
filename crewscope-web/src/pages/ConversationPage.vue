@@ -1274,8 +1274,7 @@ async function redirectIfForbidden(): Promise<void> {
           <span><MessageSquarePlus :size="26" aria-hidden="true" /></span>
           <p class="eyebrow">Conversation Mode</p>
           <h2>从一个对话开始</h2>
-          <p v-if="focus">你正在处理 <strong>{{ focus }}</strong>。选择已有对话，或建立新的协作上下文。</p>
-          <p v-else>选择已有对话，或创建一个新对话向 Personal Agent 表达目标。</p>
+          <p v-if="focus">你正在处理 <strong>{{ focus }}</strong>。</p>
           <BaseButton @click="openCreate">
             <template #icon><Plus :size="15" /></template>
             新建对话

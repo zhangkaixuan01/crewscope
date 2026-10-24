@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { teamMemberUnresolvedDescription } from '../../domains/shared/stateCopy'
 import { computed, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { permissions } from '../../app/auth'
@@ -65,7 +66,7 @@ function mark(reference: InjectionFeedbackInput): void {
 
     <template v-else>
       <StatePanel v-if="loading" state="loading" title="正在读取注入清单" description="正在读取这次执行的注入证据。" />
-      <StatePanel v-else-if="forbidden" state="forbidden" title="无权读取注入与引用" description="服务端没有为当前身份解析出这个 Team 的活动成员。">
+      <StatePanel v-else-if="forbidden" state="forbidden" title="无权读取注入与引用" :description="teamMemberUnresolvedDescription">
         <template #action>
           <RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.workRead } }">
             <BaseButton variant="secondary" size="small">查看权限说明</BaseButton>

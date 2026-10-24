@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { skillFrontmatterContractHint, skillRepublishRestores } from '../../domains/skill/labels'
 import { computed, useTemplateRef } from 'vue'
 import { parseSkillDocument, validateSkillDocument } from '../../domains/skill/document'
 import { SKILL_CONTENT_MAX, type SkillSummary, type UpdateSkillDraftInput } from '../../domains/skill/types'
@@ -33,7 +34,7 @@ const emit = defineEmits<{
 }>()
 
 const emptyDescription = computed(() => props.skill.status === 'DISABLED'
-  ? '此 Skill 已禁用；修改草稿并再次发布即可产出新修订、恢复生效。'
+  ? '此 Skill 已禁用；' + skillRepublishRestores
   : '已发布的内容全部生效，可由 Skill 管理员继续修订。')
 
 function fromServer(draft: SkillSummary['draft']): SkillDraftForm {
@@ -86,7 +87,7 @@ defineExpose({
           :aria-describedby="[readonlyReason, validateSkillDocument(snapshot.content, skill.skillKey) ? `${skill.id}-doc-error` : ''].filter(Boolean).join(' ') || undefined"
           placeholder="--- 开头的 frontmatter（name 与 skillKey 一致），随后是注入给任务的正文。"
         />
-        <small class="draft-editor__hint">frontmatter 恰好含 name（必须等于 skillKey）与 description（≤200 字）两字段；正文即运行时注入的指令来源。</small>
+        <small class="draft-editor__hint">{{ skillFrontmatterContractHint }}</small>
         <small v-if="validateSkillDocument(snapshot.content, skill.skillKey)" :id="`${skill.id}-doc-error`" class="draft-editor__error">{{ validateSkillDocument(snapshot.content, skill.skillKey) }}</small>
       </div>
     </template>

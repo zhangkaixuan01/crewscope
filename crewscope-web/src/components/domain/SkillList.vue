@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { teamMemberUnresolvedDescription } from '../../domains/shared/stateCopy'
 import { ChevronRight, ListChecks } from '@lucide/vue'
 import { skillStatusLabels } from '../../domains/skill/labels'
 import { skillStatuses, type SkillStatus, type SkillSummary } from '../../domains/skill/types'
@@ -57,7 +58,7 @@ function statusTone(status: SkillStatus): 'neutral' | 'info' | 'danger' {
     loading-title="正在读取 Skill 目录"
     loading-description="正在读取当前 Team 的 Skill 资产。"
     forbidden-title="无权读取 Skill 目录"
-    forbidden-description="服务端没有为当前身份解析出这个 Team 的活动成员。"
+    :forbidden-description="teamMemberUnresolvedDescription"
     offline-empty-title="离线时没有可用 Skill"
     offline-empty-description="联网后会回读当前 Team 的 Skill 资产。"
     empty-title="暂无 Skill"

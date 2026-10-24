@@ -284,7 +284,7 @@ async function goToday(): Promise<void> {
 
       <!-- F02：单项目迁移试用的入口与边界说明（完整指南见仓库 docs/guides/M9b-单项目迁移试用指南.md）。 -->
       <section class="migration-panel panel" aria-labelledby="migration-heading">
-        <div class="panel-heading"><div><p class="eyebrow">Migration trial</p><h2 id="migration-heading">从现有系统迁移试用</h2><p>先用一个非敏感小任务验证 CrewScope 能否承接真实工作，再决定是否扩大使用；不要求搬迁历史，也不做双向同步。</p></div></div>
+        <div class="panel-heading"><div><p class="eyebrow">Migration trial</p><h2 id="migration-heading">从现有系统迁移试用</h2><p>先用一个非敏感小任务验证 CrewScope 能否承接真实工作，再决定是否扩大使用。</p></div></div>
         <div class="migration-steps">
           <ol>
             <li>挑一个非敏感小任务，不要用核心生产任务做第一次试用。</li>
