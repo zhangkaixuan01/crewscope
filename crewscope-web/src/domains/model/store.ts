@@ -1,9 +1,10 @@
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { createCommandGateway } from '../../api/commandGateway'
 import { commandFailure, commandFailureMessage } from '../../api/commandIntent'
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { Etagged, OffsetPage, SettingsScope } from '../settings/types'
-import type { ModelGateway } from './gateway'
+import { HttpModelGateway, type ModelGateway } from './gateway'
 import type {
   CreateModelConnectionInput,
   ModelCatalogEntrySummary,
@@ -349,16 +350,27 @@ export function createModelStore(gateway: ModelGateway): ModelStore {
   }
 }
 
-export function installModelStore(app: App, gateway: ModelGateway): ModelStore {
-  const store = createModelStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureModelStore(app: App): ModelStore {
+  const existing = app.runWithContext(() => inject(MODEL_STORE, null))
+  if (existing) return existing
+  const store = createModelStore(new HttpModelGateway())
   app.provide(MODEL_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useModelStore(): ModelStore {
-  const store = inject(MODEL_STORE)
-  if (!store) throw new Error('CrewScope Model Store is not installed')
-  return store
+  const installed = inject(MODEL_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Model Store is not installed')
+  return ensureModelStore(instance.appContext.app)
 }
 
 function initialState(): ModelStoreState {

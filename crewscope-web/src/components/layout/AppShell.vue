@@ -36,9 +36,10 @@ import { useNetworkStatus } from '../../app/network'
 import { SCOPE_STORE } from '../../domains/scope/store'
 import { IDENTITY_GATEWAY } from '../../domains/identity/gateway'
 import { AUTH_STORE } from '../../domains/identity/store'
-import { COLLABORATION_STORE } from '../../domains/collaboration/store'
+import { COLLABORATION_STORE, ensureCollaborationStore } from '../../domains/collaboration/store'
+import { currentApp } from '../../app/currentApp'
 import { collaborationPhaseLabels } from '../../domains/collaboration/labels'
-import { TEAM_OPS_STORE } from '../../domains/teamops/store'
+import { TEAM_OPS_STORE, ensureTeamOpsStore } from '../../domains/teamops/store'
 import { CrewScopeApiError } from '../../api/client'
 import crewScopeMark from '../../design/crewscope-mark.svg'
 import ScopeSwitcher from '../domain/ScopeSwitcher.vue'
@@ -69,12 +70,13 @@ const authStore = inject(AUTH_STORE, null)
 // dot, reconnecting pulses, degraded becomes the retry affordance. connecting and idle
 // stay unlabeled to avoid a flash on every startup. The store is optional so story and
 // spec mounts of the shell render without it.
-const collaborationStore = inject(COLLABORATION_STORE, null)
+const collaborationStore = inject(COLLABORATION_STORE, null) ?? ensureCollaborationStore(currentApp())
 const collaborationPhase = computed(() => collaborationStore?.state.phase ?? 'idle')
 const collaborationLabel = computed(() => collaborationPhaseLabels[collaborationPhase.value])
-// M13b-F06（R24）：铃铛徽标读 Inbox /counts 的未读数。与 collaboration 同为可选注入——
+// M13b-F06（R24）：铃铛徽标读 Inbox /counts 的未读数。与 collaboration 同为可选注入（fixture 优先，
+// M13d-P01 起未提供时在此惰性安装——AppShell chunk 不再把这两个域拖回 main）——
 // story/spec 挂壳不装 teamops store 也能渲染；计数失败静默（无徽标即「未知」，不吵）。
-const teamOpsStore = inject(TEAM_OPS_STORE, null)
+const teamOpsStore = inject(TEAM_OPS_STORE, null) ?? ensureTeamOpsStore(currentApp())
 const inboxUnread = computed(() => teamOpsStore?.state.inboxCounts.value?.unread ?? 0)
 const bellLabel = computed(() => inboxUnread.value > 0 ? `打开通知 Inbox，${inboxUnread.value} 条未读` : '打开通知 Inbox')
 const activeMode = computed(() => route.meta.mode)

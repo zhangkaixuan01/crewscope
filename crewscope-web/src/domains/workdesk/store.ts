@@ -1,7 +1,9 @@
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { CrewScopeApiError } from '../../api/client'
+import { isAbort } from '../../api/errors'
 import type { WorkDeskFilter, WorkDeskScope, WorkDeskSummary } from './types'
-import type { WorkDeskGateway } from './gateway'
+import { HttpWorkDeskGateway, type WorkDeskGateway } from './gateway'
 
 export type WorkDeskPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error' | 'offline'
 export interface WorkDeskStoreState {
@@ -43,11 +45,14 @@ export function createWorkDeskStore(gateway: WorkDeskGateway): WorkDeskStore {
   let request: Promise<void> | null = null
   let filterKey = ''
   let activeFilter: WorkDeskFilter = {}
+  // M13d-B41: a superseded desk read aborts instead of racing the generation guard to the wire.
+  let readAbort: AbortController | null = null
   function activateScope(scope: WorkDeskScope): void {
     const key = `${scope.organizationId}:${scope.teamId}`
     const current = state.scope && `${state.scope.organizationId}:${state.scope.teamId}`
     if (key === current) return
     generation += 1; request = null; filterKey = ''; activeFilter = {}
+    readAbort?.abort(); readAbort = null
     state.scope = { ...scope }; state.summary = null; state.errorMessage = null
     state.sectionLoadingKey = null; state.sectionError = null; state.phase = 'idle'
   }
@@ -59,16 +64,19 @@ export function createWorkDeskStore(gateway: WorkDeskGateway): WorkDeskStore {
     filterKey = key
     activeFilter = { ...filter }
     const currentGeneration = generation
+    readAbort?.abort()
+    const controller = new AbortController()
+    readAbort = controller
     state.phase = 'loading'; state.errorMessage = null
     state.sectionLoadingKey = null; state.sectionError = null
-    const pending = gateway.get(scope, filter, SECTION_PAGE_SIZE).then(summary => {
+    const pending = gateway.get(scope, filter, SECTION_PAGE_SIZE, controller.signal).then(summary => {
       if (currentGeneration !== generation) return
       state.summary = summary; state.phase = summary.sections.some(section => section.items.length > 0) ? 'ready' : 'empty'
     }).catch(error => {
-      if (currentGeneration !== generation) return
+      if (currentGeneration !== generation || isAbort(error)) return
       state.phase = error instanceof CrewScopeApiError && error.status === 0 ? 'offline' : 'error'
       state.errorMessage = error instanceof CrewScopeApiError ? error.envelope.message : '个人工作台暂时不可用，请稍后重试。'
-    }).finally(() => { if (request === pending) request = null })
+    }).finally(() => { if (request === pending) request = null; if (readAbort === controller) readAbort = null })
     request = pending
     return pending
   }
@@ -96,7 +104,7 @@ export function createWorkDeskStore(gateway: WorkDeskGateway): WorkDeskStore {
       }
       state.phase = state.summary.sections.some(candidate => candidate.items.length > 0) ? 'ready' : 'empty'
     } catch (error) {
-      if (currentGeneration === generation) {
+      if (currentGeneration === generation && !isAbort(error)) {
         state.sectionError = {
           sectionKey,
           message: error instanceof CrewScopeApiError ? error.envelope.message : '暂时无法加载该分组的更多内容，请稍后重试。',
@@ -108,10 +116,30 @@ export function createWorkDeskStore(gateway: WorkDeskGateway): WorkDeskStore {
   }
   function reset(): void {
     generation += 1; request = null; filterKey = ''; activeFilter = {}
+    readAbort?.abort(); readAbort = null
     state.phase = 'idle'; state.scope = null; state.summary = null; state.errorMessage = null
     state.sectionLoadingKey = null; state.sectionError = null
   }
   return { state: readonly(state) as Readonly<WorkDeskStoreState>, activateScope, load, loadMore, reset }
 }
-export function installWorkDeskStore(app: App, gateway: WorkDeskGateway): WorkDeskStore { const store = createWorkDeskStore(gateway); app.provide(WORKDESK_STORE, store); return store }
-export function useWorkDeskStore(): WorkDeskStore { const store = inject(WORKDESK_STORE); if (!store) throw new Error('CrewScope WorkDesk Store is not installed'); return store }
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureWorkdeskStore(app: App): WorkDeskStore {
+  const existing = app.runWithContext(() => inject(WORKDESK_STORE, null))
+  if (existing) return existing
+  const store = createWorkDeskStore(new HttpWorkDeskGateway())
+  app.provide(WORKDESK_STORE, store)
+  registerStoreReset(app, () => store.reset())
+  return store
+}
+
+export function useWorkDeskStore(): WorkDeskStore {
+  const installed = inject(WORKDESK_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope WorkDesk Store is not installed')
+  return ensureWorkdeskStore(instance.appContext.app)
+}

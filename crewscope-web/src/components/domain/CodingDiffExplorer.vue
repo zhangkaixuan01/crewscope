@@ -187,7 +187,7 @@ watch(
   { immediate: true },
 )
 
-watch(() => props.reviewComments, value => { localComments.value = value ? [] : localComments.value }, { deep: true })
+watch(() => props.reviewComments, value => { localComments.value = value ? [] : localComments.value })
 
 function currentFileHash(path: string): string {
   const file = projection.value.files.find(item => item.path === path)

@@ -10,7 +10,6 @@ const props = defineProps<{
   submitting: boolean
   retryable: boolean
   errorMessage: string | null
-  checkKey?: (key: string, signal?: AbortSignal) => Promise<boolean>
 }>()
 const emit = defineEmits<{ close: []; submit: [input: CreateWorkProjectInput, idempotencyKey: string]; inputChanged: [] }>()
 const name = ref('')

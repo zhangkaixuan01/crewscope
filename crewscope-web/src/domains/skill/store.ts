@@ -1,8 +1,9 @@
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { createCommandGateway } from '../../api/commandGateway'
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import type { Etagged, SettingsScope } from '../settings/types'
-import type { SkillGateway } from './gateway'
+import { HttpSkillGateway, type SkillGateway } from './gateway'
 import type {
   CreateSkillInput,
   DistillSkillInput,
@@ -481,16 +482,27 @@ export function createSkillStore(gateway: SkillGateway): SkillStore {
   }
 }
 
-export function installSkillStore(app: App, gateway: SkillGateway): SkillStore {
-  const store = createSkillStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureSkillStore(app: App): SkillStore {
+  const existing = app.runWithContext(() => inject(SKILL_STORE, null))
+  if (existing) return existing
+  const store = createSkillStore(new HttpSkillGateway())
   app.provide(SKILL_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useSkillStore(): SkillStore {
-  const store = inject(SKILL_STORE)
-  if (!store) throw new Error('CrewScope Skill Store is not installed')
-  return store
+  const installed = inject(SKILL_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Skill Store is not installed')
+  return ensureSkillStore(instance.appContext.app)
 }
 
 function initialState(): SkillStoreState {

@@ -1,7 +1,8 @@
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { CrewScopeApiError } from '../../api/client'
 import type { SettingsScope } from '../settings/types'
-import type { SetupGateway } from './gateway'
+import { HttpSetupGateway, type SetupGateway } from './gateway'
 import type { ConfigurationHealthView, ConfigurationSearchHit, SetupReadinessView } from './types'
 
 export type SetupPhase = 'idle' | 'loading' | 'ready' | 'error' | 'offline'
@@ -87,7 +88,9 @@ export function createSetupStore(gateway: SetupGateway): SetupStore {
     if (!scope) return
     if (request && !force) return request
     const currentGeneration = generation
-    state.phase = 'loading'
+    // M13d-A15: readiness refreshes stale-while-ready — the caller only gets the loading
+    // phase when there is nothing to show yet.
+    if (state.phase !== 'ready') state.phase = 'loading'
     state.errorMessage = null
     const pending = gateway.getReadiness(scope).then(value => {
       if (currentGeneration !== generation) return
@@ -184,9 +187,24 @@ export function createSetupStore(gateway: SetupGateway): SetupStore {
   }
 }
 
-export function installSetupStore(app: App, gateway: SetupGateway): SetupStore {
-  const store = createSetupStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureSetupStore(app: App): SetupStore {
+  const existing = app.runWithContext(() => inject(SETUP_STORE, null))
+  if (existing) return existing
+  const store = createSetupStore(new HttpSetupGateway())
   app.provide(SETUP_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
-export function useSetupStore(): SetupStore { const store = inject(SETUP_STORE); if (!store) throw new Error('CrewScope Setup Store is not installed'); return store }
+
+export function useSetupStore(): SetupStore {
+  const installed = inject(SETUP_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Setup Store is not installed')
+  return ensureSetupStore(instance.appContext.app)
+}

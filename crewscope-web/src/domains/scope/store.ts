@@ -1,6 +1,6 @@
 import { createCommandGateway } from '../../api/commandGateway'
 import { acknowledgeCreation } from '../../api/creationRecovery'
-import { presentError as sharedPresentError } from '../../api/errors'
+import {isAbort, presentError as sharedPresentError} from '../../api/errors'
 import { secureId } from '../../api/secureId'
 import {
   computed,
@@ -72,7 +72,6 @@ export interface ScopeStore {
   getHandover(jobId: string): Promise<HandoverJobView>
   cancelHandover(jobId: string): Promise<HandoverJobView>
   clearHandover(): void
-  checkWorkProjectKey(key: string, signal?: AbortSignal): Promise<boolean>
   createWorkProject(input: CreateWorkProjectInput, idempotencyKey: string): Promise<WorkProjectSummary>
   clearProjectCommand(): void
   reset(): void
@@ -119,6 +118,9 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
 
   let teamsLoaded = false
   let teamsRequest: Promise<void> | null = null
+  let membersRequest: Promise<void> | null = null
+  let membersRequestTeamId: string | null = null
+  let syncAbort: AbortController | null = null
   let synchronizationVersion = 0
   let scopeGeneration = 0
   let membersVersion = 0
@@ -131,12 +133,12 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
     () => state.projects.find(project => project.id === state.selectedProjectId) ?? null,
   )
 
-  async function ensureTeams(force = false): Promise<void> {
+  async function ensureTeams(force = false, signal?: AbortSignal): Promise<void> {
     if (teamsLoaded && !force) return
     if (teamsRequest && !force) return teamsRequest
 
     const requestGeneration = scopeGeneration
-    const request = gateway.listTeams(principal.organizationId).then(teams => {
+    const request = gateway.listTeams(principal.organizationId, signal).then(teams => {
       if (requestGeneration !== scopeGeneration || teamsRequest !== request) return
       state.teams = teams.filter(team => team.status === 'ACTIVE')
       teamsLoaded = true
@@ -149,10 +151,17 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
 
   async function synchronize(teamId?: string | null, projectId?: string | null): Promise<ScopeSelection> {
     const requestVersion = ++synchronizationVersion
-    state.phase = 'loading'
+    // M13d-B40: a superseded synchronization aborts its in-flight reads instead of racing
+    // the version guard to the wire.
+    syncAbort?.abort()
+    const controller = new AbortController()
+    syncAbort = controller
+    // M13d-A08: a ready scope keeps its phase while the (cached) selection is re-derived —
+    // route re-entry must not flash the loading skeleton over data that is already on screen.
+    if (state.phase !== 'ready') state.phase = 'loading'
     state.errorMessage = null
     try {
-      await ensureTeams()
+      await ensureTeams(false, controller.signal)
       if (requestVersion !== synchronizationVersion) return currentSelection()
 
       if (state.teams.length === 0) {
@@ -189,7 +198,7 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
       }
 
       if (teamChanged || state.projectsTeamId !== team.id) {
-        const page = await gateway.listWorkProjects(principal.organizationId, team.id)
+        const page = await gateway.listWorkProjects(principal.organizationId, team.id, controller.signal)
         if (requestVersion !== synchronizationVersion) return currentSelection()
         state.projects = page.items.filter(project => project.status === 'ACTIVE')
         state.projectsTeamId = team.id
@@ -198,7 +207,7 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
       let project = state.projects.find(candidate => candidate.id === projectId) ?? null
       if (projectId && !project) {
         state.selectedProjectId = null
-        const located = await gateway.getWorkProject(principal.organizationId, team.id, projectId)
+        const located = await gateway.getWorkProject(principal.organizationId, team.id, projectId, controller.signal)
         if (requestVersion !== synchronizationVersion) return currentSelection()
         if (located.id !== projectId || located.teamId !== team.id) throw new Error('Project scope mismatch')
         state.projects = [...state.projects, located]
@@ -209,11 +218,13 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
       state.phase = 'ready'
       return currentSelection()
     } catch (error) {
-      if (requestVersion === synchronizationVersion) {
+      if (requestVersion === synchronizationVersion && !isAbort(error)) {
         state.phase = 'error'
         state.errorMessage = presentError(error)
       }
       return currentSelection()
+    } finally {
+      if (syncAbort === controller) syncAbort = null
     }
   }
 
@@ -226,25 +237,36 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
   async function loadMembers(force = false): Promise<void> {
     const teamId = state.selectedTeamId
     if (!teamId || (state.membersTeamId === teamId && !force)) return
+    // M13d-B08: concurrent callers share one request instead of racing duplicate loads.
+    if (membersRequest && membersRequestTeamId === teamId && !force) return membersRequest
     const requestGeneration = scopeGeneration
     const version = ++membersVersion
     state.membersLoading = true
     state.membersErrorMessage = null
-    try {
-      const members = await gateway.listMembers(principal.organizationId, teamId)
-      if (requestGeneration !== scopeGeneration || version !== membersVersion || state.selectedTeamId !== teamId) return
-      state.members = members
-      state.membersTeamId = teamId
-    } catch (error) {
-      // A slow response from the previous Team must not overwrite the newly selected Team state.
-      if (requestGeneration === scopeGeneration && version === membersVersion && state.selectedTeamId === teamId) {
-        state.membersErrorMessage = presentError(error)
-      }
-    } finally {
-      if (requestGeneration === scopeGeneration && version === membersVersion && state.selectedTeamId === teamId) {
-        state.membersLoading = false
-      }
-    }
+    const pending = gateway.listMembers(principal.organizationId, teamId)
+      .then(members => {
+        if (requestGeneration !== scopeGeneration || version !== membersVersion || state.selectedTeamId !== teamId) return
+        state.members = members
+        state.membersTeamId = teamId
+      })
+      .catch(error => {
+        // A slow response from the previous Team must not overwrite the newly selected Team state.
+        if (requestGeneration === scopeGeneration && version === membersVersion && state.selectedTeamId === teamId) {
+          state.membersErrorMessage = presentError(error)
+        }
+      })
+      .finally(() => {
+        if (requestGeneration === scopeGeneration && version === membersVersion && state.selectedTeamId === teamId) {
+          state.membersLoading = false
+        }
+        if (membersRequest === pending) {
+          membersRequest = null
+          membersRequestTeamId = null
+        }
+      })
+    membersRequest = pending
+    membersRequestTeamId = teamId
+    return pending
   }
 
   async function addMember(principalId: string): Promise<void> {
@@ -392,18 +414,6 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
     state.handoverErrorMessage = null
   }
 
-  async function checkWorkProjectKey(key: string, signal?: AbortSignal): Promise<boolean> {
-    const teamId = state.selectedTeamId
-    if (!teamId) throw new Error('No Team is selected')
-    const availability = await gateway.checkWorkProjectKey(
-      principal.organizationId,
-      teamId,
-      key.trim().toUpperCase(),
-      signal,
-    )
-    return availability.available
-  }
-
   async function createWorkProject(
     input: CreateWorkProjectInput,
     idempotencyKey: string,
@@ -468,6 +478,10 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
     synchronizationVersion += 1
     teamsLoaded = false
     teamsRequest = null
+    membersRequest = null
+    membersRequestTeamId = null
+    syncAbort?.abort()
+    syncAbort = null
     state.phase = 'idle'
     state.teams = []
     state.membersLoading = false
@@ -501,7 +515,6 @@ export function createScopeStore(gateway: ScopeGateway, principal: Authenticated
     getHandover,
     cancelHandover,
     clearHandover,
-    checkWorkProjectKey,
     createWorkProject,
     clearProjectCommand,
     reset,

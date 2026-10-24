@@ -1,10 +1,11 @@
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { parseServerSentEvents, type ServerSentEventFrame } from '../../api/sse'
 import { createThreeStreamCursorStore, type ThreeStreamCursorStore } from '../realtime/cursorStore'
 import { teamOpsError, type TeamOpsErrorState } from './errors'
 import { isAbort } from '../../api/errors'
-import { mapPublicActivity, type TeamOpsGateway } from './gateway'
-import type { TeamOpsStore } from './store'
+import { HttpTeamOpsGateway, mapPublicActivity, type TeamOpsGateway } from './gateway'
+import { ensureTeamOpsStore, type TeamOpsStore } from './store'
 import type { ActivityFilter, TeamOpsScope } from './types'
 
 export type ActivityRealtimePhase =
@@ -211,21 +212,32 @@ export function createActivityRealtimeStore(
   return { state: readonly(state), start, retry, setOnline, stop }
 }
 
-export function installActivityRealtimeStore(
-  app: App,
-  gateway: TeamOpsGateway,
-  teamOps: TeamOpsStore,
-  cursors: ThreeStreamCursorStore = createThreeStreamCursorStore(),
-): ActivityRealtimeStore {
-  const store = createActivityRealtimeStore(gateway, teamOps, cursors)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureActivityRealtimeStore(app: App): ActivityRealtimeStore {
+  const existing = app.runWithContext(() => inject(ACTIVITY_REALTIME_STORE, null))
+  if (existing) return existing
+  // main.ts used to share one gateway with the TeamOps store; the wrapper is stateless, so a
+  // second instance is behaviorally identical.
+  const store = createActivityRealtimeStore(new HttpTeamOpsGateway(), ensureTeamOpsStore(app), createThreeStreamCursorStore())
   app.provide(ACTIVITY_REALTIME_STORE, store)
+  registerStoreReset(app, () => store.stop())
   return store
 }
 
+export function stopActivityRealtimeStoreIfActive(app: App): void {
+  app.runWithContext(() => inject(ACTIVITY_REALTIME_STORE, null))?.stop()
+}
+
 export function useActivityRealtimeStore(): ActivityRealtimeStore {
-  const store = inject(ACTIVITY_REALTIME_STORE)
-  if (!store) throw new Error('CrewScope Activity Realtime Store is not installed')
-  return store
+  const installed = inject(ACTIVITY_REALTIME_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Activity Realtime Store is not installed')
+  return ensureActivityRealtimeStore(instance.appContext.app)
 }
 
 function reconnectDelay(attempt: number): number {

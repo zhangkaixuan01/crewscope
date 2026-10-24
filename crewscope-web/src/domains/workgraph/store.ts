@@ -1,7 +1,8 @@
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { CrewScopeApiError } from '../../api/client'
 import { createCommandGateway } from '../../api/commandGateway'
-import type { WorkGraphGateway } from './gateway'
+import { HttpWorkGraphGateway, type WorkGraphGateway } from './gateway'
 import { workItemRelationErrorLabels } from './labels'
 import type {
   BlockedWorkItemRow,
@@ -347,14 +348,25 @@ export function createWorkGraphStore(sourceGateway: WorkGraphGateway): WorkGraph
   }
 }
 
-export function installWorkGraphStore(app: App, gateway: WorkGraphGateway): WorkGraphStore {
-  const store = createWorkGraphStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureWorkGraphStore(app: App): WorkGraphStore {
+  const existing = app.runWithContext(() => inject(WORK_GRAPH_STORE, null))
+  if (existing) return existing
+  const store = createWorkGraphStore(new HttpWorkGraphGateway())
   app.provide(WORK_GRAPH_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useWorkGraphStore(): WorkGraphStore {
-  const store = inject(WORK_GRAPH_STORE)
-  if (!store) throw new Error('CrewScope WorkGraph Store is not installed')
-  return store
+  const installed = inject(WORK_GRAPH_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope WorkGraph Store is not installed')
+  return ensureWorkGraphStore(instance.appContext.app)
 }

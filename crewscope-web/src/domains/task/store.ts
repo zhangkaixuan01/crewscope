@@ -1,8 +1,9 @@
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { createCommandGateway } from '../../api/commandGateway'
 import { secureId } from '../../api/secureId'
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
 import { CrewScopeApiError } from '../../api/client'
-import type { TaskGateway } from './gateway'
+import { HttpTaskGateway, type TaskGateway } from './gateway'
 import type {
   CreateTaskCommand,
   MemberTaskCommand,
@@ -1138,14 +1139,25 @@ export function createTaskStore(gateway: TaskGateway, options: TaskStoreOptions 
   }
 }
 
-export function installTaskStore(app: App, gateway: TaskGateway): TaskStore {
-  const store = createTaskStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureTaskStore(app: App): TaskStore {
+  const existing = app.runWithContext(() => inject(TASK_STORE, null))
+  if (existing) return existing
+  const store = createTaskStore(new HttpTaskGateway())
   app.provide(TASK_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useTaskStore(): TaskStore {
-  const store = inject(TASK_STORE)
-  if (!store) throw new Error('CrewScope Task Store is not installed')
-  return store
+  const installed = inject(TASK_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Task Store is not installed')
+  return ensureTaskStore(instance.appContext.app)
 }

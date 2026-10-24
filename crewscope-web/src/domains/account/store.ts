@@ -1,6 +1,7 @@
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
+import { registerStoreReset } from '../../app/storeLifecycle'
 import type { AuthCsrfCoordinate } from '../identity/types'
-import type { AccountGateway } from './gateway'
+import { HttpAccountGateway, type AccountGateway } from './gateway'
 import { AccountRequestTimeoutError, presentAccountProblem, type AccountProblem } from './presentation'
 import type {
   AccountPasswordChangeInput,
@@ -166,13 +167,25 @@ export function createAccountStore(gateway: AccountGateway, options: AccountStor
   }
 }
 
-export function installAccountStore(app: App, store: AccountStore): AccountStore {
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureAccountStore(app: App): AccountStore {
+  const existing = app.runWithContext(() => inject(ACCOUNT_STORE, null))
+  if (existing) return existing
+  const store = createAccountStore(new HttpAccountGateway())
   app.provide(ACCOUNT_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useAccountStore(): AccountStore {
-  const store = inject(ACCOUNT_STORE)
-  if (!store) throw new Error('CrewScope Account Store is not installed')
-  return store
+  const installed = inject(ACCOUNT_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Account Store is not installed')
+  return ensureAccountStore(instance.appContext.app)
 }

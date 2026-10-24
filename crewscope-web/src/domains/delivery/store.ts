@@ -1,8 +1,9 @@
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { createCommandGateway } from '../../api/commandGateway'
 import { secureId } from '../../api/secureId'
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
 import { CrewScopeApiError } from '../../api/client'
-import type { DeliveryGateway } from './gateway'
+import { HttpDeliveryGateway, type DeliveryGateway } from './gateway'
 import type {
   ActionBundle,
   DeliveryCoordinates,
@@ -461,14 +462,25 @@ function unique<T>(values: T[], key: (value: T) => string): T[] {
 }
 
 
-export function installDeliveryStore(app: App, gateway: DeliveryGateway): DeliveryStore {
-  const store = createDeliveryStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureDeliveryStore(app: App): DeliveryStore {
+  const existing = app.runWithContext(() => inject(DELIVERY_STORE, null))
+  if (existing) return existing
+  const store = createDeliveryStore(new HttpDeliveryGateway())
   app.provide(DELIVERY_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useDeliveryStore(): DeliveryStore {
-  const store = inject(DELIVERY_STORE)
-  if (!store) throw new Error('DeliveryStore has not been installed')
-  return store
+  const installed = inject(DELIVERY_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('DeliveryStore has not been installed')
+  return ensureDeliveryStore(instance.appContext.app)
 }

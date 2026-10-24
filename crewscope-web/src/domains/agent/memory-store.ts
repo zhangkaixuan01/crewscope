@@ -1,7 +1,8 @@
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { CrewScopeApiError } from '../../api/client'
 import type { SettingsScope } from '../settings/types'
-import type { AgentGateway } from './gateway'
+import { HttpAgentGateway, type AgentGateway } from './gateway'
 import type { AgentMemoryView } from './types'
 import { isAbort, statusOf, presentError } from '../../api/errors'
 import { createRequestScope } from '../../api/requestScope'
@@ -141,16 +142,27 @@ export function createAgentMemoryStore(gateway: AgentMemoryGateway): AgentMemory
   }
 }
 
-export function installAgentMemoryStore(app: App, gateway: AgentMemoryGateway): AgentMemoryStore {
-  const store = createAgentMemoryStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureAgentMemoryStore(app: App): AgentMemoryStore {
+  const existing = app.runWithContext(() => inject(AGENT_MEMORY_STORE, null))
+  if (existing) return existing
+  const store = createAgentMemoryStore(new HttpAgentGateway())
   app.provide(AGENT_MEMORY_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useAgentMemoryStore(): AgentMemoryStore {
-  const store = inject(AGENT_MEMORY_STORE)
-  if (!store) throw new Error('CrewScope Agent Memory Store is not installed')
-  return store
+  const installed = inject(AGENT_MEMORY_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Agent Memory Store is not installed')
+  return ensureAgentMemoryStore(instance.appContext.app)
 }
 
 function initialState(): AgentMemoryStoreState {

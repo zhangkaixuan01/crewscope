@@ -9,7 +9,6 @@ import BaseTextarea from './base/BaseTextarea.vue'
 import BaseSelect from './base/BaseSelect.vue'
 import BaseCheckbox from './base/BaseCheckbox.vue'
 import BaseTabs from './base/BaseTabs.vue'
-import BaseSkeleton from './base/BaseSkeleton.vue'
 import ResponsibilityChain from './domain/ResponsibilityChain.vue'
 import { demoResponsibilities } from '../domains/demo/fixtures'
 </script>
@@ -25,7 +24,7 @@ import { demoResponsibilities } from '../domains/demo/fixtures'
         <BaseTextarea :rows="3" placeholder="补充说明" />
         <div class="story-controls__row"><BaseCheckbox>订阅动态</BaseCheckbox><BaseBadge tone="success">健康</BaseBadge></div>
         <BaseTabs model-value="overview" :tabs="[{ label: '概览', value: 'overview' }, { label: '历史', value: 'history' }]" />
-        <BaseSkeleton height="20px" /><BaseSkeleton width="55%" height="14px" />
+
       </div>
     </Variant>
     <Variant title="Responsibility chain">

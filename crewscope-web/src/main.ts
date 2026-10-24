@@ -5,71 +5,22 @@ import { installGlobalErrorHandling } from './app/errors'
 import { clearF05TeamScope } from './app/f05Storage'
 import { subscribeSessionBoundary } from './app/sessionBoundary'
 import { createCrewScopeRouter } from './app/router'
+import { resetActiveStores } from './app/storeLifecycle'
 import { apiClient } from './api/client'
 import { observeCreationStorage, setCreationIdentity, stopCreationQueries } from './api/creationRecovery'
-import { HttpConversationGateway } from './domains/conversation/gateway'
-import { HttpConversationMessageGateway } from './domains/conversation/messageGateway'
-import { installConversationMessageStore } from './domains/conversation/messageStore'
-import { HttpConversationRealtimeGateway } from './domains/conversation/realtimeGateway'
-import { installConversationRealtimeStore } from './domains/conversation/realtimeStore'
-import { installConversationStore } from './domains/conversation/store'
-import { HttpTaskIntentGateway } from './domains/conversation/taskIntentGateway'
-import { installTaskIntentStore } from './domains/conversation/taskIntentStore'
-import { HttpConversationWorkItemLinkGateway } from './domains/conversation/workItemLinkGateway'
-import { installConversationWorkItemLinkStore } from './domains/conversation/workItemLinkStore'
-import { HttpScopeGateway } from './domains/scope/gateway'
-import { installScopeStore } from './domains/scope/store'
-import { HttpWorkItemGateway } from './domains/workitem/gateway'
-import { installWorkItemStore } from './domains/workitem/store'
-import { HttpWorkGraphGateway } from './domains/workgraph/gateway'
-import { installWorkGraphStore } from './domains/workgraph/store'
-import { HttpTaskGateway } from './domains/task/gateway'
-import { installTaskStore } from './domains/task/store'
-import { createCollaborationGateway } from './domains/collaboration/gateway'
-import { installCollaborationStore } from './domains/collaboration/store'
-import { HttpCodingGateway } from './domains/coding/gateway'
-import { installCodingStore } from './domains/coding/store'
-import { HttpModelGateway } from './domains/model/gateway'
-import { installModelStore } from './domains/model/store'
-import { HttpAgentGateway } from './domains/agent/gateway'
-import { installAgentMemoryStore } from './domains/agent/memory-store'
-import { installAgentStore } from './domains/agent/store'
-import { HttpReviewGateway } from './domains/review/gateway'
-import { installReviewStore } from './domains/review/store'
-import { HttpDeliveryGateway } from './domains/delivery/gateway'
-import { installDeliveryStore } from './domains/delivery/store'
-import { HttpTeamOpsGateway } from './domains/teamops/gateway'
-import { installTeamOpsStore } from './domains/teamops/store'
-import { installActivityRealtimeStore } from './domains/teamops/activityRealtimeStore'
-import { HttpOrganizationGateway } from './domains/organization/gateway'
-import { installOrganizationStore } from './domains/organization/store'
-import { HttpQuotaGateway } from './domains/quota/gateway'
-import { installQuotaStore } from './domains/quota/store'
-import { HttpTeamObserverGateway } from './domains/teamobserver/gateway'
-import { installTeamObserverStore } from './domains/teamobserver/store'
-import { HttpKnowledgeGateway } from './domains/knowledge/gateway'
-import { installKnowledgeIndexStore } from './domains/knowledge/index-store'
-import { installKnowledgeStore } from './domains/knowledge/store'
-import { HttpSkillGateway } from './domains/skill/gateway'
-import { installSkillStore } from './domains/skill/store'
-import { HttpObservabilityGateway } from './domains/observability/gateway'
-import { installObservabilityStore } from './domains/observability/store'
-import { HttpInjectionGateway } from './domains/injection/gateway'
-import { installInjectionStore } from './domains/injection/store'
-import { HttpSetupGateway } from './domains/setup/gateway'
-import { installSetupStore } from './domains/setup/store'
+// M13d-P01: every domain-scoped store installs lazily on the pages that consume it
+// (ensureXxxStore in each domain), which keeps those domains out of the eager main chunk.
+// Cross-cutting domains stay eager here on purpose: identity bootstraps the session and owns
+// the API auth callbacks, scope drives every route's shell, and the palette search session is
+// mounted by App.vue's always-present CommandPalette. At the session boundary the lazily
+// installed stores are reset through the store lifecycle registry (app/storeLifecycle) —
+// importing any domain's reset helper here would drag the domain back into this chunk.
 import { HttpIdentityGateway, installIdentityGateway } from './domains/identity/gateway'
 import { createAuthStore, installAuthStore } from './domains/identity/store'
-import { HttpOnboardingGateway } from './domains/onboarding/gateway'
-import { createOnboardingStore, installOnboardingStore } from './domains/onboarding/store'
-import { HttpAccountGateway } from './domains/account/gateway'
-import { createAccountStore, installAccountStore } from './domains/account/store'
-import { HttpInvitationGateway } from './domains/invitation/gateway'
-import { createInvitationStore, installInvitationStore } from './domains/invitation/store'
-import { HttpWorkDeskGateway } from './domains/workdesk/gateway'
-import { installWorkDeskStore } from './domains/workdesk/store'
+import { HttpScopeGateway } from './domains/scope/gateway'
+import { installScopeStore } from './domains/scope/store'
 import { HttpSearchGateway } from './domains/search/gateway'
-import { installPaletteSearchStore, installSearchStore } from './domains/search/store'
+import { installPaletteSearchStore } from './domains/search/store'
 import { createActionRegistry, installActionRegistry } from './app/actionRegistry'
 import { createShortcutManager, installShortcutManager } from './app/shortcuts'
 import { registerDefaultActions } from './app/defaultActions'
@@ -83,83 +34,14 @@ const identityGateway = new HttpIdentityGateway()
 const authStore = createAuthStore(identityGateway)
 installIdentityGateway(app, identityGateway)
 installAuthStore(app, authStore)
-const onboardingStore = createOnboardingStore(new HttpOnboardingGateway())
-installOnboardingStore(app, onboardingStore)
-const accountStore = installAccountStore(app, createAccountStore(new HttpAccountGateway()))
-const invitationStore = installInvitationStore(app, createInvitationStore(new HttpInvitationGateway()))
-const workDeskStore = installWorkDeskStore(app, new HttpWorkDeskGateway())
-const searchStore = installSearchStore(app, new HttpSearchGateway())
+const scopeStore = installScopeStore(app, new HttpScopeGateway(), authStore.principal)
 // R20: the command palette keeps a separate session so its debounced preview queries
 // can never clear or replace what the full search page is showing.
 const paletteSearchStore = installPaletteSearchStore(app, new HttpSearchGateway())
-const scopeStore = installScopeStore(app, new HttpScopeGateway(), authStore.principal)
-const conversationStore = installConversationStore(app, new HttpConversationGateway())
-const conversationMessageStore = installConversationMessageStore(app, new HttpConversationMessageGateway())
-const conversationRealtimeStore = installConversationRealtimeStore(app, new HttpConversationRealtimeGateway())
-const taskIntentStore = installTaskIntentStore(app, new HttpTaskIntentGateway())
-const conversationWorkItemLinkStore = installConversationWorkItemLinkStore(app, new HttpConversationWorkItemLinkGateway())
-const workItemStore = installWorkItemStore(app, new HttpWorkItemGateway())
-// F02: one gateway, two stores' worth of consumers — the DAG feeds both the graph view and the
-// blocked badges on list/board cards, so it loads with the WorkPage regardless of active view.
-const workGraphStore = installWorkGraphStore(app, new HttpWorkGraphGateway())
-const taskStore = installTaskStore(app, new HttpTaskGateway())
-const codingStore = installCodingStore(app, new HttpCodingGateway())
-const modelStore = installModelStore(app, new HttpModelGateway())
-// Same-domain second store (F01b precedent): both agent stores share one gateway instance.
-const agentGateway = new HttpAgentGateway()
-const agentStore = installAgentStore(app, agentGateway)
-const agentMemoryStore = installAgentMemoryStore(app, agentGateway)
-const reviewStore = installReviewStore(app, new HttpReviewGateway())
-const deliveryStore = installDeliveryStore(app, new HttpDeliveryGateway())
-const teamOpsGateway = new HttpTeamOpsGateway()
-const teamOpsStore = installTeamOpsStore(app, teamOpsGateway)
-const organizationStore = installOrganizationStore(app, new HttpOrganizationGateway())
-const quotaStore = installQuotaStore(app, new HttpQuotaGateway())
-const activityRealtimeStore = installActivityRealtimeStore(app, teamOpsGateway, teamOpsStore)
-const collaborationStore = installCollaborationStore(app, createCollaborationGateway())
-const teamObserverStore = installTeamObserverStore(app, new HttpTeamObserverGateway())
-const knowledgeGateway = new HttpKnowledgeGateway()
-const knowledgeStore = installKnowledgeStore(app, knowledgeGateway)
-const knowledgeIndexStore = installKnowledgeIndexStore(app, knowledgeGateway)
-const skillStore = installSkillStore(app, new HttpSkillGateway())
-const observabilityStore = installObservabilityStore(app, new HttpObservabilityGateway())
-const injectionStore = installInjectionStore(app, new HttpInjectionGateway())
-const setupStore = installSetupStore(app, new HttpSetupGateway())
 installGlobalErrorHandling(app)
 subscribeSessionBoundary(authStore, reason => {
-  activityRealtimeStore.stop()
-  collaborationStore.stop()
-  onboardingStore.reset()
-  accountStore.reset()
-  invitationStore.resetManagement()
-  if (reason === 'explicit-sign-out') invitationStore.clearProof()
+  resetActiveStores(app, reason)
   scopeStore.reset()
-  conversationStore.reset()
-  conversationMessageStore.reset()
-  conversationRealtimeStore.reset()
-  taskIntentStore.reset()
-  conversationWorkItemLinkStore.reset()
-  workItemStore.reset()
-  workGraphStore.reset()
-  taskStore.reset()
-  codingStore.reset()
-  modelStore.reset()
-  agentStore.reset()
-  agentMemoryStore.reset()
-  reviewStore.reset()
-  deliveryStore.reset()
-  teamOpsStore.reset()
-  organizationStore.reset()
-  quotaStore.reset()
-  teamObserverStore.reset()
-  knowledgeStore.reset()
-  knowledgeIndexStore.reset()
-  skillStore.reset()
-  observabilityStore.reset()
-  injectionStore.reset()
-  setupStore.reset()
-  workDeskStore.reset()
-  searchStore.reset()
   paletteSearchStore.reset()
 })
 const router = createCrewScopeRouter(createWebHistory(), authStore)

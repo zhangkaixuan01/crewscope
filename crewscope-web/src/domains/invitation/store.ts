@@ -1,9 +1,10 @@
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { secureId } from '../../api/secureId'
 import { createCommandIntents } from '../../api/commandIntent'
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
 import { registrationInvitationFromHash } from '../identity/invitation'
 import type { AuthCsrfCoordinate } from '../identity/types'
-import type { InvitationGateway } from './gateway'
+import { HttpInvitationGateway, type InvitationGateway } from './gateway'
 import {
   InvitationRequestTimeoutError,
   presentInvitationProblem,
@@ -341,15 +342,33 @@ export function createInvitationStore(
   }
 }
 
-export function installInvitationStore(app: App, store: InvitationStore): InvitationStore {
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureInvitationStore(app: App): InvitationStore {
+  const existing = app.runWithContext(() => inject(INVITATION_STORE, null))
+  if (existing) return existing
+  const store = createInvitationStore(new HttpInvitationGateway())
   app.provide(INVITATION_STORE, store)
+  registerStoreReset(app, reason => {
+    store.resetManagement()
+    if (reason === 'explicit-sign-out') store.clearProof()
+  })
   return store
 }
 
+// The sign-out boundary keeps the original split semantics: management state resets on every
+// boundary, the invitation proof only on an explicit sign-out.
+
+
 export function useInvitationStore(): InvitationStore {
-  const store = inject(INVITATION_STORE)
-  if (!store) throw new Error('CrewScope Invitation Store is not installed')
-  return store
+  const installed = inject(INVITATION_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Invitation Store is not installed')
+  return ensureInvitationStore(instance.appContext.app)
 }
 
 export function useOptionalInvitationStore(): InvitationStore | null {

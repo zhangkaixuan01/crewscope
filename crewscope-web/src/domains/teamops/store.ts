@@ -1,15 +1,17 @@
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { createCommandGateway } from '../../api/commandGateway'
 import { commandFailure, commandFailureMessage } from '../../api/commandIntent'
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
 import { teamOpsError, type TeamOpsErrorState } from './errors'
 import { isAbort } from '../../api/errors'
-import type {
-  ConfirmLarkMappingInput,
-  CreateLarkConnectionInput,
-  NotificationDeliveryFilter,
-  NotificationPreferenceInput,
-  RotateLarkConnectionInput,
-  TeamOpsGateway,
+import {
+  HttpTeamOpsGateway,
+  type ConfirmLarkMappingInput,
+  type CreateLarkConnectionInput,
+  type NotificationDeliveryFilter,
+  type NotificationPreferenceInput,
+  type RotateLarkConnectionInput,
+  type TeamOpsGateway,
 } from './gateway'
 import type {
   ActivityFilter,
@@ -645,16 +647,27 @@ export function createTeamOpsStore(gateway: TeamOpsGateway): TeamOpsStore {
   }
 }
 
-export function installTeamOpsStore(app: App, gateway: TeamOpsGateway): TeamOpsStore {
-  const store = createTeamOpsStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureTeamOpsStore(app: App): TeamOpsStore {
+  const existing = app.runWithContext(() => inject(TEAM_OPS_STORE, null))
+  if (existing) return existing
+  const store = createTeamOpsStore(new HttpTeamOpsGateway())
   app.provide(TEAM_OPS_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useTeamOpsStore(): TeamOpsStore {
-  const store = inject(TEAM_OPS_STORE)
-  if (!store) throw new Error('CrewScope Team Operations Store is not installed')
-  return store
+  const installed = inject(TEAM_OPS_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Team Operations Store is not installed')
+  return ensureTeamOpsStore(instance.appContext.app)
 }
 
 function initialState(): TeamOpsStoreState {

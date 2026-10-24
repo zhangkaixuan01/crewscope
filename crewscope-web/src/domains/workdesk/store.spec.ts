@@ -59,6 +59,7 @@ describe('WorkDesk store', () => {
       { organizationId: 'org', teamId: 'team' },
       { projectId: 'project-1' },
       50,
+      expect.any(AbortSignal),
     )
   })
 

@@ -1,8 +1,9 @@
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { CrewScopeApiError } from '../../api/client'
 import { createCommandGateway } from '../../api/commandGateway'
 import { createRequestScope } from '../../api/requestScope'
-import type { QuotaGateway } from './gateway'
+import { HttpQuotaGateway, type QuotaGateway } from './gateway'
 import type { OrganizationQuotaConfiguration, QuotaCommandReceipt, QuotaUsageView } from './types'
 import { isQuotaMonth, quotaMonthsBack } from './types'
 
@@ -248,14 +249,25 @@ function phaseOf(error: unknown): QuotaLoadPhase {
   return error instanceof CrewScopeApiError && error.status === 403 ? 'forbidden' : 'error'
 }
 
-export function installQuotaStore(app: App, gateway: QuotaGateway): QuotaStore {
-  const store = createQuotaStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureQuotaStore(app: App): QuotaStore {
+  const existing = app.runWithContext(() => inject(QUOTA_STORE, null))
+  if (existing) return existing
+  const store = createQuotaStore(new HttpQuotaGateway())
   app.provide(QUOTA_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useQuotaStore(): QuotaStore {
-  const store = inject(QUOTA_STORE)
-  if (!store) throw new Error('CrewScope Quota Store is not installed')
-  return store
+  const installed = inject(QUOTA_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Quota Store is not installed')
+  return ensureQuotaStore(instance.appContext.app)
 }

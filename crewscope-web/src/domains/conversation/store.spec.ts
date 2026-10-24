@@ -101,7 +101,9 @@ describe('conversation store', () => {
     resolveSecurity({ items: fixtureConversationsForSecurity(fixture), nextCursor: null })
     await Promise.all([staleDeepLink, canonicalUrl])
 
-    expect(requestedDetails).toEqual([])
+    // M13d-A11: the deep link starts its detail hop in parallel with the list, so the stale
+    // request does go out — the guarantee under test is that it never lands in state.
+    expect(requestedDetails).toEqual([conversationIds.provider])
     expect(store.state.selectedConversationId).toBeNull()
     expect(store.state.items.map(item => item.id)).toEqual([conversationIds.security])
   })

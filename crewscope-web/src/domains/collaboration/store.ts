@@ -1,5 +1,6 @@
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
-import type { CollaborationGateway, CollaborationSocket } from './gateway'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
+import { registerStoreReset } from '../../app/storeLifecycle'
+import { createCollaborationGateway, type CollaborationGateway, type CollaborationSocket } from './gateway'
 import {
   collaborationScopeKey,
   type CollaborationInboundFrame,
@@ -418,16 +419,30 @@ export function createCollaborationStore(gateway: CollaborationGateway): Collabo
   }
 }
 
-export function installCollaborationStore(app: App, gateway: CollaborationGateway): CollaborationStore {
-  const store = createCollaborationStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureCollaborationStore(app: App): CollaborationStore {
+  const existing = app.runWithContext(() => inject(COLLABORATION_STORE, null))
+  if (existing) return existing
+  const store = createCollaborationStore(createCollaborationGateway())
   app.provide(COLLABORATION_STORE, store)
+  registerStoreReset(app, () => store.stop())
   return store
 }
 
+export function stopCollaborationStoreIfActive(app: App): void {
+  app.runWithContext(() => inject(COLLABORATION_STORE, null))?.stop()
+}
+
 export function useCollaborationStore(): CollaborationStore {
-  const store = inject(COLLABORATION_STORE)
-  if (!store) throw new Error('CrewScope Collaboration Store is not installed')
-  return store
+  const installed = inject(COLLABORATION_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Collaboration Store is not installed')
+  return ensureCollaborationStore(instance.appContext.app)
 }
 
 function initialState(): CollaborationState {

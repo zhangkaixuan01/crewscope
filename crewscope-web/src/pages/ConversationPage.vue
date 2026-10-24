@@ -185,6 +185,9 @@ let conversationReturnFocus: HTMLElement | null = null
 let pendingDetailFocus = false
 let pendingListFocusConversationId: string | null = null
 let synchronizationVersion = 0
+// M13d-A21: every mount re-reads the collection once (stale-while-refresh); later watch
+// firings within the same visit reuse the cached list.
+let firstSynchronizeOfThisMount = true
 
 const teamName = computed(() => scopeStore.selectedTeam.value?.name ?? '团队工作区')
 const observerMode = computed(() => queryValue(route.query.assistant) === 'team-observer')
@@ -419,7 +422,8 @@ watch(
     const scope = { organizationId: principal.organizationId, teamId }
     void scopeStore.loadMembers()
     const conversationId = queryValue(conversation)
-    await conversationStore.synchronize(scope, conversationId)
+    await conversationStore.synchronize(scope, conversationId, firstSynchronizeOfThisMount)
+    firstSynchronizeOfThisMount = false
     if (!pageOwner.isCurrent()) return
     if (version !== synchronizationVersion) return
     if (conversationId && conversationStore.state.detailPhase === 'ready') {
@@ -478,14 +482,12 @@ watch(
   },
 )
 
-// Leaving Conversation closes only browser subscriptions; the server-side invocation keeps running.
+// M13d-A21: leaving Conversation only closes the browser's SSE subscription (the server-side
+// invocation keeps running). The other stores stay cached on the app, so coming back reuses
+// the list/detail/messages instead of refetching everything; scope changes and sign-out reset
+// them through the session boundary and activateScope epoch guards.
 onUnmounted(() => {
   realtimeStore.reset()
-  taskIntentStore.reset()
-  linkStore.reset()
-  taskStore.reset()
-  messageStore.reset()
-  conversationStore.reset()
 })
 
 watch(

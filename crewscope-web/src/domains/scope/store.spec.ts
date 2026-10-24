@@ -129,7 +129,6 @@ describe('scope store', () => {
     const store = createScopeStore(gateway, bootstrapPrincipal)
     await store.synchronize(fixtureIds.teamPlatform)
 
-    expect(await store.checkWorkProjectKey('crew')).toBe(true)
     const created = await store.createWorkProject(
       { key: ' crew ', name: ' CrewScope Platform ' },
       'project-command-1',

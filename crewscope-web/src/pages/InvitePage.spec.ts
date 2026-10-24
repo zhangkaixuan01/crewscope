@@ -220,7 +220,6 @@ function fixtureScopeStore(): ScopeStore {
     getHandover: vi.fn(),
     cancelHandover: vi.fn(),
     clearHandover: vi.fn(),
-    checkWorkProjectKey: vi.fn(),
     createWorkProject: vi.fn(),
     clearProjectCommand: vi.fn(),
     reset: vi.fn(),

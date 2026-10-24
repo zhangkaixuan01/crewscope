@@ -83,9 +83,12 @@ watch(
     const pageOwner = pageRequests.capture()
     if (phase !== 'ready' || !scope.value) return
     store.activateScope(scope.value)
-    await Promise.all([store.loadAudit(activeFilter.value, false, true), scopeStore.loadMembers()])
+    // M13d-A16: the correlation chain is independent of the audit page fetch — start it in
+    // parallel instead of serializing it behind loadAudit + loadMembers.
+    const jobs: Array<Promise<unknown>> = [store.loadAudit(activeFilter.value, false, true), scopeStore.loadMembers()]
+    if (chainId.value) jobs.push(store.loadCorrelation(chainId.value, false, true))
+    await Promise.all(jobs)
     if (!pageOwner.isCurrent()) return
-    if (chainId.value) await store.loadCorrelation(chainId.value, false, true)
   },
   { immediate: true },
 )

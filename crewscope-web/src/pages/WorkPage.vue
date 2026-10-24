@@ -1272,7 +1272,6 @@ function retry(): void {
       :submitting="scopeStore.state.projectCommandPending"
       :retryable="scopeStore.state.projectCommandRetryable"
       :error-message="scopeStore.state.projectCommandErrorMessage"
-      :check-key="scopeStore.checkWorkProjectKey"
       @close="projectCreation.close"
       @input-changed="scopeStore.clearProjectCommand"
       @submit="projectCreation.submit"

@@ -1,6 +1,7 @@
-import { inject, reactive, readonly, type App, type DeepReadonly, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type DeepReadonly, type InjectionKey} from 'vue'
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { CrewScopeApiError } from '../../api/client'
-import type { ObservabilityGateway } from './gateway'
+import { HttpObservabilityGateway, type ObservabilityGateway } from './gateway'
 import {
   isObservabilityMonth,
   type ObservabilityBudget,
@@ -194,16 +195,27 @@ export function createObservabilityStore(gateway: ObservabilityGateway): Observa
   }
 }
 
-export function installObservabilityStore(app: App, gateway: ObservabilityGateway): ObservabilityStore {
-  const store = createObservabilityStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureObservabilityStore(app: App): ObservabilityStore {
+  const existing = app.runWithContext(() => inject(OBSERVABILITY_STORE, null))
+  if (existing) return existing
+  const store = createObservabilityStore(new HttpObservabilityGateway())
   app.provide(OBSERVABILITY_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useObservabilityStore(): ObservabilityStore {
-  const store = inject(OBSERVABILITY_STORE)
-  if (!store) throw new Error('CrewScope Observability Store is not installed')
-  return store
+  const installed = inject(OBSERVABILITY_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Observability Store is not installed')
+  return ensureObservabilityStore(instance.appContext.app)
 }
 
 function initialState(): ObservabilityStoreState {

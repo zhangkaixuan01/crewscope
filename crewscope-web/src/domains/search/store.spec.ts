@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { createApp } from 'vue'
-import { createSearchStore, installPaletteSearchStore, installSearchStore, PALETTE_SEARCH_STORE, SEARCH_STORE, useSearchStore } from './store'
+import { createSearchStore, installPaletteSearchStore, PALETTE_SEARCH_STORE, SEARCH_STORE, useSearchStore } from './store'
 import type { SearchGateway } from './gateway'
 
 describe('createSearchStore', () => {
@@ -76,7 +76,8 @@ describe('createSearchStore', () => {
   it('installs the page and palette stores under separate injection keys', () => {
     const gateway: SearchGateway = { search: vi.fn() }
     const app = createApp({ render: () => null })
-    const pageStore = installSearchStore(app, gateway)
+    app.provide(SEARCH_STORE, createSearchStore(gateway))
+    const pageStore = app.runWithContext(() => useSearchStore())
     const paletteStore = installPaletteSearchStore(app, gateway)
     expect(app.runWithContext(() => useSearchStore())).toBe(pageStore)
     expect(app.runWithContext(() => PALETTE_SEARCH_STORE !== SEARCH_STORE)).toBe(true)

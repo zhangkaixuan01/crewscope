@@ -9,7 +9,6 @@ import { useToast } from '../composables/useToast'
 import { useRouteIntent } from '../composables/useRouteIntent'
 import { useBoardDrag } from '../composables/useBoardDrag'
 import BaseButton from '../components/base/BaseButton.vue'
-import BaseSkeleton from '../components/base/BaseSkeleton.vue'
 import RelativeTime from '../components/base/RelativeTime.vue'
 import WorkDeskBoardCard from '../components/domain/WorkDeskBoardCard.vue'
 import WorkProjectCreateDialog from '../components/domain/WorkProjectCreateDialog.vue'
@@ -19,8 +18,9 @@ import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import { useScopeStore } from '../domains/scope/store'
 import { createWorkProjectCreationFlow } from '../domains/scope/workProjectCreation'
-import { SETUP_STORE } from '../domains/setup/store'
-import { WORKDESK_STORE, type WorkDeskStore } from '../domains/workdesk/store'
+import { SETUP_STORE, ensureSetupStore } from '../domains/setup/store'
+import { ensureWorkdeskStore, type WorkDeskStore } from '../domains/workdesk/store'
+import { currentApp } from '../app/currentApp'
 import { useWorkItemStore } from '../domains/workitem/store'
 import { useUndoOffer } from '../domains/workitem/useUndoOffer'
 import { useTransitionConfirm } from '../domains/workitem/useTransitionConfirm'
@@ -76,18 +76,13 @@ const toast = useToast()
 const projectCreation = createWorkProjectCreationFlow(scopeStore, router, route)
 // Setup 的 WORKPROJECT 缺口深链到这里：一次性消费 intent=create-project 打开创建表单。
 useRouteIntent('today', ['create-project'], () => canManageProjects.value && scopeStore.state.phase === 'ready', () => projectCreation.show())
-const setupStore = inject(SETUP_STORE, null)
+// M13d-P01: fixture provides win; otherwise install lazily so the readiness strip still loads.
+const setupStore = inject(SETUP_STORE, null) ?? ensureSetupStore(currentApp())
 const setupReadiness = computed(() => setupStore?.state.readiness ?? null)
 const setupReadyCount = computed(() => setupReadiness.value?.capabilities.filter(item => item.required && item.status === 'READY').length ?? 0)
 const setupRequiredCount = computed(() => setupReadiness.value?.capabilities.filter(item => item.required).length ?? 0)
-// Keep the page mountable in isolated route/story tests where the application store is not installed.
-const workDeskStore = inject(WORKDESK_STORE, null) ?? ({
-  state: { phase: 'idle', scope: null, summary: null, errorMessage: null, sectionLoadingKey: null, sectionError: null },
-  activateScope: () => undefined,
-  load: async () => undefined,
-  loadMore: async () => undefined,
-  reset: () => undefined,
-} as WorkDeskStore)
+// M13d-P01: the desk store installs lazily here (spec fixtures provided at app level still win).
+const workDeskStore = ensureWorkdeskStore(currentApp())
 const workItemStore = useWorkItemStore()
 const { offerUndo, undoTransition } = useUndoOffer(workItemStore)
 /**
@@ -731,7 +726,6 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
       :submitting="scopeStore.state.projectCommandPending"
       :retryable="scopeStore.state.projectCommandRetryable"
       :error-message="scopeStore.state.projectCommandErrorMessage"
-      :check-key="scopeStore.checkWorkProjectKey"
       @close="projectCreation.close"
       @input-changed="scopeStore.clearProjectCommand"
       @submit="projectCreation.submit"

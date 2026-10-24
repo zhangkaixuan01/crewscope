@@ -127,7 +127,6 @@ function openProjectCreate(): void {
       :submitting="store.state.projectCommandPending"
       :retryable="store.state.projectCommandRetryable"
       :error-message="store.state.projectCommandErrorMessage"
-      :check-key="store.checkWorkProjectKey"
       @close="projectCreation.close"
       @input-changed="store.clearProjectCommand"
       @submit="projectCreation.submit"

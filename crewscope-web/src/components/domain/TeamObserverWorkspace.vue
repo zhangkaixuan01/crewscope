@@ -8,7 +8,8 @@ import { routerKey } from 'vue-router'
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
 import StatePanel from '../feedback/StatePanel.vue'
-import { TEAM_OBSERVER_STORE, type TeamObserverStore } from '../../domains/teamobserver/store'
+import { ensureTeamObserverStore, type TeamObserverStore } from '../../domains/teamobserver/store'
+import { currentApp } from '../../app/currentApp'
 import type { TeamObserverScope, TeamSummaryEntry, TeamSummarySection } from '../../domains/teamobserver/types'
 import { teamSummaryDataScopeLabels } from '../../domains/teamobserver/labels'
 import { enumLabel } from '../../domains/shared/labels'
@@ -22,7 +23,8 @@ const props = defineProps<{
 }>()
 
 const router = inject(routerKey, null)
-const store = requiredStore(props.observerStore ?? inject(TEAM_OBSERVER_STORE))
+// M13d-P01: lazily installed here; the observerStore prop and app-level fixtures still win.
+const store = props.observerStore ?? ensureTeamObserverStore(currentApp())
 const instruction = ref('总结当前团队进展、阻塞、Review、待确认事项和异常，并给出可核验的证据。')
 const openingEvidence = ref<number | null>(null)
 /** The one summary row whose evidence just failed to open; the failure stays local to it (R38). */
@@ -89,11 +91,6 @@ async function openEvidence(entry: TeamSummaryEntry): Promise<void> {
 
 function dateTime(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
-}
-
-function requiredStore(value: TeamObserverStore | undefined): TeamObserverStore {
-  if (!value) throw new Error('Team Observer store is not installed')
-  return value
 }
 </script>
 

@@ -1,9 +1,10 @@
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { CrewScopeApiError } from '../../api/client'
 import { commandFailureMessage, createCommandIntents } from '../../api/commandIntent'
 import { acknowledgeCreation } from '../../api/creationRecovery'
 import { secureId } from '../../api/secureId'
-import type { ConversationGateway } from './gateway'
+import { HttpConversationGateway, type ConversationGateway } from './gateway'
 import type {
   ConversationDetails,
   ConversationScope,
@@ -34,7 +35,7 @@ interface ConversationState {
 
 export interface ConversationStore {
   state: Readonly<ConversationState>
-  synchronize(scope: ConversationScope, conversationId?: string | null): Promise<void>
+  synchronize(scope: ConversationScope, conversationId?: string | null, force?: boolean): Promise<void>
   load(scope: ConversationScope, force?: boolean): Promise<void>
   loadMore(): Promise<void>
   select(scope: ConversationScope, conversationId: string): Promise<void>
@@ -75,18 +76,28 @@ export function createConversationStore(gateway: ConversationGateway): Conversat
   let collectionAbort: AbortController | null = null
   let detailAbort: AbortController | null = null
 
-  async function synchronize(scope: ConversationScope, conversationId?: string | null): Promise<void> {
+  async function synchronize(scope: ConversationScope, conversationId?: string | null, force = false): Promise<void> {
     const version = ++synchronizationVersion
     const nextScopeKey = scopeKey(scope)
-    if (activeScopeKey !== nextScopeKey) {
-      changeScope(scope)
-      await load(scope, true)
-    } else if (state.phase === 'idle') {
-      await load(scope)
+    const scopeChanged = activeScopeKey !== nextScopeKey
+    if (scopeChanged) changeScope(scope)
+    // M13d-A21: stores survive route switches, so a re-entry arrives with a ready list. force
+    // re-reads the collection stale-while-refresh (cached rows stay on screen) — the page sets
+    // it on the first synchronize after every mount so returning to Conversation reads current
+    // server facts instead of showing the previous visit's list forever.
+    const needsList = scopeChanged || state.phase === 'idle' || force
+    if (!conversationId) {
+      if (needsList) await load(scope, scopeChanged || force)
+      if (version !== synchronizationVersion || activeScopeKey !== nextScopeKey) return
+      clearSelection()
+      return
     }
+    // M13d-A12: the detail is fetched by id and never depends on the list page, so a deep link
+    // starts both hops in parallel — messages paint without waiting for the list request.
+    const listWork = needsList ? load(scope, scopeChanged || force) : Promise.resolve()
+    await select(scope, conversationId)
     if (version !== synchronizationVersion || activeScopeKey !== nextScopeKey) return
-    if (conversationId) await select(scope, conversationId)
-    else clearSelection()
+    await listWork
   }
 
   async function load(scope: ConversationScope, force = false): Promise<void> {
@@ -173,12 +184,15 @@ export function createConversationStore(gateway: ConversationGateway): Conversat
       upsertSummary(details.conversation)
       // M13b-F06（R12）：打开即读到消息尖端。回执只增不减，失败静默——未读没清，下次打开重试；
       // 幂等键每次打开一换，服务端按 max 推进，重复无害。
+      // M13d-A11: the receipt is fire-and-forget — awaiting it used to block the detail→messages
+      // handoff even though a failure is silently tolerated, i.e. it was never load-bearing.
       if (details.conversation.unreadCount > 0) {
-        try {
-          await gateway.submitReadReceipt(scope, conversationId, secureId())
-          if (version !== detailVersion || activeScopeKey !== nextScopeKey) return
-          upsertSummary({ ...details.conversation, unreadCount: 0 })
-        } catch { /* 未读保持，下次打开重试 */ }
+        void gateway.submitReadReceipt(scope, conversationId, secureId())
+          .then(() => {
+            if (state.selectedConversationId !== conversationId || activeScopeKey !== nextScopeKey) return
+            upsertSummary({ ...details.conversation, unreadCount: 0 })
+          })
+          .catch(() => { /* 未读保持，下次打开重试 */ })
       }
     } catch (error) {
       if (isAbort(error) || version !== detailVersion || activeScopeKey !== nextScopeKey) return
@@ -310,16 +324,27 @@ export function createConversationStore(gateway: ConversationGateway): Conversat
   }
 }
 
-export function installConversationStore(app: App, gateway: ConversationGateway): ConversationStore {
-  const store = createConversationStore(gateway)
+// M13d-P01: domain stores install lazily on the pages that consume them, keeping the domain out
+// of the eager main chunk. Instances live on the app, so revisiting a page reuses cached state.
+// Fixtures provided by specs through app-level provide always win and are never shadowed.
+export function ensureConversationStore(app: App): ConversationStore {
+  const existing = app.runWithContext(() => inject(CONVERSATION_STORE, null))
+  if (existing) return existing
+  const store = createConversationStore(new HttpConversationGateway())
   app.provide(CONVERSATION_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useConversationStore(): ConversationStore {
-  const store = inject(CONVERSATION_STORE)
-  if (!store) throw new Error('CrewScope Conversation Store is not installed')
-  return store
+  const installed = inject(CONVERSATION_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Conversation Store is not installed')
+  return ensureConversationStore(instance.appContext.app)
 }
 
 function scopeKey(scope: ConversationScope): string {

@@ -1,17 +1,12 @@
+import { registerStoreReset } from '../../app/storeLifecycle'
 import { createCommandGateway } from '../../api/commandGateway'
 import { acknowledgeCreation } from '../../api/creationRecovery'
 import { secureId } from '../../api/secureId'
-import {
-  inject,
-  reactive,
-  readonly,
-  type App,
-  type InjectionKey,
-} from 'vue'
+import { getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey } from 'vue'
 import { CrewScopeApiError } from '../../api/client'
 import { canonicalCommandInput, commandFailure, commandFailureMessage, createCommandIntents } from '../../api/commandIntent'
 import { exclusionReason } from './bulk'
-import type { WorkItemGateway } from './gateway'
+import { HttpWorkItemGateway, type WorkItemGateway } from './gateway'
 import type {
   WorkItemBulkAssignmentRole,
   WorkItemBulkOutcome,
@@ -33,7 +28,7 @@ import type {
   WorkItemVersionConflict,
   WorkItemListFilter,
 } from './types'
-import { presentError } from '../../api/errors'
+import { isAbort, presentError } from '../../api/errors'
 
 export type WorkItemPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 export type WorkItemDetailCommand = 'transition' | 'undo' | 'comment' | 'resource'
@@ -231,6 +226,10 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
   let activeQueryKey: string | null = null
   let requestVersion = 0
   let detailRequestVersion = 0
+  // M13d-B39: list and detail reads are cancellable — a filter change or drawer switch aborts
+  // the superseded request instead of letting it race the version guard.
+  let collectionAbort: AbortController | null = null
+  let detailAbort: AbortController | null = null
   let activeDetailScope: WorkItemScope | null = null
   let activeDetailKey: string | null = null
 
@@ -244,6 +243,9 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     const queryKey = `${scope.organizationId}:${scope.teamId}:${scope.projectId}:${canonicalFilterKey(normalized)}`
     if (!force && queryKey === activeQueryKey && ['ready', 'empty'].includes(state.phase)) return
     const version = ++requestVersion
+    collectionAbort?.abort()
+    const controller = new AbortController()
+    collectionAbort = controller
     if (queryKey !== activeQueryKey) {
       commandEpoch += 1
       state.bulkPending = null
@@ -261,23 +263,28 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     state.items = []
     state.nextCursor = null
     try {
-      const page = await gateway.listWorkItems({ ...scope, ...normalized, limit: 50 })
+      const page = await gateway.listWorkItems({ ...scope, ...normalized, limit: 50 }, controller.signal)
       if (version !== requestVersion) return
       state.items = page.items
       state.nextCursor = page.nextCursor
       state.phase = page.items.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (version !== requestVersion) return
+      if (isAbort(error) || version !== requestVersion) return
       state.phase = 'error'
       state.errorMessage = presentError(error, '暂时无法加载工作项，请稍后重试')
+    } finally {
+      if (collectionAbort === controller) collectionAbort = null
     }
   }
 
   async function refresh(): Promise<boolean> {
     if (!activeScope || !['ready', 'empty'].includes(state.phase)) return false
     const version = ++requestVersion
+    collectionAbort?.abort()
+    const controller = new AbortController()
+    collectionAbort = controller
     try {
-      const page = await gateway.listWorkItems({ ...activeScope, ...activeFilter, limit: 50 })
+      const page = await gateway.listWorkItems({ ...activeScope, ...activeFilter, limit: 50 }, controller.signal)
       if (version !== requestVersion) return false
       state.items = page.items
       state.nextCursor = page.nextCursor
@@ -287,6 +294,8 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
       // A failed background refresh keeps the stale facts on screen; the caller decides
       // whether to surface that (the WorkPage toasts once per collaboration refresh miss).
       return false
+    } finally {
+      if (collectionAbort === controller) collectionAbort = null
     }
   }
 
@@ -295,6 +304,9 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     const scope = { ...activeScope }
     const cursor = state.nextCursor
     const version = requestVersion
+    collectionAbort?.abort()
+    const controller = new AbortController()
+    collectionAbort = controller
     state.loadingMore = true
     state.errorMessage = null
     try {
@@ -303,17 +315,18 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
         ...activeFilter,
         after: cursor,
         limit: 50,
-      })
+      }, controller.signal)
       if (version !== requestVersion) return
       const knownIds = new Set(state.items.map(item => item.id))
       state.items.push(...page.items.filter(item => !knownIds.has(item.id)))
       state.nextCursor = page.nextCursor
       state.phase = state.items.length === 0 ? 'empty' : 'ready'
     } catch (error) {
-      if (version === requestVersion) {
+      if (!isAbort(error) && version === requestVersion) {
         state.errorMessage = presentError(error, '暂时无法加载更多工作项，请稍后重试')
       }
     } finally {
+      if (collectionAbort === controller) collectionAbort = null
       if (version === requestVersion) state.loadingMore = false
     }
   }
@@ -369,6 +382,9 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     const detailKey = `${scope.organizationId}:${scope.teamId}:${scope.projectId}:${workItemId}`
     if (!force && detailKey === activeDetailKey && state.detailPhase === 'ready') return
     const version = ++detailRequestVersion
+    detailAbort?.abort()
+    const controller = new AbortController()
+    detailAbort = controller
     const changed = detailKey !== activeDetailKey
     activeDetailScope = { ...scope }
     activeDetailKey = detailKey
@@ -387,16 +403,17 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     const responsibilityRequest = loadResponsibilitiesFor(scope, workItemId, detailKey, version)
     const timelineRequest = loadTimelineFor(scope, workItemId, detailKey, version)
     try {
-      const details = await gateway.getWorkItem(scope, workItemId)
+      const details = await gateway.getWorkItem(scope, workItemId, controller.signal)
       if (version !== detailRequestVersion || activeDetailKey !== detailKey) return
       state.detail = details
       state.detailPhase = 'ready'
       synchronizeCollectionItem(details.workItem)
     } catch (error) {
-      if (version !== detailRequestVersion || activeDetailKey !== detailKey) return
+      if (isAbort(error) || version !== detailRequestVersion || activeDetailKey !== detailKey) return
       state.detailPhase = 'error'
       state.detailErrorMessage = presentError(error, '暂时无法加载工作项详情，请稍后重试')
     } finally {
+      if (detailAbort === controller) detailAbort = null
       await Promise.all([availabilityRequest, responsibilityRequest, timelineRequest])
     }
   }
@@ -405,6 +422,8 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     activeBatch = null
     detailEpoch += 1
     detailRequestVersion += 1
+    detailAbort?.abort()
+    detailAbort = null
     activeDetailScope = null
     activeDetailKey = null
     state.detailPhase = 'idle'
@@ -1110,6 +1129,10 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
     activeCreate = null
     createIntents.clear()
     requestVersion += 1
+    collectionAbort?.abort()
+    collectionAbort = null
+    detailAbort?.abort()
+    detailAbort = null
     activeScope = null
     activeFilter = {}
     activeQueryKey = null
@@ -1149,16 +1172,27 @@ export function createWorkItemStore(gateway: WorkItemGateway): WorkItemStore {
   }
 }
 
-export function installWorkItemStore(app: App, gateway: WorkItemGateway): WorkItemStore {
-  const store = createWorkItemStore(gateway)
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureWorkItemStore(app: App): WorkItemStore {
+  const existing = app.runWithContext(() => inject(WORK_ITEM_STORE, null))
+  if (existing) return existing
+  const store = createWorkItemStore(new HttpWorkItemGateway())
   app.provide(WORK_ITEM_STORE, store)
+  registerStoreReset(app, () => store.reset())
   return store
 }
 
+
 export function useWorkItemStore(): WorkItemStore {
-  const store = inject(WORK_ITEM_STORE)
-  if (!store) throw new Error('CrewScope WorkItem Store is not installed')
-  return store
+  const installed = inject(WORK_ITEM_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope WorkItem Store is not installed')
+  return ensureWorkItemStore(instance.appContext.app)
 }
 
 

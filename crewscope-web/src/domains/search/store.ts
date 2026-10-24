@@ -1,6 +1,7 @@
-import { inject, reactive, readonly, type App, type InjectionKey } from 'vue'
+import { registerStoreReset } from '../../app/storeLifecycle'
+import {getCurrentInstance, inject, reactive, readonly, type App, type InjectionKey} from 'vue'
 import { CrewScopeApiError } from '../../api/client'
-import type { SearchGateway } from './gateway'
+import { HttpSearchGateway, type SearchGateway } from './gateway'
 import type { SearchFilter, SearchResultPage, SearchScope } from './types'
 export type SearchPhase = 'idle' | 'loading' | 'ready' | 'empty' | 'error' | 'offline'
 export interface SearchStoreState { phase: SearchPhase; scope: SearchScope | null; result: SearchResultPage | null; errorMessage: string | null }
@@ -39,6 +40,28 @@ export function createSearchStore(gateway: SearchGateway): SearchStore {
   function reset(): void { generation += 1; request = null; activeQueryKey = ''; state.scope = null; state.result = null; state.errorMessage = null; state.phase = 'idle' }
   return { state: readonly(state) as Readonly<SearchStoreState>, activateScope, search, reset }
 }
-export function installSearchStore(app: App, gateway: SearchGateway): SearchStore { const store = createSearchStore(gateway); app.provide(SEARCH_STORE, store); return store }
-export function installPaletteSearchStore(app: App, gateway: SearchGateway): SearchStore { const store = createSearchStore(gateway); app.provide(PALETTE_SEARCH_STORE, store); return store }
-export function useSearchStore(): SearchStore { const store = inject(SEARCH_STORE); if (!store) throw new Error('CrewScope Search Store is not installed'); return store }
+// M13d-P01: lazily installed on the pages that consume this domain (keeps it out of the eager
+// main chunk). The instance lives on the app, so revisiting a page reuses cached state; spec
+// fixtures provided through app-level provide always win and are never shadowed.
+export function ensureSearchStore(app: App): SearchStore {
+  const existing = app.runWithContext(() => inject(SEARCH_STORE, null))
+  if (existing) return existing
+  const store = createSearchStore(new HttpSearchGateway())
+  app.provide(SEARCH_STORE, store)
+  registerStoreReset(app, () => store.reset())
+  return store
+}
+export function installPaletteSearchStore(app: App, gateway: SearchGateway): SearchStore {
+  const store = createSearchStore(gateway)
+  app.provide(PALETTE_SEARCH_STORE, store)
+  return store
+}
+export function useSearchStore(): SearchStore {
+  const installed = inject(SEARCH_STORE, null)
+  if (installed) return installed
+  // M13d-P01: fall back to lazy installation — a component declares its domain dependency
+  // by calling use*, so no host page has to pre-install the store.
+  const instance = getCurrentInstance()
+  if (!instance) throw new Error('CrewScope Search Store is not installed')
+  return ensureSearchStore(instance.appContext.app)
+}
