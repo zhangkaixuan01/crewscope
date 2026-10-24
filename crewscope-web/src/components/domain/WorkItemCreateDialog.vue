@@ -86,7 +86,7 @@ function submit(): void {
   <BaseDialog
     open
     title="新建工作项"
-    :eyebrow="`${projectKey} · 工作项`"
+    :eyebrow="projectKey"
     subtitle="编号自动生成；你将成为负责人。创建不会启动执行。"
     width="min(720px, 100%)"
     :close-disabled="submitting"

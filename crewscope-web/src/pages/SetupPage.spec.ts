@@ -99,7 +99,6 @@ describe('SetupPage', () => {
     expect(card.text()).toContain('不强填进 Key 字段')
     expect(card.text()).toContain('不伪造历史、不做双向同步、没有批量导入')
     expect(card.text()).toContain('本机 CLI 深度集成与附件批量迁移未在当前范围')
-    expect(card.text()).toContain('docs/guides/M9b-单项目迁移试用指南.md')
   })
 
   it('lands the execution-defaults gap on repository settings registered as the setup origin', async () => {

@@ -273,7 +273,7 @@ function updatedAt(value: string): string {
 
       <section class="summary-strip panel" aria-label="仓库概览">
         <h2>{{ repositories.length }} 个 RepositoryBinding</h2>
-        <p class="summary-strip__note">仓库由受信 Worker 管理。这里仅列出受管本地 Git 源仓库，页面只持有稳定 Repository Key、Branch、Commit 与审计摘要。</p>
+        <p class="summary-strip__note">仓库由受信 Worker 管理。这里仅列出受管本地 Git 源仓库。</p>
         <StatusBadge :tone="store.state.repositoryCatalog.phase === 'ready' ? 'success' : 'warning'" dot>
           {{ store.state.repositoryCatalog.phase === 'ready' ? `${availableCatalog.length} 可绑定` : 'Catalog 不可用' }}
         </StatusBadge>
@@ -284,7 +284,7 @@ function updatedAt(value: string): string {
         <div>
           <h3 id="repository-source-title">仓库来源说明</h3>
           <p><strong>受管本地仓库</strong>用于 Coding Agent 的 Worktree、代码修改和测试；<strong>GitHub Connection Repository Catalog</strong>用于远程授权、Push 和 Draft PR。导入完成后，仓库会以 `LOCAL_MANAGED` 形式进入本 WorkProject。</p>
-          <p class="source-note__hint">请先在 GitHub 集成页验证 Connection 并选择远程仓库，再导入到当前 WorkProject；页面只提交稳定标识，Remote URL 和凭证由 Worker 管理。</p>
+          <p class="source-note__hint">请先在 GitHub 集成页验证 Connection 并选择远程仓库，再导入到当前 WorkProject。</p>
         </div>
         <BaseButton variant="secondary" size="small" @click="router.push({ name: 'github-settings', query: route.query })">管理 GitHub Connection</BaseButton>
       </section>
@@ -300,7 +300,7 @@ function updatedAt(value: string): string {
 
       <section v-if="showCreate" class="create-binding panel" aria-labelledby="create-binding-title" @keydown.esc="closeCreate">
         <div class="panel-heading">
-          <div><p class="eyebrow">New binding</p><h2 id="create-binding-title">绑定受管仓库</h2><p>Repository Key 来自 Worker 的受管本地 Catalog，默认 Branch 在创建前完成 Preflight。</p></div>
+          <div><h2 id="create-binding-title">绑定受管仓库</h2><p>Repository Key 来自 Worker 的受管本地 Catalog，默认 Branch 在创建前完成 Preflight。</p></div>
           <button type="button" aria-label="关闭绑定仓库面板" @click="closeCreate"><X :size="17" /></button>
         </div>
         <form class="binding-form" @submit.prevent="createBinding">
@@ -340,7 +340,7 @@ function updatedAt(value: string): string {
 
       <section class="binding-directory panel">
         <div class="panel-heading">
-          <div><p class="eyebrow">Project bindings</p><h2>已绑定仓库</h2><p>启用状态决定仓库能否用于新的 CodingTarget；历史执行事实保持可审计。</p></div>
+          <div><h2>已绑定仓库</h2><p>启用状态决定仓库能否用于新的 CodingTarget；历史执行事实保持可审计。</p></div>
           <div class="directory-actions">
             <BaseButton data-repository-create-trigger="directory" size="small" :disabled="!canCreateRepository" :aria-describedby="catalogReason ? 'repository-catalog-reason' : undefined" @click="openCreate"><Plus :size="14" />绑定仓库</BaseButton>
             <BaseButton variant="secondary" size="small" :disabled="!online" @click="reload"><RefreshCw :size="14" />刷新</BaseButton>

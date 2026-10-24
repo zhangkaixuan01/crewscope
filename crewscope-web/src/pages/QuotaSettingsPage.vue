@@ -312,7 +312,7 @@ function formatTokens(value: number): string {
           <StatePanel v-if="usage.phase === 'bootstrap' || usage.phase === 'loading'" state="loading" title="正在加载趋势" />
           <template v-else-if="usage.phase === 'ready'">
             <p class="quota-note">
-              趋势由本页按月拼合（后端无多月端点）；参考线是当前配额的投影，不代表历史月的限额。窗口内读取失败的月份不参与绘图。
+              趋势由本页按月拼合；参考线是当前配额的投影，不代表历史月的限额。窗口内读取失败的月份不参与绘图。
             </p>
             <LineChart label="每月任务受理数趋势" :series="intakeChart.series" :reference="intakeChart.reference" />
             <LineChart label="每月 Token 趋势" :series="tokenChart.series" :reference="tokenChart.reference" :value-formatter="formatTokens" />

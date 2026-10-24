@@ -338,7 +338,7 @@ function trainingPolicyLabel(value: string): string { return enumLabel(value, tr
       </section>
 
       <section class="catalog-panel panel" aria-labelledby="provider-catalog-title">
-        <header class="panel-heading"><div><p class="eyebrow">Server registry</p><h2 id="provider-catalog-title">Provider 与模型目录</h2></div><BaseButton size="small" variant="ghost" @click="loadProviders(true)"><RefreshCw :size="14" />刷新</BaseButton></header>
+        <header class="panel-heading"><div><h2 id="provider-catalog-title">Provider 与模型目录</h2></div><BaseButton size="small" variant="ghost" @click="loadProviders(true)"><RefreshCw :size="14" />刷新</BaseButton></header>
         <StatePanel v-if="modelStore.state.providers.phase === 'loading' || modelStore.state.providers.phase === 'idle'" state="loading" compact title="正在加载 Provider" />
         <StatePanel v-else-if="modelStore.state.providers.phase === 'error'" state="error" compact :description="modelStore.state.providers.errorMessage ?? undefined" @retry="loadProviders(true)" />
         <StatePanel v-else-if="modelStore.state.providers.phase === 'empty'" state="empty" compact title="没有可用 Provider" />
@@ -382,7 +382,7 @@ function trainingPolicyLabel(value: string): string { return enumLabel(value, tr
       />
 
       <section class="connections-panel panel" aria-labelledby="connections-title">
-        <header class="panel-heading"><div><p class="eyebrow">Owner-scoped credentials</p><h2 id="connections-title">模型连接</h2><p>普通成员管理自己的连接并查看 Team 安全投影；Team 管理操作由 Provider 权限控制。</p></div></header>
+        <header class="panel-heading"><div><h2 id="connections-title">模型连接</h2><p>普通成员管理自己的连接并查看 Team 安全投影；Team 管理操作由 Provider 权限控制。</p></div></header>
         <div class="owner-tabs" role="group" aria-label="Connection 归属">
           <button v-for="owner in ownerTypes" :key="owner" type="button" :aria-pressed="activeOwnerType === owner" :class="{ active: activeOwnerType === owner }" @click="switchOwner(owner)">{{ ownerLabel(owner) }}</button>
         </div>
@@ -401,7 +401,7 @@ function trainingPolicyLabel(value: string): string { return enumLabel(value, tr
       </section>
 
       <section class="governance-panel panel" aria-labelledby="governance-title">
-        <header class="panel-heading"><div><p class="eyebrow">Governance facts</p><h2 id="governance-title">默认、允许列表与预算</h2><p>治理策略由服务端目录和 Agent Preflight 统一计算；本页只展示当前生效事实。</p></div></header>
+        <header class="panel-heading"><div><h2 id="governance-title">默认、允许列表与预算</h2><p>治理策略由服务端目录和 Agent Preflight 统一计算；本页只展示当前生效事实。</p></div></header>
         <div class="governance-grid"><article><ShieldCheck :size="18" /><div><h3>Team 模型默认</h3></div></article><article><Layers3 :size="18" /><div><h3>Provider / Catalog 允许列表</h3></div></article><article><Coins :size="18" /><div><h3>预算与配额</h3></div></article></div>
       </section>
 

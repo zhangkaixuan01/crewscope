@@ -67,7 +67,6 @@ function close(): void {
   <BaseDialog
     :open="open && source !== null"
     :title="source ? `交接 ${source.displayName} 的责任` : ''"
-    eyebrow="Responsibility handover"
     width="min(560px, 100%)"
     :close-disabled="pending"
     close-label="关闭责任交接"

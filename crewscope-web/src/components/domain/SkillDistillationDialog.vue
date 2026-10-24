@@ -125,7 +125,6 @@ function distillAnother(): void {
   <BaseDialog
     open
     title="从执行蒸馏 Skill"
-    eyebrow="Distillation"
     subtitle="将一次任务执行的过程与结论沉淀为团队 Skill 草稿。"
     width="min(640px, 100%)"
     :close-disabled="submitting"

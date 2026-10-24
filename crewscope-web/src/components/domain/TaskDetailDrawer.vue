@@ -284,7 +284,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
   <BaseDrawer open :title="details ? `${details.objective} Task 详情` : 'Task 详情'" width="min(1040px, 96vw)" padding="var(--cs-space-12)" close-label="关闭 Task 详情" @close="$emit('close')">
     <template #header>
       <div class="task-detail-header__text">
-        <p>Unified workspace</p>
+        
         <strong>Task 工作区</strong>
       </div>
     </template>
@@ -361,7 +361,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
               </div>
 
               <section class="detail-card responsibility-card">
-                <div class="section-heading"><div><p>Accountability snapshot</p><h3>责任快照 <span>{{ details.responsibilitySnapshot.length }}</span></h3></div><ShieldCheck :size="17" /></div>
+                <div class="section-heading"><div><h3>责任快照 <span>{{ details.responsibilitySnapshot.length }}</span></h3></div><ShieldCheck :size="17" /></div>
                 <div v-if="details.responsibilitySnapshot.length" class="responsibility-list">
                   <article v-for="entry in details.responsibilitySnapshot" :key="entry.assignmentId">
                     <i><CircleUserRound :size="15" /></i>
@@ -383,7 +383,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
               />
 
               <section class="detail-card fleet-card">
-                <div class="section-heading"><div><p>Member-safe fleet</p><h3>Runtime 状态</h3></div><ServerCog :size="17" /></div>
+                <div class="section-heading"><div><h3>Runtime 状态</h3></div><ServerCog :size="17" /></div>
                 <StatePanel v-if="fleetPhase === 'loading' || fleetPhase === 'idle'" state="loading" title="正在读取 Runtime 健康" />
                 <StatePanel v-else-if="fleetPhase === 'error' && !fleet" state="error" :description="fleetErrorMessage ?? undefined" @retry="onRetryFleet" />
                 <template v-else-if="fleet">
@@ -406,7 +406,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
 
             <section id="ws-discussion" class="workspace-section" tabindex="-1" aria-label="讨论">
               <section v-if="associationPhase !== 'empty'" class="detail-card associations-card">
-                <div class="section-heading"><div><p>Linked context</p><h3>关联对话</h3></div><MessageSquare :size="17" /></div>
+                <div class="section-heading"><div><h3>关联对话</h3></div><MessageSquare :size="17" /></div>
                 <StatePanel v-if="associationPhase === 'loading' || associationPhase === 'idle'" state="loading" title="正在读取关联对象" />
                 <StatePanel v-else-if="associationPhase === 'error' && !associations" state="error" :description="associationErrorMessage ?? undefined" @retry="onRetryAssociations" />
                 <template v-else-if="associations">

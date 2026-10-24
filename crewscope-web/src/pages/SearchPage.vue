@@ -182,7 +182,7 @@ function parseTypes(value: unknown): SearchObjectType[] {
         <section class="result-summary" :class="{ stale: (store.state.phase === 'error' || store.state.phase === 'offline') && !loadMoreError }" aria-live="polite">已加载 {{ store.state.result?.items.length ?? 0 }} 条结果 <span v-if="(store.state.phase === 'error' || store.state.phase === 'offline') && !loadMoreError">仍显示上次结果</span><span v-else>结果按更新时间排序</span></section>
         <div class="result-groups">
           <section v-for="[type, items] in groupedItems" :key="type" class="result-group panel" :aria-labelledby="`search-${type}`">
-            <header><div><p class="eyebrow">匹配对象</p><h2 :id="`search-${type}`">{{ searchObjectTypeLabels[type] }}</h2></div><span>{{ items.length }} 条</span></header>
+            <header><div><h2 :id="`search-${type}`">{{ searchObjectTypeLabels[type] }}</h2></div><span>{{ items.length }} 条</span></header>
             <!-- M13b-F12（二轮 A17）：结果是导航目标——RouterLink 让 Cmd+点击/新标签打开可用，
                  行为与 openResult 的 router.push 同一条路由。 -->
               <ul><li v-for="item in items" :key="`${item.objectType}:${item.objectId}`"><RouterLink :to="item.route"><span class="result-main"><strong>{{ item.title }}</strong><small>{{ displayMeta(item) }} · <RelativeTime :value="item.updatedAt" /></small><em v-if="item.snippet">{{ item.snippet }}</em></span><ArrowRight :size="15" aria-hidden="true" /></RouterLink></li></ul>

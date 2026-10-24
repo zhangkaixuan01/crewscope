@@ -25,7 +25,7 @@ function label(value: 'activate' | 'disable' | 'archive'): string {
 
 <template>
   <section v-if="visible && !defaultProfile && !platformManaged" class="lifecycle-section">
-    <div><p class="eyebrow">Lifecycle</p><h3>Agent 生命周期</h3><span>禁用可恢复；归档是不可逆终态。服务端同步 Principal 与 Profile 并使用强版本校验。</span></div>
+    <div><h3>Agent 生命周期</h3><span>禁用可恢复；归档是不可逆终态。服务端同步 Principal 与 Profile 并使用强版本校验。</span></div>
     <div class="lifecycle-actions">
       <BaseButton v-if="status === 'DISABLED'" variant="secondary" size="small" :loading="pending" @click="emit('transition', 'activate')"><Power :size="14" />{{ label('activate') }}</BaseButton>
       <BaseButton v-if="status === 'ACTIVE'" variant="secondary" size="small" :loading="pending" @click="emit('transition', 'disable')">{{ label('disable') }}</BaseButton>
@@ -33,7 +33,7 @@ function label(value: 'activate' | 'disable' | 'archive'): string {
     </div>
   </section>
   <section v-else-if="visible && platformManaged" class="lifecycle-section">
-    <div><p class="eyebrow">Managed lifecycle</p><h3>平台托管生命周期</h3><span>Team Observer 不支持重复创建或通用归档。有效 TEAM Configuration 通过 Preflight 后，专用运行时在首次调用时完成就绪激活。</span></div>
+    <div><h3>平台托管生命周期</h3><span>Team Observer 不支持重复创建或通用归档。有效 TEAM Configuration 通过 Preflight 后，专用运行时在首次调用时完成就绪激活。</span></div>
   </section>
 </template>
 

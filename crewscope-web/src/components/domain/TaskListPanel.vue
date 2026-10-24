@@ -65,7 +65,7 @@ function ownerName(task: TaskSummary, owners: Array<{ principalId: string, displ
   <section class="task-panel panel" aria-labelledby="control-task-heading">
     <header class="task-panel__header">
       <div>
-        <p class="eyebrow">Control Mode · Durable runtime</p>
+        
         <h2 id="control-task-heading">Agent Tasks</h2>
       </div>
       <div class="task-filters" aria-label="Task 筛选">

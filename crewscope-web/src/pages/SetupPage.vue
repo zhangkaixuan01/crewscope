@@ -211,12 +211,12 @@ async function goToday(): Promise<void> {
       </section>
 
       <section v-if="nextAction" class="next-step panel" aria-labelledby="next-step-heading">
-        <div class="next-step__icon"><ArrowRight :size="19" /></div><div><p class="eyebrow">Next step</p><h2 id="next-step-heading">{{ capabilityLabel(nextAction.capability) }}</h2><p>{{ reasonLabel(nextAction.reasonCode) }} · 责任方：{{ nextAction.responsibleParty }}</p></div>
+        <div class="next-step__icon"><ArrowRight :size="19" /></div><div><h2 id="next-step-heading">{{ capabilityLabel(nextAction.capability) }}</h2><p>{{ reasonLabel(nextAction.reasonCode) }} · 责任方：{{ nextAction.responsibleParty }}</p></div>
         <BaseButton size="small" :disabled="!online" @click="goAction(nextAction)">{{ actionLabel(nextAction.actionKey) }}<ArrowRight :size="14" /></BaseButton>
       </section>
 
       <section class="goal-panel" aria-labelledby="goal-heading">
-        <div class="panel-heading"><div><p class="eyebrow">Pick a goal</p><h2 id="goal-heading">先选一个目标</h2><p>目标只影响这页展示的下一步，不改变任何配置事实；选择不会被保存。</p></div></div>
+        <div class="panel-heading"><div><h2 id="goal-heading">先选一个目标</h2><p>目标只影响这页展示的下一步，不改变任何配置事实；选择不会被保存。</p></div></div>
         <div class="goal-grid">
           <article v-for="card in goalCards" :key="card.definition.key" class="goal-card panel" :class="{ 'goal-card--selected': selectedGoal === card.definition.key }">
             <div class="goal-card__select">
@@ -239,7 +239,7 @@ async function goToday(): Promise<void> {
 
       <section v-if="health" class="health-panel panel" aria-labelledby="health-heading">
         <div class="panel-heading">
-          <div><p class="eyebrow">Configuration health</p><h2 id="health-heading">配置健康 · 四项组件</h2><p>按 Agent 配置、模型连接、凭证与集成四类汇总当前 Team 的配置事实；每项操作回到对应设置页，并由服务端再次校验权限。</p></div>
+          <div><h2 id="health-heading">配置健康 · 四项组件</h2><p>按 Agent 配置、模型连接、凭证与集成四类汇总当前 Team 的配置事实；每项操作回到对应设置页，并由服务端再次校验权限。</p></div>
           <div class="panel-heading__side">
             <StatusBadge :tone="statusTone(health.overallStatus)" dot>{{ statusLabel(health.overallStatus) }}</StatusBadge>
             <BaseButton variant="ghost" size="small" :aria-expanded="healthOpen" aria-controls="setup-health-details" @click="healthOpen = !healthOpen">
@@ -284,7 +284,7 @@ async function goToday(): Promise<void> {
 
       <!-- F02：单项目迁移试用的入口与边界说明（完整指南见仓库 docs/guides/M9b-单项目迁移试用指南.md）。 -->
       <section class="migration-panel panel" aria-labelledby="migration-heading">
-        <div class="panel-heading"><div><p class="eyebrow">Migration trial</p><h2 id="migration-heading">从现有系统迁移试用</h2><p>先用一个非敏感小任务验证 CrewScope 能否承接真实工作，再决定是否扩大使用。</p></div></div>
+        <div class="panel-heading"><div><h2 id="migration-heading">从现有系统迁移试用</h2><p>先用一个非敏感小任务验证 CrewScope 能否承接真实工作，再决定是否扩大使用。</p></div></div>
         <div class="migration-steps">
           <ol>
             <li>挑一个非敏感小任务，不要用核心生产任务做第一次试用。</li>
@@ -293,7 +293,7 @@ async function goToday(): Promise<void> {
             <li>执行并审查产出——验证的是执行与责任链路，不是速度。</li>
             <li>把结果链接交回原任务，两边各自保留完整记录。</li>
           </ol>
-          <p class="migration-boundary">边界：不伪造历史、不做双向同步、没有批量导入；本机 CLI 深度集成与附件批量迁移未在当前范围。完整说明见仓库 docs/guides/M9b-单项目迁移试用指南.md。</p>
+          <p class="migration-boundary">边界：不伪造历史、不做双向同步、没有批量导入；本机 CLI 深度集成与附件批量迁移未在当前范围。</p>
         </div>
       </section>
       <p class="snapshot-note">观测于 {{ new Date(readiness.observedAt).toLocaleString('zh-CN') }}</p>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, ShieldCheck, Sparkles, UserRound, UsersRound } from '@lucide/vue'
+import { Bot, ShieldCheck, UserRound, UsersRound } from '@lucide/vue'
 import crewScopeMark from '../../design/crewscope-mark.svg'
 </script>
 
@@ -35,7 +35,6 @@ import crewScopeMark from '../../design/crewscope-mark.svg'
 
     <ul class="auth-brand-panel__proof">
       <li><ShieldCheck :size="15" aria-hidden="true" />服务端 Session 与完整审计</li>
-      <li><Sparkles :size="15" aria-hidden="true" />基于 AgentScope Java 2.0</li>
     </ul>
   </aside>
 </template>

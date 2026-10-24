@@ -56,7 +56,7 @@ function label(value: string | null | undefined, labels: Record<string, string>)
     <StatePanel v-else-if="phase === 'error' && !facts" state="error" :description="errorMessage ?? undefined" @retry="onRetry" />
     <template v-else-if="facts">
       <section class="detail-card plan-card">
-        <div class="section-heading"><div><p>Durable plan</p><h3>执行计划</h3></div><GitBranch :size="17" /></div>
+        <div class="section-heading"><div><h3>执行计划</h3></div><GitBranch :size="17" /></div>
         <label v-if="orderedPlans.length > 1" class="plan-selector"><span>计划版本</span><BaseSelect v-model="selectedPlanVersionId"><option v-for="plan in orderedPlans" :key="plan.id" :value="plan.id">Revision {{ plan.revision }} · {{ label(plan.changeReason, planChangeReasonLabels) }}</option></BaseSelect></label>
         <template v-if="selectedPlan">
           <div class="plan-meta"><StatusBadge tone="info">Revision {{ selectedPlan.revision }}</StatusBadge><span>{{ displayDate(selectedPlan.publishedAt) }}</span></div>
@@ -67,20 +67,20 @@ function label(value: string | null | undefined, labels: Record<string, string>)
       </section>
 
       <section class="detail-card steps-card">
-        <div class="section-heading"><div><p>Step progress</p><h3>步骤进度 <span>{{ completedSteps }}/{{ selectedPlanSteps.length }}</span></h3></div><Layers3 :size="17" /></div>
+        <div class="section-heading"><div><h3>步骤进度 <span>{{ completedSteps }}/{{ selectedPlanSteps.length }}</span></h3></div><Layers3 :size="17" /></div>
         <div v-if="selectedPlanSteps.length" class="step-list"><article v-for="step in selectedPlanSteps" :key="step.id"><i>{{ step.sequence }}</i><div><strong>{{ selectedPlan?.steps.find(item => item.key === step.planStepKey)?.title ?? step.planStepKey }}</strong><span>Run {{ step.runAttempt }}/{{ step.maxRunAttempts }}<template v-if="step.checkpoint"> · Checkpoint {{ step.checkpoint.sequence }}</template></span><em v-if="step.waitReason">{{ label(step.waitReason, stepWaitReasonLabels) }}</em></div><StatusBadge :tone="factTone(step.status)" dot>{{ label(step.status, stepExecutionStatusLabels) }}</StatusBadge></article></div>
         <p v-else class="empty-note">当前计划还没有 StepExecution。</p>
       </section>
 
       <section class="detail-card runs-card">
-        <div class="section-heading"><div><p>AgentScope execution</p><h3>Agent Runs <span>{{ facts.agentRuns.length }}</span></h3></div><Bot :size="17" /></div>
+        <div class="section-heading"><div><h3>Agent Runs <span>{{ facts.agentRuns.length }}</span></h3></div><Bot :size="17" /></div>
         <div v-if="facts.agentRuns.length" class="run-list"><article v-for="run in facts.agentRuns" :key="run.id"><header><div><strong>Run {{ run.runSequence }}</strong><span>{{ run.id.slice(0, 8) }}… · Profile v{{ run.agentProfileVersion }}</span></div><StatusBadge :tone="factTone(run.status)" dot>{{ label(run.status, agentRunStatusLabels) }}</StatusBadge></header><dl><div><dt>Session</dt><dd class="mono">{{ run.runtimeSessionId.slice(0, 8) }}…</dd></div><div><dt>Segments</dt><dd>{{ run.segments.length }}</dd></div></dl><div v-if="run.continuityGap" class="runtime-alert"><TriangleAlert :size="15" /><span><strong>执行连续性缺口</strong>{{ label(run.continuityGap.reason, agentRunContinuityGapReasonLabels) }} · Checkpoint {{ run.continuityGap.firstMissingCheckpoint }}–{{ run.continuityGap.lastMissingCheckpoint }}</span></div></article></div>
         <p v-else class="empty-note">这个 attempt 尚未创建 AgentRun。</p>
         <div v-if="facts.sessions.length" class="session-strip"><Activity :size="14" /><span>{{ facts.sessions.length }} 个 Session · {{ facts.sessions.map(item => label(item.status, agentRuntimeSessionStatusLabels)).join(' / ') }}</span></div>
       </section>
 
       <section class="detail-card lease-card">
-        <div class="section-heading"><div><p>Safe runtime projection</p><h3>Lease 与恢复事实</h3></div><Cpu :size="17" /></div>
+        <div class="section-heading"><div><h3>Lease 与恢复事实</h3></div><Cpu :size="17" /></div>
         <div v-if="facts.leases.length" class="lease-list"><article v-for="lease in facts.leases" :key="lease.id"><header><div><strong>{{ lease.environment }} · {{ label(lease.phase, executionLeasePhaseLabels) }}</strong><span>Lease {{ lease.id.slice(0, 8) }}…</span></div><StatusBadge :tone="factTone(lease.status)" dot>{{ label(lease.status, executionLeaseStatusLabels) }}</StatusBadge></header><dl class="compact-facts"><div><dt>Runtime</dt><dd class="mono">{{ lease.runtimeId.slice(0, 8) }}…</dd></div><div><dt>Worker</dt><dd class="mono">{{ lease.workerId.slice(0, 8) }}…</dd></div><div><dt>最近心跳</dt><dd>{{ displayDate(lease.lastHeartbeatAt) }}</dd></div><div><dt>失效时间</dt><dd>{{ displayDate(lease.expiresAt) }}</dd></div></dl><p v-if="lease.releaseReason" class="lease-reason">{{ label(lease.releaseReason, executionLeaseReleaseReasonLabels) }}</p></article></div>
         <p v-else class="empty-note">这个 attempt 没有公开 Lease 事实。</p>
         <div class="recovery-grid"><article><span>State Snapshot</span><strong>{{ facts.snapshots.length }}</strong><small>{{ facts.snapshots.map(item => `${label(item.status, agentStateSnapshotStatusLabels)} · checkpoint ${item.checkpointSequence}`).join(' / ') || '无快照' }}</small></article><article><span>Interrupt</span><strong>{{ facts.interrupts.length }}</strong><small>{{ facts.interrupts.map(item => `${label(item.kind, agentInterruptKindLabels)} · ${label(item.status, agentInterruptStatusLabels)}`).join(' / ') || '无中断' }}</small></article></div>

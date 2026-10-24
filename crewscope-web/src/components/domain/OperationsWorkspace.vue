@@ -182,9 +182,8 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
     <template v-if="summary">
       <section class="health-hero" aria-labelledby="health-heading">
         <div>
-          <p class="eyebrow">Operations health</p>
+          
           <h2 id="health-heading"><Gauge :size="20" aria-hidden="true" />团队执行链路</h2>
-          <p>只展示固定组件与有界计数，不暴露事件载荷、成员身份或错误原文。</p>
         </div>
         <div class="health-hero__status">
           <StatusBadge :tone="tone(summary.health)">{{ enumLabel(summary.health, operationsHealthLevelLabels) }}</StatusBadge>
@@ -210,7 +209,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
     </template>
 
     <section class="evidence-panel" aria-labelledby="evidence-heading">
-      <header><div><p class="eyebrow">MVP evidence</p><h2 id="evidence-heading">一键演示证据入口</h2></div><span>入口集合 · 不代替验收结论</span></header>
+      <header><div><h2 id="evidence-heading">一键演示证据入口</h2></div><span>入口集合 · 不代替验收结论</span></header>
       <nav class="evidence-links" aria-label="MVP 演示证据">
         <RouterLink :to="{ name: 'activity', query: $route.query }"><Activity :size="17" /><span>Team Activity</span></RouterLink>
         <RouterLink :to="{ name: 'inbox', query: $route.query }"><Inbox :size="17" /><span>我的 Inbox</span></RouterLink>
@@ -221,7 +220,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
     </section>
 
     <section v-if="canManage" class="admin-panel" aria-labelledby="admin-heading">
-      <header><div><p class="eyebrow">Administrator</p><h2 id="admin-heading">Projection 与恢复管理</h2></div><StatusBadge tone="warning">强确认</StatusBadge></header>
+      <header><div><h2 id="admin-heading">Projection 与恢复管理</h2></div><StatusBadge tone="warning">强确认</StatusBadge></header>
       <StatePanel v-if="diagnosticsPhase === 'loading' && !diagnostics" state="loading" title="正在读取管理员诊断" />
       <StatePanel v-else-if="diagnosticsPhase === 'error' && !diagnostics" state="error" title="管理员诊断暂时不可用" :description="diagnosticsError?.message" @retry="emit('refresh')" />
       <div v-if="diagnosticsPhase === 'error' && diagnostics" class="inline-warning" role="status"><CircleAlert :size="15" />诊断刷新失败，管理命令已禁用，请先重新加载。</div>

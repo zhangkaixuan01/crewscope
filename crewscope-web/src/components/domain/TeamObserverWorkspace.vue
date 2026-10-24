@@ -142,7 +142,7 @@ function requiredStore(value: TeamObserverStore | undefined): TeamObserverStore 
 
     <div v-if="store.state.summary" class="observer-summary">
       <header>
-        <div><p class="eyebrow">Authorized team summary</p><h3>团队态势</h3></div>
+        <div><h3>团队态势</h3></div>
         <div>
           <span>生成于 {{ dateTime(store.state.summary.generatedAt) }}</span>
           <BaseButton size="small" variant="ghost" :disabled="!online || busy" @click="store.refreshSummary()"><RefreshCw :size="13" />重读本次结果</BaseButton>

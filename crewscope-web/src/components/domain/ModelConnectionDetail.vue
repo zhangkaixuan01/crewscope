@@ -102,7 +102,7 @@ function formatTime(value: string | null): string {
   <section class="connection-detail panel" aria-labelledby="connection-detail-title">
     <header class="detail-heading">
       <span class="detail-icon"><KeyRound :size="20" /></span>
-      <div><p class="eyebrow">Connection authority</p><h2 id="connection-detail-title">模型连接详情</h2><span>安全公开投影 · 不包含 Endpoint、Credential ID 或 Key</span></div>
+      <div><h2 id="connection-detail-title">模型连接详情</h2><span>安全公开投影 · 不包含 Endpoint、Credential ID 或 Key</span></div>
       <button type="button" aria-label="关闭模型连接详情" @click="emit('close')"><X :size="18" /></button>
     </header>
 
@@ -137,7 +137,7 @@ function formatTime(value: string | null): string {
       <p v-else-if="commandApplies && command.phase === 'error'" class="command-error" role="alert">{{ command.errorMessage }}</p>
 
       <section class="connection-actions" aria-labelledby="connection-actions-title">
-        <div><p class="eyebrow">Lifecycle</p><h3 id="connection-actions-title">连接操作</h3><span v-if="!canManage">当前成员可查看 Team Connection，管理操作需要 Provider Manager 权限。</span></div>
+        <div><h3 id="connection-actions-title">连接操作</h3><span v-if="!canManage">当前成员可查看 Team Connection，管理操作需要 Provider Manager 权限。</span></div>
         <div v-if="canManage && connection.status !== 'REVOKED'" class="action-buttons">
           <BaseButton v-if="connection.status === 'ACTIVE' || connection.status === 'SUSPENDED'" size="small" variant="secondary" :loading="pending && command.operation === 'verify'" :disabled="pending" @click="emit('verify', connection.id)"><Activity :size="14" />验证健康</BaseButton>
           <BaseButton v-if="connection.status === 'SUSPENDED'" size="small" variant="secondary" :loading="pending && command.operation === 'activate'" :disabled="pending || connection.healthStatus !== 'HEALTHY'" aria-describedby="model-connection-activate-reason" @click="emit('activate', connection.id)"><Activity :size="14" />重新启用</BaseButton>
@@ -147,13 +147,12 @@ function formatTime(value: string | null): string {
           <BaseButton size="small" variant="danger" :disabled="pending" @click="openRevoke">永久撤销</BaseButton>
         </div>
         <p v-else-if="connection.status === 'REVOKED'" class="terminal-note">连接已永久撤销 · {{ label(connection.revocationReason, modelConnectionRevocationReasonLabels) }}</p>
-        <p v-else class="read-only-note">服务端仍会在每次命令中重新校验权限。</p>
         <p v-if="connection.status === 'SUSPENDED'" class="recovery-note">停用连接不会删除凭证；只有当前凭证健康状态为“健康”时才能重新启用。凭证轮换后需先验证健康。</p>
       </section>
 
       <section class="audit-evidence" aria-labelledby="connection-audit-title">
         <ShieldCheck :size="18" />
-        <div><h3 id="connection-audit-title">审计证据入口</h3><p v-if="commandApplies && command.receipt">最近命令已接受 · Correlation <span class="mono">{{ command.receipt.correlationId }}</span> · Version {{ command.receipt.committedVersion }}</p><p v-else>创建、验证、轮换、停用和撤销均返回 Command Receipt。完整审计时间线将在统一 Audit 查询 API 交付后接入。</p></div>
+        <div><h3 id="connection-audit-title">审计证据入口</h3><p v-if="commandApplies && command.receipt">最近命令已接受 · Correlation <span class="mono">{{ command.receipt.correlationId }}</span> · Version {{ command.receipt.committedVersion }}</p><p v-else>创建、验证、轮换、停用和撤销均返回 Command Receipt。</p></div>
       </section>
     </template>
 
@@ -161,7 +160,6 @@ function formatTime(value: string | null): string {
       :open="revokeOpen && connection !== null"
       role="alertdialog"
       title="永久撤销模型连接"
-      eyebrow="Irreversible action"
       width="min(500px, 100%)"
       :described-by="revokeImpactId"
       :close-disabled="pending"

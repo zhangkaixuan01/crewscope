@@ -173,7 +173,7 @@ function formatDate(value: string): string {
 <template>
   <section class="panel invitation-manager" aria-labelledby="invitation-manager-title">
     <header class="invitation-manager__heading">
-      <div><p class="eyebrow">Team invitations</p><h2 id="invitation-manager-title" ref="managerHeading" tabindex="-1">团队邀请</h2><p>通过一次性链接邀请新成员，接受后由服务端建立 Membership 和目标角色。</p></div>
+      <div><h2 id="invitation-manager-title" ref="managerHeading" tabindex="-1">团队邀请</h2><p>通过一次性链接邀请新成员，接受后由服务端建立 Membership 和目标角色。</p></div>
       <BaseButton v-if="!createOpen" ref="createTrigger" size="small" :disabled="!online" @click="openCreate"><UserRoundPlus :size="14" />创建邀请</BaseButton>
     </header>
 
@@ -221,7 +221,6 @@ function formatDate(value: string): string {
     <BaseDialog
       :open="revokeTarget !== null"
       title="撤销这个邀请？"
-      eyebrow="Invitation control"
       width="min(420px, 100%)"
       :close-disabled="commandPending"
       close-label="关闭撤销邀请"

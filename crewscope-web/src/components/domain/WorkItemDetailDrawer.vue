@@ -351,7 +351,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
 <template>
   <BaseDrawer open :title="item ? `${item.key} 工作项详情` : '工作项详情'" width="min(560px, 100vw)" close-label="关闭工作项详情" @close="$emit('close')">
     <template #header>
-      <div class="detail-header__text"><p>WorkItem detail</p><strong>{{ item?.key ?? '加载详情' }}</strong></div>
+      <div class="detail-header__text"><strong>{{ item?.key ?? '加载详情' }}</strong></div>
     </template>
 
     <StatePanel v-if="phase === 'loading' && !details" state="loading" />
@@ -383,7 +383,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         <p v-if="phase === 'error' && errorMessage" class="command-error" role="alert">{{ errorMessage }} <button type="button" @click="onRetry">重试</button></p>
 
         <section class="detail-section transition-section">
-          <div class="section-heading"><div><p>Workflow</p><h3>状态流转</h3></div><ShieldCheck :size="17" /></div>
+          <div class="section-heading"><div><h3>状态流转</h3></div><ShieldCheck :size="17" /></div>
           <StatePanel v-if="availabilityPhase === 'loading' && !transitions.length" state="loading" description="正在确认可执行动作" />
           <p v-else-if="availabilityPhase === 'error'" class="command-error" role="alert">
             {{ availabilityErrorMessage ?? '暂时无法加载可执行动作' }}
@@ -424,7 +424,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         </section>
 
         <section class="detail-section facts-section">
-          <div class="section-heading"><div><p>Facts</p><h3>工作项信息</h3></div></div>
+          <div class="section-heading"><div><h3>工作项信息</h3></div></div>
           <dl><div><dt>来源</dt><dd>{{ enumLabel(item.source, workItemSourceLabels) }}</dd></div><div><dt>更新时间</dt><dd>{{ displayDate(item.updatedAt) }}</dd></div><div><dt>到期时间</dt><dd><CalendarClock :size="12" />{{ item.dueAt ? displayDate(item.dueAt) : '未设置' }}</dd></div><div><dt>创建者</dt><dd>{{ humanName(item.createdByPrincipalId) }}</dd></div></dl>
           <!-- §4.7 level 5: parallel Tasks, no chosen target — offer the list, never guess by order (S01 §219). -->
           <div v-if="taskSelectionRequired && parallelTasks?.length" class="parallel-tasks" role="status">
@@ -450,7 +450,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         />
 
         <section class="detail-section responsibility-section">
-          <div class="section-heading"><div><p>Accountability</p><h3>团队责任链 <span>{{ responsibilities.length }}</span></h3></div><ShieldCheck :size="17" /></div>
+          <div class="section-heading"><div><h3>团队责任链 <span>{{ responsibilities.length }}</span></h3></div><ShieldCheck :size="17" /></div>
           <WorkItemResponsibilityPanel
             :scope="scope"
             :phase="responsibilityPhase"
@@ -483,7 +483,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         <WorkItemRelationsPanel :scope="scope" :item="item" :can-participate="canParticipate" />
 
         <section class="detail-section comments-section">
-          <div class="section-heading"><div><p>Discussion</p><h3>评论 <span>{{ details.comments.length }}</span></h3></div><MessageSquare :size="17" /></div>
+          <div class="section-heading"><div><h3>评论 <span>{{ details.comments.length }}</span></h3></div><MessageSquare :size="17" /></div>
           <div v-if="details.comments.length" class="comment-list">
             <article v-for="entry in details.comments" :key="entry.id"><i>{{ humanName(entry.authorPrincipalId).slice(0, 1).toUpperCase() }}</i><div><header><strong>{{ humanName(entry.authorPrincipalId) }}</strong><time>{{ displayDate(entry.createdAt) }}</time></header><SafeMarkdown class="comment-body" :content="entry.content" /></div></article>
           </div>
@@ -493,7 +493,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         </section>
 
         <section class="detail-section resources-section">
-          <div class="section-heading"><div><p>WorkGraph nodes</p><h3>关联资源 <span>{{ details.resourceLinks.length }}</span></h3></div><Link2 :size="17" /></div>
+          <div class="section-heading"><div><h3>关联资源 <span>{{ details.resourceLinks.length }}</span></h3></div><Link2 :size="17" /></div>
           <div v-if="details.resourceLinks.length" class="resource-list">
             <article v-for="resource in details.resourceLinks" :key="resource.id"><i><Link2 :size="14" /></i><div><strong>{{ resource.label ?? workItemResourceTypeLabels[resource.resourceType] }}</strong><a v-if="resourceHref(resource)" :href="resourceHref(resource)" target="_blank" rel="noopener noreferrer">{{ resource.resourceReference }}<ExternalLink :size="11" /></a><span v-else class="mono">{{ resource.resourceReference }}</span></div><StatusBadge>{{ workItemResourceTypeLabels[resource.resourceType] }}</StatusBadge></article>
           </div>
@@ -502,7 +502,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         </section>
 
         <section class="detail-section timeline-section">
-          <div class="section-heading"><div><p>Activity</p><h3>业务时间线 <span>{{ timeline.length }}</span></h3></div><Clock3 :size="17" /></div>
+          <div class="section-heading"><div><h3>业务时间线 <span>{{ timeline.length }}</span></h3></div><Clock3 :size="17" /></div>
           <WorkItemTimeline
             :phase="timelinePhase"
             :events="timeline"

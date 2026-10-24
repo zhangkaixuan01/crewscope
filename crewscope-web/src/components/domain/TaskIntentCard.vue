@@ -141,7 +141,7 @@ function principalName(principalId: string): string {
   <section class="intent-card" aria-labelledby="task-intent-title">
     <header>
       <span><ClipboardCheck :size="17" aria-hidden="true" /></span>
-      <div><p>Task intent · Revision {{ intent.proposalRevision }}</p><h3 id="task-intent-title">结构化任务提案</h3></div>
+      <div><p>Revision {{ intent.proposalRevision }}</p><h3 id="task-intent-title">结构化任务提案</h3></div>
       <StatusBadge :tone="intent.status === 'READY' ? 'warning' : intent.status === 'CONFIRMED' ? 'success' : intent.status === 'REJECTED' ? 'danger' : 'neutral'">{{ statusText(intent.status) }}</StatusBadge>
     </header>
 

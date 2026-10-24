@@ -398,7 +398,7 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
   <BaseDialog
     open
     title="交给 Agent 处理"
-    :eyebrow="`Durable Task · ${workItem.key}`"
+    :eyebrow="workItem.key"
     subtitle="选定后预检并形成可恢复命令。"
     width="min(780px, 100%)"
     :close-disabled="submitting"
@@ -425,7 +425,7 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
       <p v-if="conversationSource" class="conversation-source-note">来源保留为当前 Conversation 消息；仅传入下方确认的目标与验收标准，不复制对话原文。</p>
 
       <section v-if="selectable.length" class="agent-selection" aria-labelledby="agent-selection-title">
-        <div class="section-heading"><div><p>Execution identity</p><h3 id="agent-selection-title">Agent 与配置</h3></div><span>{{ selectable.length }} 个可分配候选</span></div>
+        <div class="section-heading"><div><h3 id="agent-selection-title">Agent 与配置</h3></div><span>{{ selectable.length }} 个可分配候选</span></div>
         <div class="selection-grid">
           <label><span>执行 Agent</span><BaseSelect v-model="selectedProfileId" :disabled="submitting || retryable">
             <optgroup v-if="personalCandidates.length" label="个人 Agent"><option v-for="candidate in personalCandidates" :key="candidate.agentProfileId" :value="candidate.agentProfileId">{{ candidateLabel(candidate) }}{{ candidate.state === 'ASSIGNED' ? ' · 当前执行者' : '' }}</option></optgroup>

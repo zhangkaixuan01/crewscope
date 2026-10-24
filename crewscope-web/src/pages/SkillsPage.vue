@@ -338,7 +338,6 @@ function openDistilledSkill(skillId: string): void {
     <ActionConfirmDialog
       v-if="actionIntent"
       :heading="actionHeading"
-      eyebrow="Team skill"
       :subtitle="actionIntent.skillKey"
       :impact="actionImpact"
       :mode="actionIntent.kind === 'disable' ? 'reason' : 'plain'"

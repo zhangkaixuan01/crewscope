@@ -30,7 +30,7 @@ function attemptFailureLabel(terminal: TaskExecution['terminal']): string {
 
 <template>
   <section class="detail-card attempt-card">
-    <div class="section-heading"><div><p>Execution history</p><h3>Attempt 历史 <span>{{ attempts.length }}</span></h3></div><History :size="17" /></div>
+    <div class="section-heading"><div><h3>Attempt 历史 <span>{{ attempts.length }}</span></h3></div><History :size="17" /></div>
     <ul class="attempt-list" aria-label="Task attempts">
       <li v-for="attempt in orderedAttempts" :key="attempt.id">
         <button

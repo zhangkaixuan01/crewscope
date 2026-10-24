@@ -216,7 +216,7 @@ function actorName(principalId: string | null, type: string): string {
         />
 
         <aside v-if="selectedEventId" class="activity-detail panel" aria-label="Activity 事件详情">
-          <header><div><p class="eyebrow">Event detail</p><h2 ref="detailHeading" tabindex="-1">事件详情</h2></div><button type="button" aria-label="关闭事件详情" @click="closeDetail"><X :size="17" /></button></header>
+          <header><div><h2 ref="detailHeading" tabindex="-1">事件详情</h2></div><button type="button" aria-label="关闭事件详情" @click="closeDetail"><X :size="17" /></button></header>
           <StatePanel v-if="!selectedDetail || selectedDetail.phase === 'loading'" compact state="loading" />
           <StatePanel v-else-if="selectedDetail.phase === 'error'" compact :state="selectedDetail.error?.kind === 'forbidden' ? 'forbidden' : 'error'" :description="selectedDetail.error?.message" @retry="store.loadActivityDetail(selectedEventId, null, true)" />
           <template v-else-if="selectedDetail.value">

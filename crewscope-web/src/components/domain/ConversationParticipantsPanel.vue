@@ -20,7 +20,7 @@ const emit = defineEmits<{ toggle: [] }>()
 <template>
   <aside class="panel participant-panel" :class="{ collapsed }" aria-label="对话参与者">
     <header>
-      <p class="eyebrow">Current facts</p>
+      
       <h2>参与者</h2>
       <span>{{ selected ? `${participants.length} 个当前主体` : '选择对话后查看' }}</span>
       <button class="pane-collapse touch-target" type="button" aria-label="折叠参与者面板" @click="emit('toggle')">{{ collapsed ? '展开参与者' : '折叠参与者' }}</button>

@@ -46,7 +46,7 @@ watch(localBindings, value => {
 
 <template>
   <section class="form-section">
-    <header><div><p class="eyebrow">Model binding</p><h3>执行模型</h3><span>候选项是服务端按 Ownership、健康、能力、区域和策略计算的实时交集。</span></div></header>
+    <header><div><h3>执行模型</h3><span>候选项是服务端按 Ownership、健康、能力、区域和策略计算的实时交集。</span></div></header>
     <article v-for="scope in allowedScopes" :key="scope" class="binding-editor">
       <div class="binding-heading"><div><strong>{{ scopeLabel(scope) }}</strong><span>{{ scope === 'PERSONAL' ? '由成员自己发起的执行' : '由团队发起的执行' }}</span></div><StatusBadge tone="info">{{ models(scope).length }} 个候选</StatusBadge></div>
       <StatePanel v-if="modelResourcePhase(scope) === 'loading' || modelResourcePhase(scope) === 'idle'" state="loading" compact title="正在计算可选模型" />

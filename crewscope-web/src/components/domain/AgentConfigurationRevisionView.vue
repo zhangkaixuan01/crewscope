@@ -51,7 +51,7 @@ function historyBinding(item: AgentConfigurationHistoryItem, scope: AgentExecuti
 
 <template>
   <section v-if="!viewingCurrent && selectedHistory" class="historical-view" aria-label="历史 Configuration">
-    <div><p class="eyebrow">Immutable history</p><h3>Revision {{ selectedHistory.revision }}</h3><p>历史版本不可编辑。它继续服务于已经固定该 Revision 的 Conversation、Task 和 Retry。</p></div>
+    <div><h3>Revision {{ selectedHistory.revision }}</h3><p>历史版本不可编辑。它继续服务于已经固定该 Revision 的 Conversation、Task 和 Retry。</p></div>
     <dl><div><dt>PERSONAL</dt><dd>{{ historyBinding(selectedHistory, 'PERSONAL') }}</dd></div><div><dt>TEAM</dt><dd>{{ historyBinding(selectedHistory, 'TEAM') }}</dd></div><div><dt>Configuration Hash</dt><dd class="mono hash-value">{{ selectedHistory.configurationHash }} <button type="button" class="copy-button" :aria-label="`复制 Revision ${selectedHistory.revision} 配置 Hash`" @click="emit('copyHash', selectedHistory.configurationHash, `revision-${selectedHistory.revision}`)">{{ copiedHash === `revision-${selectedHistory.revision}` ? '已复制' : '复制' }}</button></dd></div></dl>
     <details v-if="selectedHistoryConfiguration" class="skill-snapshot">
       <summary>批准 Skill 快照 <small>{{ selectedSkillKeys.length }} 个</small></summary>

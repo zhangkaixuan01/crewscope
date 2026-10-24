@@ -78,7 +78,6 @@ function submit(): void {
   <BaseDialog
     open
     title="创建知识条目"
-    eyebrow="Knowledge entry"
     subtitle="条目 Key 是团队的长期引用，创建后不可修改。"
     width="min(640px, 100%)"
     :close-disabled="submitting"
@@ -128,7 +127,7 @@ function submit(): void {
 
       <label class="knowledge-dialog__field">
         <span>正文 <span class="knowledge-dialog__count">{{ content.length }}/{{ KNOWLEDGE_CONTENT_MAX }}</span></span>
-        <BaseTextarea v-model="content" :rows="8" :disabled="submitting" :invalid="submitted && !contentValid || undefined" :aria-describedby="submitted && !contentValid ? 'knowledge-create-content-error' : undefined" placeholder="纯文本内容；渲染增强在后续切片提供。" />
+        <BaseTextarea v-model="content" :rows="8" :disabled="submitting" :invalid="submitted && !contentValid || undefined" :aria-describedby="submitted && !contentValid ? 'knowledge-create-content-error' : undefined" placeholder="纯文本内容。" />
         <small v-if="submitted && !contentValid" id="knowledge-create-content-error" class="knowledge-dialog__error">正文超出 {{ KNOWLEDGE_CONTENT_MAX }} 字上限。</small>
       </label>
 

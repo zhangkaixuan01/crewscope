@@ -300,7 +300,7 @@ function roleLabels(roles?: string[]): string {
         </section>
 
         <form v-if="showAddMember && canManageMembers" class="add-member panel" @submit.prevent="addMember">
-          <div class="add-member__heading"><i><UserRoundPlus :size="19" /></i><div><h2>添加已有用户</h2><p>按姓名搜索本组织的已有成员并加入当前 Team；服务端会重新验证身份、Scope 与 MEMBER_MANAGE 权限。</p></div><button type="button" aria-label="关闭添加成员" @click="showAddMember = false"><X :size="17" /></button></div>
+          <div class="add-member__heading"><i><UserRoundPlus :size="19" /></i><div><h2>添加已有用户</h2><p>按姓名搜索本组织的已有成员并加入当前 Team。</p></div><button type="button" aria-label="关闭添加成员" @click="showAddMember = false"><X :size="17" /></button></div>
           <PrincipalPicker
             v-model="targetPrincipalId"
             :scope="{ organizationId: team?.organizationId ?? '' }"
@@ -313,7 +313,7 @@ function roleLabels(roles?: string[]): string {
         </form>
 
         <section class="panel member-directory">
-          <div class="panel-heading"><div><p class="eyebrow">Member directory</p><h2>团队成员</h2><p>行内菜单按状态与权限提供生命周期动作。</p></div><BaseButton v-if="canManageMembers && !showAddMember" variant="secondary" size="small" @click="showAddMember = true"><Plus :size="14" />添加成员</BaseButton></div>
+          <div class="panel-heading"><div><h2>团队成员</h2><p>行内菜单按状态与权限提供生命周期动作。</p></div><BaseButton v-if="canManageMembers && !showAddMember" variant="secondary" size="small" @click="showAddMember = true"><Plus :size="14" />添加成员</BaseButton></div>
           <p v-if="locatedId" class="locate-note" role="status">
             <span v-if="locatedMember">已定位到 {{ locatedMember.displayName }}。</span>
             <span v-else-if="store.state.membersLoading">正在加载成员名单，加载完成后显示定位结果。</span>
@@ -363,7 +363,7 @@ function roleLabels(roles?: string[]): string {
         <StatePanel v-else state="empty" title="需要成员管理权限" description="创建与撤销加入邀请需要 team:members:manage 权限。" />
       </template>
 
-      <section class="permission-note"><ShieldCheck :size="17" /><div><strong>权限守卫只改善界面体验</strong><span>导航和写按钮按当前会话权限显示；每次读取、生命周期命令与成员添加仍由服务端执行 ACTIVE Membership、Team Scope Role、If-Match 版本与目标 Principal 校验。</span></div></section>
+      <section class="permission-note"><ShieldCheck :size="17" /><div><strong>权限守卫只改善界面体验</strong><span>导航和写按钮按当前会话权限显示；每次读取、生命周期命令与成员添加仍由服务端重新校验。</span></div></section>
     </div>
 
     <MemberLifecycleDialog

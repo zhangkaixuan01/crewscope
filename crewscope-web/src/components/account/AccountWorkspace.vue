@@ -213,7 +213,7 @@ function confirmSignOut(): void {
 <template>
   <div class="account-workspace">
     <header class="account-heading">
-      <div><p class="eyebrow">Account settings</p><h2 ref="pageHeading" tabindex="-1">身份与安全</h2></div>
+      <div><h2 ref="pageHeading" tabindex="-1">身份与安全</h2></div>
       <span class="account-avatar" aria-hidden="true">{{ avatar }}</span>
     </header>
 
@@ -290,7 +290,7 @@ function confirmSignOut(): void {
         </section>
       </div>
 
-    <BaseDialog :open="revokeOpen" role="alertdialog" title="退出全部设备？" eyebrow="Security confirmation" width="min(440px, 100%)" :close-disabled="pending" close-label="取消操作" @close="closeRevoke">
+    <BaseDialog :open="revokeOpen" role="alertdialog" title="退出全部设备？" width="min(440px, 100%)" :close-disabled="pending" close-label="取消操作" @close="closeRevoke">
       <template #icon><LogOut :size="20" /></template>
       <div class="account-dialog__body">
         <p class="account-dialog__description">所有浏览器 Session 都会失效，包括当前设备。之后需要重新登录。</p>
@@ -304,7 +304,7 @@ function confirmSignOut(): void {
       </template>
     </BaseDialog>
 
-    <BaseDialog :open="signOutTarget !== null" role="alertdialog" title="退出本设备？" eyebrow="Session confirmation" width="min(440px, 100%)" :close-disabled="deletingSessionId !== null" close-label="取消操作" @close="closeSignOut">
+    <BaseDialog :open="signOutTarget !== null" role="alertdialog" title="退出本设备？" width="min(440px, 100%)" :close-disabled="deletingSessionId !== null" close-label="取消操作" @close="closeSignOut">
       <template #icon><LogOut :size="20" /></template>
       <div class="account-dialog__body">
         <p class="account-dialog__description">撤销当前设备的会话等同于退出登录，之后需要重新登录。</p>

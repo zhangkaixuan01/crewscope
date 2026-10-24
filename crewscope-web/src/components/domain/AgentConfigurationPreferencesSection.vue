@@ -103,7 +103,7 @@ function checked(key: string): boolean {
 
 <template>
   <section class="form-section">
-    <header><div><p class="eyebrow">Template slots</p><h3>受控配置</h3><span>页面只呈现 Template 声明的可配置槽位，固定 Prompt、Tool 与 Schema 不进入表单。</span></div></header>
+    <header><div><h3>受控配置</h3><span>页面只呈现 Template 声明的可配置槽位，固定 Prompt、Tool 与 Schema 不进入表单。</span></div></header>
     <div class="preference-fields">
       <label v-if="memberSlot('SUPPLEMENTAL_INSTRUCTIONS')" class="wide"><span>补充指令 <small>{{ localPreferences.supplementalInstructions.length }}/16384</small></span><textarea v-model="localPreferences.supplementalInstructions" rows="5" maxlength="16384" placeholder="作为低优先级补充，不会覆盖系统策略或扩展 Tool 权限。" /></label>
       <fieldset v-if="slotAvailable('APPROVED_SKILLS')" class="wide skill-picker">

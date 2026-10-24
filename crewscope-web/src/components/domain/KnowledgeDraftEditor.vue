@@ -104,7 +104,7 @@ defineExpose({
       </div>
       <div class="draft-editor__field">
         <label class="draft-editor__label" :for="`${entry.id}-draft-content`">正文 <span class="draft-editor__count" :class="{ over: snapshot.content.length > KNOWLEDGE_CONTENT_MAX }">{{ snapshot.content.length }}/{{ KNOWLEDGE_CONTENT_MAX }}</span></label>
-        <BaseTextarea :id="`${entry.id}-draft-content`" v-model="snapshot.content" :rows="12" :disabled="!canManage || saving" :invalid="snapshot.content.length > KNOWLEDGE_CONTENT_MAX || undefined" :aria-describedby="readonlyReason" placeholder="纯文本内容；渲染增强在后续切片提供。" />
+        <BaseTextarea :id="`${entry.id}-draft-content`" v-model="snapshot.content" :rows="12" :disabled="!canManage || saving" :invalid="snapshot.content.length > KNOWLEDGE_CONTENT_MAX || undefined" :aria-describedby="readonlyReason" placeholder="纯文本内容。" />
       </div>
     </template>
   </BaseDraftEditor>

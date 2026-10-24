@@ -92,7 +92,6 @@ function submit(): void {
   <BaseDialog
     open
     title="创建执行 Agent"
-    eyebrow="Approved template"
     subtitle="从服务端批准的 Template 创建稳定身份，随后再配置模型与受控偏好。"
     width="min(690px, 100%)"
     :close-disabled="submitting"

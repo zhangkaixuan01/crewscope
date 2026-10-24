@@ -121,7 +121,7 @@ async function removeRelation(edge: WorkItemRelationEdge): Promise<void> {
 
 <template>
   <section class="detail-section relations-section">
-    <div class="section-heading"><div><p>Relations</p><h3>阻塞与拆分 <span>{{ edges.length }}</span></h3></div><Network :size="17" /></div>
+    <div class="section-heading"><div><h3>阻塞与拆分 <span>{{ edges.length }}</span></h3></div><Network :size="17" /></div>
     <StatePanel v-if="anchor?.phase === 'loading' && !anchor.relations" state="loading" description="正在加载工作项关系" />
     <p v-else-if="anchor?.phase === 'error'" class="relations-error" role="alert">
       {{ anchor.errorMessage ?? '暂时无法加载工作项关系' }}

@@ -55,7 +55,7 @@ function clearMemory(): void {
 
 <template>
   <section class="memory-section" aria-label="辅助记忆">
-    <div><p class="eyebrow">Memory</p><h3>辅助记忆</h3><span>这里只显示你本人的记忆偏好；清除立即生效且不可恢复。</span></div>
+    <div><h3>辅助记忆</h3><span>这里只显示你本人的记忆偏好；清除立即生效且不可恢复。</span></div>
 
     <StatePanel v-if="loading" state="loading" title="正在读取辅助记忆" description="正在读取当前身份在这名 Agent 上的记忆。" />
     <StatePanel v-else-if="forbidden" state="forbidden" title="无权读取辅助记忆" :description="teamMemberUnresolvedDescription">
