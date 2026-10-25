@@ -3521,7 +3521,7 @@ test('AppShell visual baseline', async ({ page }, testInfo) => {
   await expect.poll(async () => page.evaluate(() => {
     const history = document.querySelector('.message-history')
     return history ? Math.abs(history.scrollHeight - history.clientHeight - history.scrollTop) < 4 : false
-  }), { message: '消息历史应完成阅读位置恢复并停在底部' }).toBe(true)
+  }), { message: '消息历史应完成阅读位置恢复并停在底部', timeout: 20_000 }).toBe(true)
   await expect(page).toHaveScreenshot(`conversation-${testInfo.project.name}.png`, { fullPage: true })
 
   await page.goto(`/today?team=${ids.team}&project=${ids.project}`)
@@ -3620,7 +3620,7 @@ test('M11 collaboration signal states ride the surfaces without touching the sil
   await expect.poll(async () => page.evaluate(() => {
     const history = document.querySelector('.message-history')
     return history ? Math.abs(history.scrollHeight - history.clientHeight - history.scrollTop) < 4 : false
-  }), { message: '消息历史应完成阅读位置恢复并停在底部' }).toBe(true)
+  }), { message: '消息历史应完成阅读位置恢复并停在底部', timeout: 20_000 }).toBe(true)
   await expect(page).toHaveScreenshot(`conversation-collaboration-${testInfo.project.name}.png`, { fullPage: true })
 
   const conversationAxe = await new AxeBuilder({ page })

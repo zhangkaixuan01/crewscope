@@ -140,7 +140,9 @@ test('创建对话后的第一次列表读取返回旧投影时不产生幽灵�
   }
   await mockConversationApi(page, world)
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}`)
-  await expect(page.getByRole('button', { name: '打开对话 已有对话' })).toBeVisible()
+  // M13i：仅有一个对话的 Team 进入即自动选中（首跑手感），窄屏互斥布局随之切到详情视图——
+  // 断言「对话已打开」而不是「列表按钮可见」。
+  await expect(page.getByRole('region', { name: '对话详情' }).getByRole('heading', { name: '已有对话' })).toBeVisible()
 
   await page.getByRole('button', { name: '新建对话', exact: true }).first().click()
   const dialog = page.getByRole('dialog', { name: '新建对话' })
