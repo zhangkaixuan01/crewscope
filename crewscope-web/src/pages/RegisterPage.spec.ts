@@ -127,6 +127,42 @@ describe('RegisterPage', () => {
     wrapper.unmount()
   })
 
+  it('marks the rejected field inline when the server answers invalid_value', async () => {
+    const identity = gateway({
+      registerError: new CrewScopeApiError(422, {
+        code: 'invalid_value', message: 'Invalid password: private upstream text', correlationId: 'safe-correlation',
+        retryable: false, currentVersion: null,
+        details: { field: 'password', reason: 'must not be a blocked common password' },
+      }),
+    })
+    const { wrapper } = await mountPage(identity)
+    await fillValidForm(wrapper)
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    const alert = wrapper.get('[role="alert"]')
+    expect(alert.text()).toContain('修正标记的字段后再提交。')
+    expect(wrapper.text()).toContain('密码过于常见，请更换一段不易猜到的长密码')
+    expect(alert.text()).not.toMatch(/private|重试/)
+    wrapper.unmount()
+  })
+
+  it('blocks common passwords client-side before sending the registration', async () => {
+    const identity = gateway()
+    const { wrapper } = await mountPage(identity)
+    await fillValidForm(wrapper)
+    await wrapper.get('input[name="password"]').setValue('password1234')
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(identity.register).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('密码过于常见，请更换一段不易猜到的长密码')
+    expect(wrapper.get('[role="alert"]').text()).toContain('修正标记的字段后再提交。')
+    wrapper.unmount()
+  })
+
   it('keeps a 503 outcome unknown and preserves the old key across normalized edits', async () => {
     const identity = gateway({ registerError: apiError('registration_unavailable', 'private upstream text') })
     const { wrapper } = await mountPage(identity)

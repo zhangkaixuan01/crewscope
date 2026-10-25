@@ -7,6 +7,7 @@ import {
   presentLoginProblem,
   presentRegistrationProblem,
   presentSessionProblem,
+  registrationInvalidValueField,
 } from './presentation'
 
 describe('identity presentation', () => {
@@ -37,9 +38,28 @@ describe('identity presentation', () => {
     ['csrf_rejected', 'csrf_rejected'],
     ['invalid_request', 'invalid_request'],
     ['request_too_large', 'invalid_request'],
+    ['invalid_value', 'invalid_value'],
     ['unknown', 'registration_unavailable'],
   ])('maps registration error %s to stable public code %s', (serverCode, publicCode) => {
     expectPublic(presentRegistrationProblem(apiError(serverCode)), publicCode)
+  })
+
+  it('maps invalid_value field coordinates to inline copy without rendering server text', () => {
+    expect(registrationInvalidValueField(invalidValueError('userAccount.username', 'may contain letters private')))
+      .toEqual({ field: 'username', message: '用户名只能包含字母、数字和单个 . - _ 分隔符，并以字母或数字开头结尾' })
+    expect(registrationInvalidValueField(invalidValueError('userAccount.email', 'private')))
+      .toEqual({ field: 'email', message: '邮箱需要包含一个可用的本地部分和域名（如 name@example.com）' })
+    expect(registrationInvalidValueField(invalidValueError('userAccount.displayName', 'private')))
+      .toEqual({ field: 'displayName', message: '展示名包含不支持的字符，请调整后重试' })
+    expect(registrationInvalidValueField(apiError('invalid_value'))).toBeNull()
+    expect(registrationInvalidValueField(apiError('registration_conflict'))).toBeNull()
+  })
+
+  it('distinguishes password invalid_value reason classes', () => {
+    expect(registrationInvalidValueField(invalidValueError('password', 'must not be a blocked common password')))
+      .toEqual({ field: 'password', message: '密码过于常见，请更换一段不易猜到的长密码' })
+    expect(registrationInvalidValueField(invalidValueError('password', 'must contain at least 12 Unicode code points')))
+      .toEqual({ field: 'password', message: '密码需要包含 12 至 128 个字符，且不超过 512 字节' })
   })
 
   it('covers registration, Session and offline fallback states', () => {
@@ -62,5 +82,12 @@ function apiError(code: string): CrewScopeApiError {
   return new CrewScopeApiError(400, {
     code, message: 'private identity detail', correlationId: 'private-correlation',
     retryable: false, currentVersion: null, details: {},
+  })
+}
+
+function invalidValueError(field: string, reason: string): CrewScopeApiError {
+  return new CrewScopeApiError(422, {
+    code: 'invalid_value', message: 'private identity detail', correlationId: 'private-correlation',
+    retryable: false, currentVersion: null, details: { field, reason },
   })
 }

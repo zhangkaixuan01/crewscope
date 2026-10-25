@@ -20,8 +20,10 @@ import {
   offlineRegistrationProblem,
   presentRegistrationProblem,
   presentSessionProblem,
+  registrationInvalidValueField,
   type RegistrationProblem,
 } from '../domains/identity/presentation'
+import { validateRegistrationInput } from '../domains/identity/registrationRules'
 import type { AuthCsrfCoordinate, RegistrationInput, RegistrationMode, RegistrationResult } from '../domains/identity/types'
 import { useOptionalInvitationStore } from '../domains/invitation/store'
 import { isAbort } from '../api/errors'
@@ -155,7 +157,7 @@ async function submitRegistration(): Promise<void> {
     password: password.value,
     ...(invitation.value.kind === 'valid' ? { invitationToken: invitation.value.token } : {}),
   }
-  const errors = committedRegistration.value ? {} : validate(input)
+  const errors = committedRegistration.value ? {} : validateRegistrationInput(input)
   if (Object.keys(errors).length > 0) {
     fieldErrors.value = errors
     setProblem({ code: 'invalid_input', title: '请检查注册信息', message: '修正标记的字段后再提交。', tone: 'error' })
@@ -199,37 +201,22 @@ async function submitRegistration(): Promise<void> {
     }
   } catch (error) {
     if (!request.isCurrent() || isAbort(error)) return
-    const nextProblem = presentRegistrationProblem(error)
     phase.value = 'ready'
+    // A server invalid_value names the rejected field: mark it inline with the same remediation
+    // copy as client-side checks instead of a generic banner that implies retrying could succeed.
+    const invalidField = committedRegistration.value ? null : registrationInvalidValueField(error)
+    if (invalidField) {
+      fieldErrors.value = { [invalidField.field]: invalidField.message }
+      setProblem({ code: 'invalid_input', title: '请检查注册信息', message: '修正标记的字段后再提交。', tone: 'error' })
+      return
+    }
     setProblem(committedRegistration.value ? {
       code: 'registration_session_unavailable', title: '账号已创建，登录会话尚未恢复',
       message: '点击“继续登录”重新检查会话，不会再次创建账号。', tone: 'warning',
-    } : nextProblem)
+    } : presentRegistrationProblem(error))
   } finally {
     request.finish()
   }
-}
-
-function validate(input: { username: string, email: string, displayName: string, password: string }): Record<string, string> {
-  const errors: Record<string, string> = {}
-  const usernameLength = Array.from(input.username).length
-  if (usernameLength < 3 || usernameLength > 64) errors.username = '用户名需要包含 3 至 64 个字符'
-  if (!input.email || input.email.length > 254) errors.email = '请输入有效且不超过 254 个字符的邮箱'
-  const displayNameLength = Array.from(input.displayName).length
-  if (displayNameLength < 1 || displayNameLength > 200) errors.displayName = '展示名需要包含 1 至 200 个字符'
-  const passwordLength = Array.from(input.password).length
-  const passwordBytes = new TextEncoder().encode(input.password).byteLength
-  if (passwordLength < 12 || passwordLength > 128 || passwordBytes > 512 || hasUnpairedSurrogate(input.password)) {
-    errors.password = '密码需要包含 12 至 128 个字符，且不超过 512 字节'
-  }
-  return errors
-}
-
-function hasUnpairedSurrogate(value: string): boolean {
-  return Array.from(value).some(character => {
-    const codePoint = character.codePointAt(0) ?? 0
-    return character.length === 1 && codePoint >= 0xD800 && codePoint <= 0xDFFF
-  })
 }
 
 function setProblem(value: RegistrationProblem): void {

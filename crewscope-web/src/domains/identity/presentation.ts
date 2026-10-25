@@ -54,6 +54,38 @@ export function presentSessionProblem(error: unknown): LoginProblem {
   return problem('session_unavailable', '无法准备安全登录', '会话服务暂时不可用，请稍后重新检查。', 'error')
 }
 
+export interface RegistrationInvalidField {
+  field: 'username' | 'email' | 'displayName' | 'password'
+  message: string
+}
+
+/**
+ * Server invalid_value details carry the rejected field coordinate and an English reason. Only the
+ * stable field coordinate (plus the common-password reason class) selects local copy — server
+ * exception text never renders.
+ */
+export function registrationInvalidValueField(error: unknown): RegistrationInvalidField | null {
+  if (!(error instanceof CrewScopeApiError) || error.envelope.code !== 'invalid_value') return null
+  const reason = error.envelope.details.reason ?? ''
+  switch (error.envelope.details.field) {
+    case 'userAccount.username':
+      return { field: 'username', message: '用户名只能包含字母、数字和单个 . - _ 分隔符，并以字母或数字开头结尾' }
+    case 'userAccount.email':
+      return { field: 'email', message: '邮箱需要包含一个可用的本地部分和域名（如 name@example.com）' }
+    case 'userAccount.displayName':
+      return { field: 'displayName', message: '展示名包含不支持的字符，请调整后重试' }
+    case 'password':
+      return {
+        field: 'password',
+        message: reason.includes('common password')
+          ? '密码过于常见，请更换一段不易猜到的长密码'
+          : '密码需要包含 12 至 128 个字符，且不超过 512 字节',
+      }
+    default:
+      return null
+  }
+}
+
 /** Registration copy deliberately folds username, email and invitation failures into stable states. */
 export function presentRegistrationProblem(error: unknown): RegistrationProblem {
   if (error instanceof IdentityRequestTimeoutError) {
@@ -91,6 +123,15 @@ export function presentRegistrationProblem(error: unknown): RegistrationProblem 
     case 'invalid_request':
     case 'request_too_large':
       return problem('invalid_request', '无法提交注册信息', '请检查输入是否符合要求后重试。', 'error')
+    case 'invalid_value': {
+      const invalidField = registrationInvalidValueField(error)
+      return problem(
+        'invalid_value',
+        '无法提交注册信息',
+        invalidField?.message ?? '请检查输入是否符合要求后重试。',
+        'error',
+      )
+    }
     default:
       return problem('registration_unavailable', '暂时无法创建账号', '请稍后使用当前信息重新尝试。', 'error')
   }
