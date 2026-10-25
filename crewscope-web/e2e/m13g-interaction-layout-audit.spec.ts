@@ -141,12 +141,12 @@ test.beforeEach(async ({ page }) => {
 for (const interaction of interactions) {
   test(`interaction audit: ${interaction.name}`, async ({ page }, testInfo) => {
     const projectName = testInfo.project.name
+    // 无尾随逗号:release 契约解析器把「最后一个参数」读作 skip 原因,尾随逗号会产生空串参数。
     test.skip(
       (interaction.scope === 'desktop' && projectName !== 'desktop-chromium')
         || (interaction.scope === 'narrow' && projectName !== 'narrow-chromium')
         || (interaction.scope === 'both' && projectName !== 'desktop-chromium' && projectName !== 'narrow-chromium'),
-      'case targets specific reference viewports',
-    )
+      'case targets specific reference viewports')
     await page.goto(interaction.path)
     // 页面骨架与 store 同步稳定后再交互，避免把加载态当作交互前形态。
     await page.waitForTimeout(900)
