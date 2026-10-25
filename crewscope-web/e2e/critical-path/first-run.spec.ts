@@ -39,20 +39,20 @@ test('brand-new account registers, onboards its team and exchanges the first con
   expect(session.teams).toHaveLength(1)
   const teamId = session.teams[0]!.teamId
 
-  // 进对话页：真实团队作用域 + 会话列表读模型（section 的隐式角色是 region）。
+  // 进对话页：真实团队作用域 + 会话列表读模型。M13i 之后新团队的第一个画面不再是
+  // 空态——starter 对话带欢迎消息直接在场，这就是本冒烟的验收对象。
   await page.goto(`/conversation?team=${teamId}`)
   await expect(page.getByRole('region', { name: '对话列表' })).toBeVisible({ timeout: 30_000 })
 
-  // 建 Conversation：左栏「新建对话」→ 弹层提交 → 列表出现并进入。
-  await page.getByRole('region', { name: '对话列表' }).getByRole('button', { name: '新建对话' }).click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toBeVisible()
-  await dialog.getByRole('textbox', { name: '标题' }).fill(`首跑对话 ${suffix}`.slice(0, 96))
-  await dialog.getByRole('button', { name: '创建对话' }).click()
-  const conversationButton = page.getByRole('button', { name: new RegExp(`打开对话 首跑对话 ${suffix}`) })
+  // starter 对话由建团事务预置：标题、未读徽标（欢迎消息计 1 条未读）与打开动作。
+  const conversationButton = page.getByRole('button', { name: /打开对话 欢迎：从第一个目标开始/ })
   await expect(conversationButton).toBeVisible({ timeout: 30_000 })
   await conversationButton.click()
   await expect(page.locator('form[aria-label="发送消息"]')).toBeVisible({ timeout: 30_000 })
+
+  // 欢迎消息是真实落库的 Personal Agent 回复：从消息历史读到，而不是前端贴片。
+  const history = page.getByRole('list', { name: '消息历史' })
+  await expect(history.getByText('我是你的 Personal Agent，这个对话是我们协作的起点')).toBeVisible({ timeout: 30_000 })
 
   // 第一条消息：会话所有者触发 Agent 调用（SSE），用户消息沿真实链路提交。
   // 发送前先等实时链路在线（composer 的输入指引换成在线文案）；发送后以「操作区出现
@@ -79,12 +79,12 @@ test('brand-new account registers, onboards its team and exchanges the first con
   await expect(actionRegion.getByRole('alert')).toBeVisible({ timeout: 90_000 })
   await expect(page.getByRole('alert').filter({ hasText: '页面遇到未预期问题' })).toHaveCount(0)
 
-  // 用户消息必须落到真实读模型：刷新后仍从服务端返回（同时证明会话 cookie 存活、
-  // 错误态不阻塞页面重新可用）。
+  // 用户消息必须落到真实读模型：刷新后欢迎消息与用户消息都仍从服务端返回（同时证明
+  // 会话 cookie 存活、错误态不阻塞页面重新可用）。
   await page.reload()
-  await expect(page.getByRole('list', { name: '消息历史' })).toBeVisible({ timeout: 30_000 })
-  const history = page.getByRole('list', { name: '消息历史' })
-  // 只断言消息本体：作者呈现（自己的消息显示「你」）是展示细节，不该锁进命脉冒烟。
-  await expect(history.getByText(messageText)).toBeVisible({ timeout: 30_000 })
+  const reloadedHistory = page.getByRole('list', { name: '消息历史' })
+  await expect(reloadedHistory).toBeVisible({ timeout: 30_000 })
+  await expect(reloadedHistory.getByText('我是你的 Personal Agent，这个对话是我们协作的起点')).toBeVisible({ timeout: 30_000 })
+  await expect(reloadedHistory.getByText(messageText)).toBeVisible({ timeout: 30_000 })
   await expect(page.locator('form[aria-label="发送消息"]')).toBeVisible()
 })

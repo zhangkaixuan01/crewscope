@@ -329,7 +329,8 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             () -> NOW,
             (actor, occurredAt) -> {},
             (catalogOrganizationId, actor, occurredAt) -> {},
-            (team, workspace, ownerMember, ownerUser) -> {});
+            (team, workspace, ownerMember, ownerUser) -> {},
+            (team, workspace, ownerMember, ownerUser, personalAgent) -> {});
 
     TeamInitialization foundation =
         teamCreation.create(creator, new CreateTeamCommand("Native Team"));
@@ -412,7 +413,8 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             () -> NOW,
             (actor, occurredAt) -> {},
             (catalogOrganizationId, actor, occurredAt) -> {},
-            (team, workspace, ownerMember, ownerUser) -> {});
+            (team, workspace, ownerMember, ownerUser) -> {},
+            (team, workspace, ownerMember, ownerUser, personalAgent) -> {});
     TeamInitialization foundation =
         teamCreation.create(creator, new CreateTeamCommand("Conflict Team"));
 
@@ -501,7 +503,8 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             () -> NOW,
             (actor, occurredAt) -> {},
             (catalogOrganizationId, actor, occurredAt) -> {},
-            (team, workspace, ownerMember, ownerUser) -> {});
+            (team, workspace, ownerMember, ownerUser) -> {},
+            (team, workspace, ownerMember, ownerUser, personalAgent) -> {});
 
     assertThrows(
         IllegalStateException.class,
@@ -540,7 +543,8 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             () -> NOW,
             (actor, occurredAt) -> {},
             (catalogOrganizationId, actor, occurredAt) -> {},
-            (team, workspace, ownerMember, ownerUser) -> {});
+            (team, workspace, ownerMember, ownerUser) -> {},
+            (team, workspace, ownerMember, ownerUser, personalAgent) -> {});
     TeamApplicationService service =
         new TeamApplicationService(
             creationService,
@@ -2114,7 +2118,8 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             () -> NOW,
             (actor, occurredAt) -> {},
             (catalogOrganizationId, actor, occurredAt) -> {},
-            (team, workspace, ownerMember, ownerUser) -> {});
+            (team, workspace, ownerMember, ownerUser) -> {},
+            (team, workspace, ownerMember, ownerUser, personalAgent) -> {});
     return new Foundation(
         organizationId, creator, service.create(creator, new CreateTeamCommand("Team " + suffix)));
   }
@@ -2133,7 +2138,8 @@ class M1JpaPersistenceIntegrationTest extends AbstractPostgresRedisContainerInte
             () -> NOW,
             (actor, occurredAt) -> {},
             (organizationId, actor, occurredAt) -> {},
-            (team, workspace, ownerMember, ownerUser) -> {});
+            (team, workspace, ownerMember, ownerUser) -> {},
+            (team, workspace, ownerMember, ownerUser, personalAgent) -> {});
     return new TeamApplicationService(
         creationService,
         teamRepository,

@@ -2,6 +2,7 @@ package io.crewscope.application.team;
 
 import io.crewscope.application.transaction.TransactionExecutor;
 import io.crewscope.application.agent.AgentTemplateCatalogInitializer;
+import io.crewscope.application.conversation.StarterConversationInitializer;
 import io.crewscope.application.model.PlatformModelCatalogInitializer;
 import io.crewscope.application.provider.TeamProviderInitializer;
 import io.crewscope.application.teamobserver.TeamObserverInitializer;
@@ -33,6 +34,7 @@ public final class TeamCreationService {
   private final PlatformModelCatalogInitializer modelCatalogInitializer;
   private final AgentTemplateCatalogInitializer templateInitializer;
   private final TeamObserverInitializer teamObserverInitializer;
+  private final StarterConversationInitializer starterConversationInitializer;
 
   /**
    * Requires every Team foundation initializer explicitly. A missing initializer must fail during
@@ -50,7 +52,8 @@ public final class TeamCreationService {
       TimeProvider timeProvider,
       PlatformModelCatalogInitializer modelCatalogInitializer,
       AgentTemplateCatalogInitializer templateInitializer,
-      TeamObserverInitializer teamObserverInitializer) {
+      TeamObserverInitializer teamObserverInitializer,
+      StarterConversationInitializer starterConversationInitializer) {
     this.teamRepository = Objects.requireNonNull(teamRepository, "teamRepository");
     this.workspaceRepository = Objects.requireNonNull(workspaceRepository, "workspaceRepository");
     this.teamMemberRepository =
@@ -68,6 +71,9 @@ public final class TeamCreationService {
     this.templateInitializer = Objects.requireNonNull(templateInitializer, "templateInitializer");
     this.teamObserverInitializer =
         Objects.requireNonNull(teamObserverInitializer, "teamObserverInitializer");
+    this.starterConversationInitializer =
+        Objects.requireNonNull(
+            starterConversationInitializer, "starterConversationInitializer");
   }
 
   /**
@@ -122,6 +128,7 @@ public final class TeamCreationService {
     modelCatalogInitializer.initialize(actor.id(), initializedAt);
     templateInitializer.initialize(team.organizationId(), actor.id(), initializedAt);
     teamObserverInitializer.initialize(team, workspace, ownerMember, actor);
+    starterConversationInitializer.initialize(team, workspace, ownerMember, actor, personalAgent);
     return new TeamInitialization(team, workspace, ownerMember, roles, ownerRole, personalAgent);
   }
 }

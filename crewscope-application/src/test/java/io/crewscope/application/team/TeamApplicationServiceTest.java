@@ -417,7 +417,8 @@ class TeamApplicationServiceTest {
               time,
               (actor, occurredAt) -> {},
               (organizationId, actor, occurredAt) -> {},
-              (team, workspace, ownerMember, ownerUser) -> {});
+              (team, workspace, ownerMember, ownerUser) -> {},
+            (team, workspace, ownerMember, ownerUser, personalAgent) -> {});
       service =
           new TeamApplicationService(
               creation,

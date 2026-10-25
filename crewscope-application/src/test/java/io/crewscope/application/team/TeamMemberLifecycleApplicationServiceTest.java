@@ -473,7 +473,8 @@ class TeamMemberLifecycleApplicationServiceTest {
               time,
               (actor, occurredAt) -> {},
               (organizationId, actor, occurredAt) -> {},
-              (team, workspace, ownerMember, ownerUser) -> {});
+              (team, workspace, ownerMember, ownerUser) -> {},
+            (team, workspace, ownerMember, ownerUser, personalAgent) -> {});
       application =
           new TeamApplicationService(
               creation,

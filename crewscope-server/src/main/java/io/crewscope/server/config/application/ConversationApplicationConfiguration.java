@@ -8,6 +8,8 @@ import io.crewscope.application.conversation.ConversationRepository;
 import io.crewscope.application.conversation.ConversationWorkItemLinkRepository;
 import io.crewscope.application.conversation.ConversationWorkItemQueryService;
 import io.crewscope.application.conversation.MessageRepository;
+import io.crewscope.application.conversation.StarterConversationInitializer;
+import io.crewscope.application.conversation.StarterConversationProvisioningService;
 import io.crewscope.application.conversation.TaskIntentApplicationService;
 import io.crewscope.application.conversation.TaskIntentConfirmationCommandPort;
 import io.crewscope.application.conversation.TaskIntentConfirmationService;
@@ -82,6 +84,19 @@ public class ConversationApplicationConfiguration {
         transactionExecutor,
         timeProvider,
         visibilityPolicy);
+  }
+
+  @Bean
+  StarterConversationInitializer starterConversationInitializer(
+      ConversationRepository conversationRepository,
+      ConversationParticipantRepository participantRepository,
+      ConversationApplicationService conversationApplicationService,
+      TimeProvider timeProvider) {
+    return new StarterConversationProvisioningService(
+        conversationRepository,
+        participantRepository,
+        conversationApplicationService,
+        timeProvider);
   }
 
   @Bean

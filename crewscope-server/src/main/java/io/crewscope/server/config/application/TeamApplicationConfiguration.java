@@ -22,6 +22,7 @@ import io.crewscope.application.team.TeamApplicationService;
 import io.crewscope.application.team.TeamCreationService;
 import io.crewscope.application.team.TeamMemberLifecycleApplicationService;
 import io.crewscope.application.agent.AgentTemplateCatalogInitializer;
+import io.crewscope.application.conversation.StarterConversationInitializer;
 import io.crewscope.application.teamobserver.TeamObserverInitializer;
 import io.crewscope.application.team.TeamMemberRepository;
 import io.crewscope.application.team.TeamMembershipQuery;
@@ -59,7 +60,8 @@ public class TeamApplicationConfiguration {
       TimeProvider timeProvider,
       PlatformModelCatalogInitializer modelCatalogInitializer,
       AgentTemplateCatalogInitializer templateInitializer,
-      TeamObserverInitializer teamObserverInitializer) {
+      TeamObserverInitializer teamObserverInitializer,
+      StarterConversationInitializer starterConversationInitializer) {
     return new TeamCreationService(
         teamRepository,
         workspaceRepository,
@@ -72,7 +74,8 @@ public class TeamApplicationConfiguration {
         timeProvider,
         modelCatalogInitializer,
         templateInitializer,
-        teamObserverInitializer);
+        teamObserverInitializer,
+        starterConversationInitializer);
   }
 
   @Bean

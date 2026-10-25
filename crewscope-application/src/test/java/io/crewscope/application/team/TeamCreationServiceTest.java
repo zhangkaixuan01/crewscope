@@ -88,6 +88,14 @@ class TeamCreationServiceTest {
       assertEquals(ownerUser.id(), ownerMember.userPrincipalId());
       initialized.add("observer");
     };
+    io.crewscope.application.conversation.StarterConversationInitializer starter =
+        (team, workspace, ownerMember, ownerUser, personalAgent) -> {
+          assertTrue(transaction.inTransaction);
+          assertEquals(
+              ownerUser.id(),
+              personalAgent.agentPrincipal().ownerPrincipalId().orElseThrow());
+          initialized.add("starter");
+        };
     TimeProvider timeProvider =
         TimeProvider.from(
             Clock.fixed(Instant.parse("2026-08-07T18:00:00.123456789Z"), ZoneOffset.UTC));
@@ -104,11 +112,12 @@ class TeamCreationServiceTest {
             timeProvider,
             models,
             templates,
-            observer);
+            observer,
+            starter);
 
     service.create(activeUser(), new CreateTeamCommand("Platform Crew"));
 
-    assertEquals(List.of("providers", "models", "templates", "observer"), initialized);
+    assertEquals(List.of("providers", "models", "templates", "observer", "starter"), initialized);
     assertEquals(1, transaction.requiredCalls);
   }
 
@@ -190,7 +199,8 @@ class TeamCreationServiceTest {
         timeProvider,
         (actor, occurredAt) -> {},
         (organizationId, actor, occurredAt) -> {},
-        (team, workspace, ownerMember, ownerUser) -> {});
+        (team, workspace, ownerMember, ownerUser) -> {},
+        (team, workspace, ownerMember, ownerUser, personalAgent) -> {});
   }
 
   private static Principal activeUser() {
