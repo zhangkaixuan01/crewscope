@@ -1,6 +1,7 @@
 package io.crewscope.infrastructure.persistence.modelagent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -47,6 +48,7 @@ import io.crewscope.domain.model.ModelSubject;
 import io.crewscope.domain.model.ModelCapability;
 import io.crewscope.domain.model.ModelCatalogEntry;
 import io.crewscope.domain.model.ModelCatalogEntryId;
+import io.crewscope.domain.model.ModelCatalogRevision;
 import io.crewscope.domain.model.ModelConnection;
 import io.crewscope.domain.model.ModelConnectionId;
 import io.crewscope.domain.model.ModelConnectionOwner;
@@ -195,6 +197,102 @@ class M5I01ModelAgentPersistenceIntegrationTest
         assertEquals("0.5", embeddingPrice.tokenPrice().inputPerMillionTokens()
                 .toPlainString());
         assertEquals("CNY", embeddingPrice.tokenPrice().currencyCode());
+    }
+
+    @Test
+    void adoptsDriftedPlatformProviderContentAndRepointsTheCatalogReferences() {
+        Fixture fixture = seedFixture("platform-drift");
+        // A pre-upgrade deployment seeded the platform provider before the cn region existed.
+        ModelProviderDefinition legacy = providers.register(ModelProviderDefinition.publish(
+                new ModelProviderKey("deepseek"),
+                "DeepSeek",
+                new ModelAdapterKey("openai-compatible"),
+                new ModelEndpoint("https://api.deepseek.com"),
+                Set.of(GLOBAL),
+                ModelDataPolicy.noRetention(),
+                fixture.actorId(),
+                UtcTimestamp.parse("2026-08-23T08:00:00Z")));
+        ModelCatalogEntry legacyCatalog = catalogs.append(ModelCatalogEntry.publishInitial(
+                legacy,
+                ModelCatalogEntryId.from("00000000-0000-4000-8000-000000000901"),
+                new ModelId("deepseek-legacy-flash"),
+                new ModelRevision("DeepSeek-Legacy-0731"),
+                "DeepSeek Legacy Flash",
+                128_000,
+                8_192,
+                Set.of(new ModelCapability("text.generation")),
+                Set.of(GLOBAL),
+                fixture.actorId(),
+                CREATED));
+        // A real pre-upgrade deployment also owns connections and pinned agent model defaults
+        // against the legacy revision; adoption must re-point every one of them.
+        ModelConnection registeredConnection = connections.register(ModelConnection.open(
+                legacy, ModelConnectionId.generate(), teamOwner(fixture),
+                new ModelEndpoint("https://gateway.example.com/legacy"), GLOBAL,
+                new ModelCredentialBinding(
+                        fixture.credentialId(),
+                        ModelSubject.team(fixture.organizationId(), fixture.teamId()),
+                        new ModelCredentialVersion(0)),
+                ModelSubject.team(fixture.organizationId(), fixture.teamId()),
+                fixture.actorId(), CREATED));
+        ModelConnection connection = connections.update(
+                registeredConnection.recordVerificationSuccess(
+                        legacy, registeredConnection.version(),
+                        new ModelCredentialVersion(0), fixture.actorId(), VERIFIED));
+        AgentTemplateDefinition template = templates.append(template(fixture));
+        AgentDirectModelBinding direct = new AgentDirectModelBinding(
+                AgentModelSelection.capture(connection, legacyCatalog), Optional.empty());
+        AgentModelDefault modelDefault = defaults.append(AgentModelDefault.publishInitial(
+                template,
+                AgentModelDefaultScope.team(fixture.organizationId(), fixture.teamId()),
+                AgentExecutionScope.TEAM, direct, policyPack(1), fixture.actorId(), CREATED));
+
+        DefaultPlatformModelCatalogInitializer initializer =
+                new DefaultPlatformModelCatalogInitializer(providers, catalogs, prices);
+        // Onboarding runs the initializer inside its Team-creation transaction; the adoption
+        // must re-pin references under the same ambient transaction as in production.
+        transactions.executeWithoutResult(
+                status -> initializer.initialize(
+                        fixture.actorId(), UtcTimestamp.parse("2026-10-02T08:00:00Z")));
+
+        ModelProviderDefinition adopted = providers
+                .findByKey(new ModelProviderKey("deepseek")).orElseThrow();
+        assertNotEquals(legacy.contentHash().value(), adopted.contentHash().value());
+        assertEquals("https://api.deepseek.com", adopted.defaultEndpoint().toString());
+        // The legacy entry re-pins to the adopted provider revision with a recomputed hash.
+        ModelCatalogEntry repointed = catalogs.findByEntryRevision(
+                        ModelCatalogEntryId.from("00000000-0000-4000-8000-000000000901"),
+                        new ModelCatalogRevision(1))
+                .orElseThrow();
+        assertEquals(adopted.contentHash(), repointed.providerDefinitionHash());
+        assertNotEquals(legacyCatalog.contentHash().value(), repointed.contentHash().value());
+        // The current built-in catalog still seeds on top of the adopted definition.
+        assertTrue(catalogs.findLatest(
+                        new ModelProviderKey("deepseek"), new ModelId("deepseek-flash"))
+                .isPresent());
+        // Connections and agent model defaults re-pin to the adopted revision; a missed pin
+        // would surface as a deferred foreign-key violation at the adopting commit.
+        assertEquals(
+                adopted.contentHash().value(),
+                jdbc.queryForObject(
+                        "SELECT provider_definition_hash FROM crewscope.model_connection WHERE id = ?",
+                        String.class, connection.id().value()).strip());
+        assertEquals(
+                repointed.contentHash().value(),
+                jdbc.queryForObject(
+                        "SELECT primary_catalog_content_hash FROM crewscope.agent_model_default"
+                                + " WHERE organization_id = ? AND default_scope_id = ?"
+                                + " AND template_key = ?",
+                        String.class, fixture.organizationId().value(),
+                        fixture.teamId().value(), "coding-" + fixture.key()).strip());
+        assertEquals(
+                adopted.contentHash().value(),
+                jdbc.queryForObject(
+                        "SELECT primary_provider_definition_hash FROM crewscope.agent_model_default"
+                                + " WHERE organization_id = ? AND default_scope_id = ?"
+                                + " AND template_key = ?",
+                        String.class, fixture.organizationId().value(),
+                        fixture.teamId().value(), "coding-" + fixture.key()).strip());
     }
 
     @Test

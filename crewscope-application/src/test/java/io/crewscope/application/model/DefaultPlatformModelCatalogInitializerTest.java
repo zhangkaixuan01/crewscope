@@ -1,7 +1,6 @@
 package io.crewscope.application.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.crewscope.domain.model.ModelAdapterKey;
@@ -18,6 +17,7 @@ import io.crewscope.domain.model.ModelPriceSchedule;
 import io.crewscope.domain.model.ModelProviderDefinition;
 import io.crewscope.domain.model.ModelProviderKey;
 import io.crewscope.domain.model.ModelRegion;
+import io.crewscope.domain.model.ModelRegistryHash;
 import io.crewscope.domain.model.ModelRegistryStatus;
 import io.crewscope.domain.model.ModelTrainingUsagePolicy;
 import io.crewscope.domain.shared.error.DomainValidationException;
@@ -111,7 +111,7 @@ class DefaultPlatformModelCatalogInitializerTest {
   }
 
   @Test
-  void rejectsAConflictingPlatformOwnedProviderWithoutOverwritingIt() {
+  void adoptsDriftedPlatformOwnedProviderContentInsteadOfFailing() {
     Registry registry = new Registry();
     registry.providers.put(
         DefaultPlatformModelCatalogInitializer.DEEPSEEK,
@@ -127,19 +127,56 @@ class DefaultPlatformModelCatalogInitializerTest {
     DefaultPlatformModelCatalogInitializer initializer =
         new DefaultPlatformModelCatalogInitializer(registry, registry, registry);
 
-    assertThrows(
-        DomainValidationException.class,
-        () -> initializer.initialize(ACTOR, CREATED_AT));
-    assertEquals(0, registry.providerWrites);
-    assertEquals(0, registry.catalogWrites);
-    assertEquals(0, registry.priceWrites);
+    initializer.initialize(ACTOR, UtcTimestamp.parse("2026-08-31T08:05:00Z"));
+
+    ModelProviderDefinition adopted =
+        registry.providers.get(DefaultPlatformModelCatalogInitializer.DEEPSEEK);
+    assertEquals("DeepSeek", adopted.displayName(), "content converges to the built-in definition");
     assertEquals(
-        "Conflicting DeepSeek",
-        registry.providers.get(DefaultPlatformModelCatalogInitializer.DEEPSEEK).displayName());
+        "https://api.deepseek.com", adopted.defaultEndpoint().toString());
+    assertEquals(1, registry.adoptions, "drift is resolved by exactly one adoption");
+    assertEquals(
+        2,
+        registry.providerWrites,
+        "the drifted DeepSeek provider adopts and the untouched DashScope provider registers");
+    assertEquals(2, registry.catalogWrites, "the deepseek-flash entry still seeds after adoption");
+    assertEquals(2, registry.priceWrites);
   }
 
   @Test
-  void rejectsAConflictingDashscopeDefinitionAfterTheDeepseekSegmentSucceeded() {
+  void adoptionPreservesDeliberatelyDisabledLifecycleState() {
+    Registry registry = new Registry();
+    DefaultPlatformModelCatalogInitializer initializer =
+        new DefaultPlatformModelCatalogInitializer(registry, registry, registry);
+    initializer.initialize(ACTOR, CREATED_AT);
+    UtcTimestamp disabledAt = UtcTimestamp.parse("2026-08-31T08:06:00Z");
+    registry.providers.put(
+        DefaultPlatformModelCatalogInitializer.DEEPSEEK,
+        registry.providers.get(DefaultPlatformModelCatalogInitializer.DEEPSEEK).disable(ACTOR, disabledAt));
+    // Drift the committed content so the next initialization must go through adoption.
+    registry.providers.put(
+        DefaultPlatformModelCatalogInitializer.DEEPSEEK,
+        registry.providers.get(DefaultPlatformModelCatalogInitializer.DEEPSEEK).republishContent(
+            "DeepSeek Legacy",
+            new ModelAdapterKey("openai-compatible"),
+            new ModelEndpoint("https://legacy.example.com"),
+            Set.of(new ModelRegion("global")),
+            ModelDataPolicy.noRetention(),
+            ACTOR,
+            UtcTimestamp.parse("2026-08-31T08:07:00Z")));
+
+    initializer.initialize(ACTOR, UtcTimestamp.parse("2026-08-31T08:08:00Z"));
+
+    ModelProviderDefinition adopted =
+        registry.providers.get(DefaultPlatformModelCatalogInitializer.DEEPSEEK);
+    assertEquals(
+        ModelRegistryStatus.DISABLED, adopted.status(), "adoption never changes lifecycle state");
+    assertEquals("DeepSeek", adopted.displayName(), "content still converges to the built-in definition");
+    assertEquals(1, registry.adoptions);
+  }
+
+  @Test
+  void adoptsDriftedDashscopeDefinitionAfterTheDeepseekSegmentSucceeded() {
     Registry registry = new Registry();
     registry.providers.put(
         DefaultPlatformModelCatalogInitializer.DASHSCOPE,
@@ -155,16 +192,18 @@ class DefaultPlatformModelCatalogInitializerTest {
     DefaultPlatformModelCatalogInitializer initializer =
         new DefaultPlatformModelCatalogInitializer(registry, registry, registry);
 
-    assertThrows(
-        DomainValidationException.class,
-        () -> initializer.initialize(ACTOR, CREATED_AT));
+    initializer.initialize(ACTOR, UtcTimestamp.parse("2026-08-31T08:09:00Z"));
 
-    assertEquals(1, registry.providerWrites, "the DeepSeek segment must have committed first");
-    assertEquals(1, registry.catalogWrites, "the DeepSeek catalog write precedes the conflict");
-    assertEquals(1, registry.priceWrites, "the DeepSeek price write precedes the conflict");
+    ModelProviderDefinition adopted =
+        registry.providers.get(DefaultPlatformModelCatalogInitializer.DASHSCOPE);
+    assertEquals("DashScope", adopted.displayName());
     assertEquals(
-        "Conflicting DashScope",
-        registry.providers.get(DefaultPlatformModelCatalogInitializer.DASHSCOPE).displayName());
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        adopted.defaultEndpoint().toString());
+    assertEquals(1, registry.adoptions, "only the drifted DashScope provider needs adoption");
+    assertEquals(2, registry.providerWrites, "one register plus one adoption");
+    assertEquals(2, registry.catalogWrites);
+    assertEquals(2, registry.priceWrites);
   }
 
   @Test
@@ -234,6 +273,7 @@ class DefaultPlatformModelCatalogInitializerTest {
     private int providerWrites;
     private int catalogWrites;
     private int priceWrites;
+    private int adoptions;
 
     ModelCatalogEntry catalogByEntry(ModelCatalogEntryId entryId) {
       return catalogs.get(entryId);
@@ -244,6 +284,20 @@ class DefaultPlatformModelCatalogInitializerTest {
       providerWrites++;
       providers.put(definition.providerKey(), definition);
       return definition;
+    }
+
+    @Override
+    public ModelProviderDefinition adoptPlatformContent(
+        ModelRegistryHash previousContentHash, ModelProviderDefinition replacement) {
+      adoptions++;
+      providerWrites++;
+      ModelProviderDefinition committed = providers.get(replacement.providerKey());
+      if (committed == null || !committed.contentHash().equals(previousContentHash)) {
+        throw new DomainValidationException(
+            "modelProvider.contentHash", "changed concurrently during platform content adoption");
+      }
+      providers.put(replacement.providerKey(), replacement);
+      return replacement;
     }
 
     @Override

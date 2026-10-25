@@ -196,6 +196,44 @@ class ModelCatalogEntryTest {
                 CREATED_AT);
     }
 
+    @Test
+    void repointsThePinnedProviderRevisionAndRecomputesTheContentHash() {
+        ModelProviderDefinition nextProvider = ModelProviderDefinition.publish(
+                new ModelProviderKey("deepseek"),
+                "DeepSeek",
+                new ModelAdapterKey("openai-compatible"),
+                new ModelEndpoint("https://api.deepseek.com"),
+                Set.of(GLOBAL, CN),
+                ModelDataPolicy.noRetention(),
+                ACTOR,
+                UtcTimestamp.parse("2026-08-23T00:20:00Z"));
+        ModelCatalogEntry pinned = catalog(provider());
+        ModelCatalogEntry reference = ModelCatalogEntry.publishInitial(
+                nextProvider,
+                pinned.id(),
+                new ModelId("deepseek-v4-flash"),
+                new ModelRevision("DeepSeek-V4-Flash-0731"),
+                "DeepSeek V4 Flash",
+                128_000,
+                8_192,
+                Set.of(TEXT, TOOL),
+                Set.of(GLOBAL, CN),
+                ACTOR,
+                CREATED_AT);
+
+        ModelCatalogEntry repointed = pinned.repointedToProvider(
+                nextProvider, ACTOR, UtcTimestamp.parse("2026-08-23T00:30:00Z"));
+
+        assertEquals(nextProvider.contentHash(), repointed.providerDefinitionHash());
+        assertEquals(reference.contentHash(), repointed.contentHash(),
+                "the hash must equal an identical entry published directly against the new provider");
+        assertEquals(pinned.id(), repointed.id());
+        assertEquals(pinned.catalogRevision(), repointed.catalogRevision());
+        assertEquals(pinned.status(), repointed.status());
+        assertEquals(pinned.lifecycleVersion(), repointed.lifecycleVersion());
+        assertEquals(pinned.displayName(), repointed.displayName());
+    }
+
     private static ModelProviderDefinition provider() {
         return ModelProviderDefinition.publish(
                 new ModelProviderKey("deepseek"),

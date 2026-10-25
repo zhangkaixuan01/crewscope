@@ -1,6 +1,7 @@
 package io.crewscope.domain.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.crewscope.domain.shared.error.DomainValidationException;
@@ -105,6 +106,30 @@ class ModelProviderDefinitionTest {
                 DomainValidationException.class,
                 () -> archived.activate(
                         ACTOR, UtcTimestamp.parse("2026-08-23T00:03:00Z")));
+    }
+
+    @Test
+    void republishesContentWithANewHashWhilePreservingLifecycleState() {
+        ModelProviderDefinition original = provider();
+        ModelProviderDefinition disabled =
+                original.disable(ACTOR, UtcTimestamp.parse("2026-08-23T01:00:00Z"));
+
+        ModelProviderDefinition adopted = disabled.republishContent(
+                "DeepSeek",
+                new ModelAdapterKey("openai-compatible"),
+                new ModelEndpoint("https://api.deepseek.com"),
+                Set.of(GLOBAL),
+                ModelDataPolicy.noRetention(),
+                ACTOR,
+                UtcTimestamp.parse("2026-08-23T02:00:00Z"));
+
+        assertNotEquals(disabled.contentHash(), adopted.contentHash());
+        assertEquals(ModelRegistryStatus.DISABLED, adopted.status());
+        assertEquals(disabled.lifecycleVersion(), adopted.lifecycleVersion());
+        assertEquals(Optional.of(ACTOR), adopted.audit().updatedBy());
+        assertEquals(new ModelEndpoint("https://api.deepseek.com"), adopted.defaultEndpoint());
+        assertEquals(Set.of(GLOBAL), adopted.availableRegions());
+        assertEquals(original.contentHash(), disabled.contentHash());
     }
 
     private static ModelProviderDefinition provider() {

@@ -99,13 +99,13 @@ public final class DefaultPlatformModelCatalogInitializer
             occurredAt);
     Optional<ModelProviderDefinition> committed = providers.findByKey(DASHSCOPE);
     if (committed.isPresent()) {
-      return requireSameProvider(expected, committed.orElseThrow(), "DashScope Provider");
+      return alignWithBuiltIn(expected, committed.orElseThrow(), actor, occurredAt);
     }
     try {
       return providers.register(expected);
     } catch (DomainValidationException conflict) {
       return providers.findByKey(DASHSCOPE)
-          .map(value -> requireSameProvider(expected, value, "DashScope Provider"))
+          .map(value -> alignWithBuiltIn(expected, value, actor, occurredAt))
           .orElseThrow(() -> conflict);
     }
   }
@@ -203,15 +203,40 @@ public final class DefaultPlatformModelCatalogInitializer
         occurredAt);
     Optional<ModelProviderDefinition> committed = providers.findByKey(DEEPSEEK);
     if (committed.isPresent()) {
-      return requireSameProvider(expected, committed.orElseThrow(), "DeepSeek Provider");
+      return alignWithBuiltIn(expected, committed.orElseThrow(), actor, occurredAt);
     }
     try {
       return providers.register(expected);
     } catch (DomainValidationException conflict) {
       return providers.findByKey(DEEPSEEK)
-          .map(value -> requireSameProvider(expected, value, "DeepSeek Provider"))
+          .map(value -> alignWithBuiltIn(expected, value, actor, occurredAt))
           .orElseThrow(() -> conflict);
     }
+  }
+
+  /**
+   * Platform-owned keys are written only by this initializer, so a committed definition whose
+   * content hash differs from the built-in one predates the current product version. The
+   * deployment converges to the built-in content — lifecycle state is preserved and every
+   * catalog, connection and binding reference re-pins to the new hash in one transaction.
+   */
+  private ModelProviderDefinition alignWithBuiltIn(
+      ModelProviderDefinition expected,
+      ModelProviderDefinition committed,
+      PrincipalId actor,
+      UtcTimestamp occurredAt) {
+    if (committed.contentHash().equals(expected.contentHash())) {
+      return committed;
+    }
+    ModelProviderDefinition replacement = committed.republishContent(
+        expected.displayName(),
+        expected.adapterKey(),
+        expected.defaultEndpoint(),
+        expected.availableRegions(),
+        expected.dataPolicy(),
+        actor,
+        occurredAt);
+    return providers.adoptPlatformContent(committed.contentHash(), replacement);
   }
 
   private ModelCatalogEntry ensureCatalog(
@@ -294,16 +319,6 @@ public final class DefaultPlatformModelCatalogInitializer
           .orElseThrow(() -> conflict);
       requireSameInitialPrice(expected, winner, "DeepSeek Flash price");
     }
-  }
-
-  private static ModelProviderDefinition requireSameProvider(
-      ModelProviderDefinition expected,
-      ModelProviderDefinition committed,
-      String fact) {
-    if (!committed.contentHash().equals(expected.contentHash())) {
-      throw conflict("modelProvider.contentHash", fact);
-    }
-    return committed;
   }
 
   private static ModelCatalogEntry requireSameInitialCatalog(

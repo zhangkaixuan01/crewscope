@@ -123,7 +123,7 @@ class BootstrapOperatorProvisioningM7I07IntegrationTest
     void upgradesV30PrincipalWithoutChangingMembershipOrAuditIdsAndIsIdempotent() {
         BootstrapOperatorProvisioning command = command(V30_ORGANIZATION_ID, INITIAL_SECRET);
 
-        assertEquals("73", jdbc.queryForObject(
+        assertEquals("74", jdbc.queryForObject(
                 "SELECT version FROM crewscope.flyway_schema_history "
                         + "WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class));
@@ -131,7 +131,7 @@ class BootstrapOperatorProvisioningM7I07IntegrationTest
         // subsequent data-repair migration to the current schema version (A05 V47, F04 V48,
         // Q02 V49-V51, D01 V52, A02a V53, A02b V54, I01b V55-V56, I01c V57, I02a V58,
         // I02b V59, I02c V60, F03a V64, F03b V65, M10-Q02 V66, M12-A01 C1 V68, C2 V69,
-        // M12-A02 C1 V70, M13b-A05 V72, M13b-A07 V73).
+        // M12-A02 C1 V70, M13b-A05 V72, M13b-A07 V73, model registry V74).
         assertEquals(0, count("team_invitation", ""));
 
         BootstrapOperatorProvisioningResult first = service.provision(command);

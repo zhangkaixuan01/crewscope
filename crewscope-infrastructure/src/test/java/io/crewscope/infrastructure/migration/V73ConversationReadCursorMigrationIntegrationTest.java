@@ -68,8 +68,9 @@ class V73ConversationReadCursorMigrationIntegrationTest
         upgrader.migrate();
 
         assertTrue(cursorColumnExists());
+        // The chain head follows the latest committed migration (V74 deferrable registry FKs).
         assertEquals(
-                "73",
+                "74",
                 queryString(
                                 """
                                 SELECT version FROM crewscope.flyway_schema_history

@@ -13,6 +13,7 @@ import io.crewscope.domain.model.ModelPriceSchedule;
 import io.crewscope.domain.model.ModelProviderDefinition;
 import io.crewscope.domain.model.ModelProviderKey;
 import io.crewscope.domain.model.ModelRegion;
+import io.crewscope.domain.model.ModelRegistryHash;
 import io.crewscope.domain.shared.error.DomainValidationException;
 import io.crewscope.domain.shared.id.PrincipalId;
 import io.crewscope.domain.shared.time.UtcTimestamp;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -40,6 +42,20 @@ public class JdbcModelRegistryRepositoryAdapter
             "SELECT * FROM crewscope.model_catalog_entry";
     private static final String PRICE_SELECT =
             "SELECT * FROM crewscope.model_price_revision";
+    /**
+     * The V74 deferrable registry constraints; content adoption defers exactly these so the
+     * provider row and its referencing rows re-pin together and validate at commit.
+     */
+    private static final String DEFERRED_REGISTRY_CONSTRAINTS =
+            "fk_model_catalog_entry_provider, fk_model_connection_provider, "
+                    + "fk_agent_configuration_model_binding_primary_catalog, "
+                    + "fk_agent_configuration_model_binding_fallback_catalog, "
+                    + "fk_agent_configuration_model_binding_primary_connection, "
+                    + "fk_agent_configuration_model_binding_fallback_connection, "
+                    + "fk_agent_model_default_primary_catalog, "
+                    + "fk_agent_model_default_fallback_catalog, "
+                    + "fk_agent_model_default_primary_connection, "
+                    + "fk_agent_model_default_fallback_connection";
 
     private final NamedParameterJdbcTemplate jdbc;
     private final ModelAgentPersistenceMapper mapper;
@@ -102,6 +118,152 @@ public class JdbcModelRegistryRepositoryAdapter
                 "SELECT lifecycle_version FROM crewscope.model_provider_definition WHERE provider_key = :key",
                 new MapSqlParameterSource("key", required.providerKey().value()));
         return findByKey(required.providerKey()).orElseThrow();
+    }
+
+    @Override
+    @Transactional
+    public ModelProviderDefinition adoptPlatformContent(
+            ModelRegistryHash previousContentHash, ModelProviderDefinition replacement) {
+        ModelProviderDefinition required = Objects.requireNonNull(replacement, "replacement");
+        ModelRegistryHash previous =
+                Objects.requireNonNull(previousContentHash, "previousContentHash");
+        PrincipalId actor = required.audit().updatedBy().orElseThrow();
+        UtcTimestamp occurredAt = required.audit().updatedAt();
+        ModelProviderDefinition committedProvider = findByKey(required.providerKey())
+                .orElseThrow(() -> new DomainValidationException(
+                        "modelProvider.providerKey",
+                        "must exist before platform content adoption"));
+        List<ModelCatalogEntry> staleEntries = jdbc.query(
+                CATALOG_SELECT
+                        + " WHERE provider_key = :providerKey AND provider_definition_hash = :hash",
+                new MapSqlParameterSource()
+                        .addValue("providerKey", required.providerKey().value())
+                        .addValue("hash", previous.value()),
+                (row, ignored) -> mapper.catalog(row, committedProvider));
+        jdbc.getJdbcTemplate().execute(
+                (ConnectionCallback<Void>) connection -> {
+                    try (java.sql.Statement statement = connection.createStatement()) {
+                        statement.execute(
+                                "SET CONSTRAINTS " + DEFERRED_REGISTRY_CONSTRAINTS + " DEFERRED");
+                    }
+                    return null;
+                });
+        int adopted = jdbc.update(
+                """
+                UPDATE crewscope.model_provider_definition
+                   SET display_name = :displayName,
+                       adapter_key = :adapterKey,
+                       default_endpoint = :defaultEndpoint,
+                       available_regions = :availableRegions,
+                       retention_mode = :retentionMode,
+                       maximum_retention_seconds = :maximumRetentionSeconds,
+                       training_usage_policy = :trainingUsagePolicy,
+                       content_hash = :contentHash,
+                       status = :status,
+                       lifecycle_version = :lifecycleVersion,
+                       updated_at = :updatedAt,
+                       updated_by_principal_id = :updatedBy
+                 WHERE provider_key = :providerKey
+                   AND content_hash = :previousHash
+                """,
+                providerParameters(required).addValue("previousHash", previous.value()));
+        if (adopted != 1) {
+            throw new DomainValidationException(
+                    "modelProvider.contentHash",
+                    "changed concurrently during platform content adoption");
+        }
+        for (ModelCatalogEntry stale : staleEntries) {
+            String previousCatalogHash = stale.contentHash().value();
+            ModelCatalogEntry repointed = stale.repointedToProvider(required, actor, occurredAt);
+            jdbc.update(
+                    """
+                    UPDATE crewscope.model_catalog_entry
+                       SET provider_definition_hash = :providerDefinitionHash,
+                           content_hash = :contentHash,
+                           updated_at = :updatedAt,
+                           updated_by_principal_id = :updatedBy
+                     WHERE id = :id AND catalog_revision = :catalogRevision
+                       AND provider_key = :providerKey
+                       AND provider_definition_hash = :previousHash
+                    """,
+                    new MapSqlParameterSource()
+                            .addValue("id", repointed.id().value())
+                            .addValue("providerKey", repointed.providerKey().value())
+                            .addValue("catalogRevision", repointed.catalogRevision().value())
+                            .addValue("previousHash", previous.value())
+                            .addValue(
+                                    "providerDefinitionHash",
+                                    repointed.providerDefinitionHash().value())
+                            .addValue("contentHash", repointed.contentHash().value())
+                            .addValue("updatedAt", timestamp(repointed.audit().updatedAt()))
+                            .addValue("updatedBy", actor.value()));
+            repointCatalogPins(
+                    "agent_configuration_model_binding", "primary", repointed,
+                    previous.value(), previousCatalogHash);
+            repointCatalogPins(
+                    "agent_configuration_model_binding", "fallback", repointed,
+                    previous.value(), previousCatalogHash);
+            repointCatalogPins(
+                    "agent_model_default", "primary", repointed,
+                    previous.value(), previousCatalogHash);
+            repointCatalogPins(
+                    "agent_model_default", "fallback", repointed,
+                    previous.value(), previousCatalogHash);
+        }
+        MapSqlParameterSource providerPin = new MapSqlParameterSource()
+                .addValue("providerKey", required.providerKey().value())
+                .addValue("previousHash", previous.value())
+                .addValue("newHash", required.contentHash().value());
+        jdbc.update(
+                """
+                UPDATE crewscope.model_connection
+                   SET provider_definition_hash = :newHash
+                 WHERE provider_key = :providerKey AND provider_definition_hash = :previousHash
+                """,
+                providerPin);
+        for (String table : new String[] {
+                "agent_configuration_model_binding", "agent_model_default"}) {
+            for (String prefix : new String[] {"primary", "fallback"}) {
+                jdbc.update(
+                        "UPDATE crewscope." + table
+                                + " SET " + prefix + "_provider_definition_hash = :newHash"
+                                + " WHERE " + prefix + "_provider_key = :providerKey"
+                                + " AND " + prefix + "_provider_definition_hash = :previousHash",
+                        providerPin);
+            }
+        }
+        return findByKey(required.providerKey()).orElseThrow();
+    }
+
+    /**
+     * Re-points one referencing table's catalog pin columns. {@code table} and {@code prefix}
+     * are compile-time constants; only the repointed entry's coordinates are bound as values.
+     */
+    private void repointCatalogPins(
+            String table,
+            String prefix,
+            ModelCatalogEntry repointed,
+            String previousProviderHash,
+            String previousCatalogHash) {
+        jdbc.update(
+                "UPDATE crewscope." + table
+                        + " SET " + prefix + "_provider_definition_hash = :newProviderHash,"
+                        + " " + prefix + "_catalog_content_hash = :newCatalogHash"
+                        + " WHERE " + prefix + "_catalog_entry_id = :entryId"
+                        + " AND " + prefix + "_catalog_revision = :revision"
+                        + " AND " + prefix + "_provider_key = :providerKey"
+                        + " AND " + prefix + "_provider_definition_hash = :previousProviderHash"
+                        + " AND " + prefix + "_catalog_content_hash = :previousCatalogHash",
+                new MapSqlParameterSource()
+                        .addValue("entryId", repointed.id().value())
+                        .addValue("revision", repointed.catalogRevision().value())
+                        .addValue("providerKey", repointed.providerKey().value())
+                        .addValue("previousProviderHash", previousProviderHash)
+                        .addValue("previousCatalogHash", previousCatalogHash)
+                        .addValue(
+                                "newProviderHash",
+                                repointed.providerDefinitionHash().value())
+                        .addValue("newCatalogHash", repointed.contentHash().value()));
     }
 
     @Override

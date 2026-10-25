@@ -115,6 +115,32 @@ public final class ModelProviderDefinition {
         return transitionTo(ModelRegistryStatus.ACTIVE, actor, occurredAt);
     }
 
+    /**
+     * Replaces the immutable content while preserving lifecycle state and version. Platform-owned
+     * providers converge to the current built-in definition this way across product versions;
+     * every content-addressed reference re-pins to the new hash in the adopting transaction.
+     */
+    public ModelProviderDefinition republishContent(
+            String replacementDisplayName,
+            ModelAdapterKey replacementAdapterKey,
+            ModelEndpoint replacementDefaultEndpoint,
+            Set<ModelRegion> replacementAvailableRegions,
+            ModelDataPolicy replacementDataPolicy,
+            PrincipalId actor,
+            UtcTimestamp occurredAt) {
+        return new ModelProviderDefinition(
+                providerKey,
+                replacementDisplayName,
+                replacementAdapterKey,
+                replacementDefaultEndpoint,
+                replacementAvailableRegions,
+                replacementDataPolicy,
+                status,
+                lifecycleVersion,
+                audit.modifiedBy(actor, occurredAt),
+                null);
+    }
+
     public ModelProviderDefinition disable(PrincipalId actor, UtcTimestamp occurredAt) {
         return transitionTo(ModelRegistryStatus.DISABLED, actor, occurredAt);
     }

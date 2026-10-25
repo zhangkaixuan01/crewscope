@@ -234,6 +234,33 @@ public final class ModelCatalogEntry {
         return transitionTo(ModelRegistryStatus.ACTIVE, actor, occurredAt);
     }
 
+    /**
+     * Re-points the pinned provider revision to {@code provider}. The entry's own model facts
+     * stay frozen while the content hash is recomputed over the new provider pin; lifecycle
+     * state and version are preserved.
+     */
+    public ModelCatalogEntry repointedToProvider(
+            ModelProviderDefinition provider, PrincipalId actor, UtcTimestamp occurredAt) {
+        return new ModelCatalogEntry(
+                provider,
+                provider.contentHash(),
+                id,
+                modelId,
+                catalogRevision,
+                previousRevision,
+                modelRevision,
+                displayName,
+                contextWindowTokens,
+                maximumOutputTokens,
+                capabilities,
+                availableRegions,
+                status,
+                lifecycleVersion,
+                audit.modifiedBy(actor, occurredAt),
+                null,
+                false);
+    }
+
     public ModelCatalogEntry disable(PrincipalId actor, UtcTimestamp occurredAt) {
         return transitionTo(ModelRegistryStatus.DISABLED, actor, occurredAt);
     }
