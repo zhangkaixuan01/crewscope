@@ -466,6 +466,14 @@ watch(
       if (!pageOwner.isCurrent()) return
       return
     }
+    // M13i 首跑手感：恰好一个对话的 Team（首日即 starter 欢迎对话）直接打开它——列表里
+    // 明明有答案时，详情区不该用空态再向 Owner 要一次点击。带 conversation 参数重进同步
+    // 链，刷新/深链自然保持。
+    if (!conversationId && conversationStore.state.phase === 'ready'
+        && conversationStore.state.items.length === 1) {
+      await router.replace({ query: { ...route.query, conversation: conversationStore.state.items[0]!.id } })
+      return
+    }
     if (pendingDetailFocus && selected.value?.id === conversationId) {
       await nextTick()
       if (!pageOwner.isCurrent()) return
@@ -656,10 +664,18 @@ async function submitMessage(content: string): Promise<void> {
     ? await realtimeStore.invoke(scope, content, principal.id, newestMessageSequence())
     : await messageStore.send(scope, content, principal.id)
   if (!pageOwner.isCurrent()) return
+  realtimeStore.reconcile(messageStore.state.items)
   // Keep the original draft available when either transport rejects the submission. In
   // particular, an Agent invocation can fail before a user-visible pending row is committed.
-  if (!sent && selected.value?.id === conversationId && !currentDraft.value) currentDraft.value = content
-  realtimeStore.reconcile(messageStore.state.items)
+  // The server may also have committed the invocation's user message before the stream failed
+  // (真栈判例：#2 已落库而 invoke 返回 false)——恢复草稿会诱发一键重复发送，已落库就不还原。
+  if (!sent && selected.value?.id === conversationId && !currentDraft.value) {
+    const landed = messageStore.state.items.some(message =>
+      message.type === 'USER_MESSAGE'
+      && message.authorPrincipalId === principal.id
+      && message.content === content)
+    if (!landed) currentDraft.value = content
+  }
   await redirectIfForbidden()
   if (!pageOwner.isCurrent()) return
 }

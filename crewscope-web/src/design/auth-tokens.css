@@ -63,6 +63,19 @@
   --cs-auth-story-ring: rgb(237 245 239 / 10%);
   --cs-auth-story-halo: rgb(142 213 167 / 8%);
   --cs-auth-story-halo-outer: rgb(142 213 167 / 5%);
+  /*
+   * 品牌叙事面板保持它设计的浅色外观，不随设备暗色主题翻转。否则面板继承全局暗主题的
+   * 浅色文字，浅字压浅底——注册/建团页的 logo 字与主标题判例（真浏览器走查发现）。
+   * 节点卡与连接线随之钉回浅色玻璃，agent 节点钉回浅色主题的紫。
+   */
+  --cs-auth-story-surface: #f0f7f2;
+  --cs-auth-story-border: #d6e6da;
+  --cs-auth-story-text: #17202a;
+  --cs-auth-story-muted: #445149;
+  --cs-auth-story-kicker: var(--cs-brand-600);
+  --cs-auth-story-node-surface: rgb(255 255 255 / 72%);
+  --cs-auth-story-node-border: #dce2dd;
+  --cs-auth-story-agent: var(--cs-agent);
 }
 
 [data-theme="dark"] .cs-auth-theme[data-auth-stage-tone="neutral"] {

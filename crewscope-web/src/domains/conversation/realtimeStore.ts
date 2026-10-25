@@ -13,6 +13,23 @@ import type {
 } from './types'
 import { isAbort, statusOf, presentError } from '../../api/errors'
 
+/**
+ * 服务端失败包络的稳定 code 对应的本地化处置文案。包络 message 是英文诊断文本
+ * （AgentScopeNativeRuntime），直接透传会打破全中文产品语感；已知 code 给出带下一步
+ * 指引的中文文案，未知 code 维持原文（判例：无凭据栈首条消息的 AGENT_CONFIGURATION_UNAVAILABLE）。
+ */
+const AGENT_INVOCATION_ERROR_COPY: Record<string, string> = {
+  AGENT_CONFIGURATION_UNAVAILABLE: 'Personal Agent 尚未完成模型配置，请先到配置中心补齐后再试。',
+  AGENT_STATE_UNAVAILABLE: 'Agent 会话状态暂时不可用，请稍后重试。',
+}
+
+function presentAgentInvocationError(error: unknown, fallback: string): string {
+  if (error instanceof CrewScopeApiError) {
+    return AGENT_INVOCATION_ERROR_COPY[error.envelope.code] ?? error.envelope.message
+  }
+  return fallback
+}
+
 export type AgentInvocationPhase =
   | 'idle'
   | 'connecting'
@@ -249,7 +266,7 @@ export function createConversationRealtimeStore(
       } catch (error) {
         if (isAbort(error) || signal.aborted || targetGeneration !== generation) return false
         if (!retryable(error) || reconnects >= maxInvocationReconnects) {
-          failInvocation(presentError(error, 'Agent 暂时无法回复，请稍后重试'), statusOf(error), retryable(error))
+          failInvocation(presentAgentInvocationError(error, 'Agent 暂时无法回复，请稍后重试'), statusOf(error), retryable(error))
           if (!retryable(error)) clearRecovery(scopeKey(scope))
           return false
         }

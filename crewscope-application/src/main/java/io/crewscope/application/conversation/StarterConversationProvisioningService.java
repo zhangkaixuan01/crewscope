@@ -32,7 +32,7 @@ public final class StarterConversationProvisioningService implements StarterConv
     static final String WELCOME_MARKDOWN = """
             你好！我是你的 Personal Agent，这个对话是我们协作的起点。
 
-            **现在就可以试试：**在下方输入你的第一个目标，比如「帮我规划一次版本发布的检查清单」。
+            **现在就可以试试**：在下方输入你的第一个目标，比如「帮我规划一次版本发布的检查清单」。
 
             我会先澄清关键信息，再开始执行；工作项、审查与知识都会关联回这个 Team，随时可回溯。""";
 
