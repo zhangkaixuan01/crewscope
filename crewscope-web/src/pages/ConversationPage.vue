@@ -282,6 +282,17 @@ const composerPlaceholder = computed(() => {
   if (!isOnline.value) return '当前离线，可继续编辑草稿，联网后发送…'
   return canInvokeAgent.value ? '向 Personal Agent 描述目标或补充上下文…' : '向 Conversation 追加团队消息…'
 })
+// 首句建议：所有者尚未发言、对话里已有 Agent 消息（starter 欢迎正是这个形态）且草稿为空时，
+// 把欢迎消息里的示例目标降为一键。文案需与 StarterConversationProvisioningService.WELCOME_MARKDOWN
+// 中的示例保持一致，两处同步修改。
+const STARTER_SUGGESTION = '帮我规划一次版本发布的检查清单'
+const starterSuggestion = computed(() => {
+  if (!canInvokeAgent.value || agentBusy.value || agentAwaitingClarification.value) return null
+  if (currentDraft.value.trim()) return null
+  const items = messageStore.state.items
+  if (items.length === 0) return null
+  return items.some(message => message.type === 'USER_MESSAGE') ? null : STARTER_SUGGESTION
+})
 const composerDisabledReason = computed(() => {
   if (!canPostMessages.value) return '当前没有此 Conversation 的发言权限'
   if (!isOnline.value) return '当前离线，恢复网络后才能发送'
@@ -1267,6 +1278,7 @@ async function redirectIfForbidden(): Promise<void> {
             :disabled-reason="composerDisabledReason"
             :sending="sendingMessage"
             :placeholder="composerPlaceholder"
+            :suggestion="starterSuggestion"
             @submit="submitMessage"
           />
         </template>

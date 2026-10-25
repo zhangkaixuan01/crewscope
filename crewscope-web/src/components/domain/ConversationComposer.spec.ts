@@ -110,4 +110,38 @@ describe('ConversationComposer', () => {
     expect(wrapper.get('[id$="-count"]').text()).toBe('4 / 50,000 字符')
     expect(wrapper.text()).not.toContain('预算')
   })
+
+  it('stays free of a suggestion chip unless one is provided', () => {
+    const wrapper = mount(ConversationComposer, { props: { modelValue: '' } })
+
+    expect(wrapper.find('.composer-suggestion').exists()).toBe(false)
+  })
+
+  it('fills the draft and focuses the field from the suggestion chip', async () => {
+    const wrapper = mount(ConversationComposer, {
+      attachTo: document.body,
+      props: { modelValue: '', suggestion: '帮我规划一次版本发布的检查清单' },
+    })
+    const chip = wrapper.get('.composer-suggestion')
+
+    expect(chip.text()).toContain('帮我规划一次版本发布的检查清单')
+
+    await chip.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([['帮我规划一次版本发布的检查清单']])
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(document.activeElement).toBe(wrapper.get('textarea').element)
+    wrapper.unmount()
+  })
+
+  it('never offers the suggestion chip while the composer is disabled', async () => {
+    const wrapper = mount(ConversationComposer, {
+      props: { modelValue: '', suggestion: '试试：规划', disabled: true },
+    })
+
+    expect(wrapper.find('.composer-suggestion').exists()).toBe(false)
+
+    await wrapper.setProps({ disabled: false })
+    expect(wrapper.find('.composer-suggestion').exists()).toBe(true)
+  })
 })

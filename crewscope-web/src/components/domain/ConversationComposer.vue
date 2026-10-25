@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Eye, PencilLine, SendHorizontal } from '@lucide/vue'
+import { Lightbulb, Eye, PencilLine, SendHorizontal } from '@lucide/vue'
 import { nextTick, ref, useId, watch } from 'vue'
 import BaseButton from '../base/BaseButton.vue'
 import SafeMarkdown from './SafeMarkdown.vue'
@@ -12,6 +12,8 @@ const props = withDefaults(defineProps<{
   offline?: boolean
   disabledReason?: string | null
   placeholder?: string
+  /** 首句建议（如 starter 对话的示例目标）：点击即填入草稿并聚焦，把「试着输入」降到一键。 */
+  suggestion?: string | null
 }>(), {
   disabled: false,
   sending: false,
@@ -19,6 +21,7 @@ const props = withDefaults(defineProps<{
   offline: false,
   disabledReason: null,
   placeholder: '向 Personal Agent 描述目标或补充上下文…',
+  suggestion: null,
 })
 
 const fieldId = useId()
@@ -38,6 +41,13 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
   submit: [content: string]
 }>()
+
+function applySuggestion(): void {
+  if (!props.suggestion || props.disabled) return
+  previewing.value = false
+  emit('update:modelValue', props.suggestion)
+  void nextTick(() => textarea.value?.focus())
+}
 
 function update(event: Event): void {
   emit('update:modelValue', (event.target as HTMLTextAreaElement).value)
@@ -67,6 +77,15 @@ watch(() => props.modelValue, () => void nextTick(resize), { immediate: true })
 
 <template>
   <form class="conversation-composer" aria-label="发送消息" @submit.prevent="submit">
+    <button
+      v-if="suggestion && !disabled"
+      type="button"
+      class="composer-suggestion"
+      :disabled="sending || submitDisabled"
+      @click="applySuggestion"
+    >
+      <Lightbulb :size="14" aria-hidden="true" />试试：{{ suggestion }}
+    </button>
     <label v-if="!previewing" :for="fieldId">
       <span class="sr-only">消息内容</span>
       <textarea
@@ -103,6 +122,10 @@ watch(() => props.modelValue, () => void nextTick(resize), { immediate: true })
 
 <style scoped>
 .conversation-composer { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16) var(--cs-space-16); border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
+.composer-suggestion { display: inline-flex; align-items: center; gap: var(--cs-space-4); justify-self: start; min-height: 32px; padding: var(--cs-space-4) var(--cs-space-12); border: 1px dashed var(--cs-border-accent); border-radius: 999px; background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-xs); cursor: pointer; }
+.composer-suggestion:hover { border-style: solid; border-color: var(--cs-border-accent-strong); }
+.composer-suggestion:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: 2px; }
+.composer-suggestion:disabled { cursor: default; opacity: .66; }
 .conversation-composer label { display: block; }
 .conversation-composer textarea { width: 100%; min-height: 74px; max-height: 180px; resize: vertical; padding: var(--cs-space-12) var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); color: var(--cs-text); font: var(--cs-text-base)/var(--cs-leading-normal) var(--cs-font-sans); }
 .conversation-composer textarea:focus { border-color: var(--cs-border-accent-strong); outline: 3px solid var(--cs-ring-brand); }

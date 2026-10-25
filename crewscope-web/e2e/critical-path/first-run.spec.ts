@@ -16,7 +16,7 @@ import { baseURL, currentSession, register } from '../real-backend'
 test('brand-new account registers, onboards its team and exchanges the first conversation message', async ({ browser }) => {
   test.setTimeout(300_000)
   const suffix = `first-run-${Date.now()}`.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-  const messageText = `首跑冒烟第一条消息 ${suffix}`
+  let messageText = `首跑冒烟第一条消息 ${suffix}`
   const context = await browser.newContext({
     baseURL,
     viewport: { width: 1440, height: 960 },
@@ -62,6 +62,15 @@ test('brand-new account registers, onboards its team and exchanges the first con
   const actionRegion = page.getByRole('region', { name: 'Agent 当前操作' })
   const invocationStatus = actionRegion.getByRole('status').or(actionRegion.getByRole('alert'))
   await expect(composer.getByText('Enter 发送 · Shift + Enter 换行')).toBeVisible({ timeout: 30_000 })
+
+  // 一键填充：所有者尚未发言时,欢迎消息里的示例目标以建议条在场,点击即填入干净的目标
+  // 文本(「试试：」只是按钮文案,不进草稿)。追加唯一后缀让断言可定位,再走发送。
+  const suggestionChip = composer.getByRole('button', { name: /试试：帮我规划一次版本发布的检查清单/ })
+  await expect(suggestionChip).toBeVisible()
+  await suggestionChip.click()
+  const chipGoal = '帮我规划一次版本发布的检查清单'
+  await expect(composer.locator('textarea')).toHaveValue(chipGoal)
+  messageText = `${chipGoal} ${suffix}`
   for (let attempt = 0; attempt < 10; attempt++) {
     await composer.locator('textarea').fill(messageText)
     await composer.getByRole('button', { name: '发送' }).click()
