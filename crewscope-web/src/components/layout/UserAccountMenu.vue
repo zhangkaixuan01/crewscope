@@ -85,12 +85,12 @@ function openShortcuts(): void {
 
 <style scoped>
 .user-menu { width: 100%; }
-.user-menu :deep(.user-menu__trigger) { display: grid; width: 100%; min-height: 48px; grid-template-columns: 32px 1fr 16px; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border-top: 1px solid var(--cs-border); background: transparent; text-align: left; cursor: pointer; }
+.user-menu :deep(.user-menu__trigger) { display: grid; width: 100%; min-height: 48px; grid-template-columns: 32px 1fr 16px; align-items: center; gap: var(--cs-space-8);  text-align: left; cursor: pointer; }
 .user-menu__avatar { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--cs-brand-600); color: var(--cs-text-on-dark); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .user-menu__identity strong, .user-menu__identity small, .user-menu__summary strong, .user-menu__summary small { display: block; }.user-menu__identity strong, .user-menu__summary strong { font-size: var(--cs-text-sm); }.user-menu__identity small, .user-menu__summary small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .user-menu :deep(.user-menu__popover) { width: 218px; gap: var(--cs-space-4); padding: var(--cs-space-8); border-radius: 12px; background: var(--cs-surface); bottom: calc(100% + 8px); }
-.user-menu__summary { display: grid; grid-template-columns: 32px 1fr; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-4) var(--cs-space-8) var(--cs-space-8); border-bottom: 1px solid var(--cs-border); }
-.user-menu__theme { display: grid; gap: var(--cs-space-4); padding: var(--cs-space-4) 0; border-bottom: 1px solid var(--cs-border); }
+.user-menu__summary { display: grid; grid-template-columns: 32px 1fr; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-4) var(--cs-space-8) var(--cs-space-8); }
+.user-menu__theme { display: grid; gap: var(--cs-space-4); padding: var(--cs-space-4) 0; }
 .user-menu__theme button[aria-checked='true'] { background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); }
 .user-menu :deep(.user-menu__popover) a, .user-menu :deep(.user-menu__popover) button { display: flex; min-height: 36px; align-items: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-8); border-radius: 8px; background: transparent; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); text-align: left; cursor: pointer; }.user-menu :deep(.user-menu__popover) a:hover, .user-menu :deep(.user-menu__popover) button:hover:not(:disabled) { background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); }.user-menu :deep(.user-menu__popover) button:disabled { cursor: wait; opacity: .6; }
 .user-menu__error { padding: var(--cs-space-8) var(--cs-space-8); margin: 0; border-radius: 7px; background: var(--cs-danger-soft); color: var(--cs-danger); font-size: var(--cs-text-xs); }

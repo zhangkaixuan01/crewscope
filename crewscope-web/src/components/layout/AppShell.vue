@@ -403,7 +403,7 @@ async function signOut(): Promise<void> {
  */
 .app-shell { --cs-rail-width: 244px; min-height: 100vh; background: var(--cs-canvas); }
 .skip-link { position: fixed; top: 8px; left: 8px; z-index: var(--cs-z-toast); padding: var(--cs-space-8) var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-action-primary); color: var(--cs-action-primary-text); font-size: var(--cs-text-sm); transform: translateY(-160%); }.skip-link:focus { transform: translateY(0); }
-.network-banner { position: relative; z-index: var(--cs-z-banner); display: flex; min-height: 36px; align-items: center; justify-content: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-16); border-bottom: 1px solid var(--cs-danger); background: var(--cs-danger-soft); color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-align: center; }.network-banner span { color: var(--cs-danger); }
+.network-banner { position: relative; z-index: var(--cs-z-banner); display: flex; min-height: 36px; align-items: center; justify-content: center; gap: var(--cs-space-8);  color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-align: center; }.network-banner span { color: var(--cs-danger); }
 .app-shell__rail { position: fixed; inset: 0 auto 0 0; z-index: var(--cs-z-raised); display: flex; width: var(--cs-rail-width); height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; padding: var(--cs-space-20) var(--cs-space-16) var(--cs-space-16); border-right: 1px solid var(--cs-border); background: var(--cs-surface); color: var(--cs-text); }
 /* M13b-F01：组织组加入后 nav 溢出转为滚动，flex 收缩曾把 30px 折叠钮压到 23px（WCAG
  * target-size serious）——rail 的固定行全部不参与收缩，溢出只由 .rail-navigation 承担。 */
@@ -456,7 +456,7 @@ async function signOut(): Promise<void> {
  * 的 mobile-back——触控目标被遮掉一半（M9b-Q01 六视口矩阵顺带揭出的潜伏缺陷）。 */
 /* M13b-F09（L15）：面包屑退出一级页面后，eyebrow+h1 两行 51px 就是全部内容——垂直 padding
  * 收到 4px，min-height 82→64，全站每页首屏多出 18px 给真实内容（契约 §7 首条数据 ≤200px）。 */
-.context-header { display: flex; min-height: 64px; flex-shrink: 0; align-items: center; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-4) var(--cs-space-32); border-bottom: 1px solid var(--cs-border); background: var(--cs-surface); }
+.context-header { display: flex; min-height: 64px; flex-shrink: 0; align-items: center; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-4) var(--cs-space-32); background: var(--cs-surface); }
 .context-header p { margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }
 .context-header h1 { margin-bottom: 0; font-size: var(--cs-text-lg); font-weight: var(--cs-weight-semibold); letter-spacing: -.02em; }
 .context-header__actions { display: flex; align-items: center; gap: var(--cs-space-8); }

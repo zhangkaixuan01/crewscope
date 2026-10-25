@@ -120,7 +120,8 @@ watch(() => props.modelValue, () => void nextTick(resize), { immediate: true })
 </template>
 
 <style scoped>
-.conversation-composer { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16) var(--cs-space-16); border-top: 1px solid var(--cs-border); background: var(--cs-surface); }
+
+.conversation-composer { display: grid; gap: var(--cs-space-8); padding: var(--cs-space-12) var(--cs-space-16) var(--cs-space-16); background: var(--cs-surface); }
 .composer-suggestion { display: inline-flex; align-items: center; gap: var(--cs-space-4); justify-self: start; min-height: 32px; padding: var(--cs-space-4) var(--cs-space-12); border: 1px dashed var(--cs-border-accent); border-radius: 999px; background: var(--cs-surface-accent); color: var(--cs-text-brand-strong); font-size: var(--cs-text-xs); cursor: pointer; }
 .composer-suggestion:hover { border-style: solid; border-color: var(--cs-border-accent-strong); }
 .composer-suggestion:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: 2px; }

@@ -92,7 +92,6 @@
   justify-content: space-between;
   gap: var(--cs-space-16);
   padding: var(--cs-space-20) var(--cs-space-20);
-  border-bottom: 1px solid var(--cs-border);
 }
 
 .panel-heading h2,
