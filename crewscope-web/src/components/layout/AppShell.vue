@@ -293,13 +293,15 @@ async function signOut(): Promise<void> {
   <div class="app-shell" :class="{ 'app-shell--collapsed': railCollapsedValue }">
     <a class="skip-link" href="#main-workspace">跳到主要内容</a>
     <aside class="app-shell__rail" aria-label="主导航">
-      <RouterLink class="brand" :to="brandTarget" aria-label="CrewScope 首页">
-        <img :src="crewScopeMark" alt="" width="34" height="34">
-        <span>CrewScope<small>Team execution</small></span>
-      </RouterLink>
-      <button class="rail-collapse" type="button" :aria-label="railCollapsedValue ? '展开侧栏' : '折叠侧栏'" @click="railCollapsed.value.value = !railCollapsedValue">
-        <PanelLeftOpen v-if="railCollapsedValue" :size="16" aria-hidden="true" /><PanelLeftClose v-else :size="16" aria-hidden="true" />
-      </button>
+      <div class="rail-head">
+        <RouterLink class="brand" :to="brandTarget" aria-label="CrewScope 首页">
+          <img :src="crewScopeMark" alt="" width="34" height="34">
+          <span>CrewScope<small>Team execution</small></span>
+        </RouterLink>
+        <button class="rail-collapse" type="button" :aria-label="railCollapsedValue ? '展开侧栏' : '折叠侧栏'" @click="railCollapsed.value.value = !railCollapsedValue">
+          <PanelLeftOpen v-if="railCollapsedValue" :size="16" aria-hidden="true" /><PanelLeftClose v-else :size="16" aria-hidden="true" />
+        </button>
+      </div>
 
       <ScopeSwitcher v-if="scopeStore && canReadScope" />
 
@@ -401,14 +403,16 @@ async function signOut(): Promise<void> {
  * 只写一次：收起态与 1100px 断点各自改写这个属性，主体区的 margin-left 自动跟随，
  * 不会再出现「改了栏宽忘了改偏移」的错位。
  */
-.app-shell { --cs-rail-width: 244px; min-height: 100vh; background: var(--cs-canvas); }
+.app-shell { --cs-rail-width: 264px; min-height: 100vh; background: var(--cs-canvas); }
 .skip-link { position: fixed; top: 8px; left: 8px; z-index: var(--cs-z-toast); padding: var(--cs-space-8) var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-action-primary); color: var(--cs-action-primary-text); font-size: var(--cs-text-sm); transform: translateY(-160%); }.skip-link:focus { transform: translateY(0); }
 .network-banner { position: relative; z-index: var(--cs-z-banner); display: flex; min-height: 36px; align-items: center; justify-content: center; gap: var(--cs-space-8);  color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-align: center; }.network-banner span { color: var(--cs-danger); }
 .app-shell__rail { position: fixed; inset: 0 auto 0 0; z-index: var(--cs-z-raised); display: flex; width: var(--cs-rail-width); height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; padding: var(--cs-space-20) var(--cs-space-16) var(--cs-space-16); border-right: 1px solid var(--cs-border); background: var(--cs-surface); color: var(--cs-text); }
 /* M13b-F01：组织组加入后 nav 溢出转为滚动，flex 收缩曾把 30px 折叠钮压到 23px（WCAG
- * target-size serious）——rail 的固定行全部不参与收缩，溢出只由 .rail-navigation 承担。 */
-.rail-collapse { display: grid; flex: 0 0 auto; width: 32px; height: 30px; align-items: center; justify-content: center; align-self: flex-end; margin: 0 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-muted); cursor: pointer; }
-.brand { display: flex; min-height: var(--cs-density-control-height); flex: 0 0 auto; align-items: center; gap: var(--cs-space-12); padding: 0 var(--cs-space-4); font-family: var(--cs-font-display); font-size: var(--cs-text-lg); }
+ * target-size serious）——rail 的固定行全部不参与收缩，溢出只由 .rail-navigation 承担。
+ * M13i：折叠钮并入 logo 行（此前右对齐独占一行，像被挤下去的样子）。 */
+.rail-head { display: flex; flex: 0 0 auto; align-items: center; gap: var(--cs-space-8); }
+.rail-collapse { display: grid; flex: 0 0 auto; width: 32px; height: 30px; align-items: center; justify-content: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-muted); cursor: pointer; }
+.brand { display: flex; min-height: var(--cs-density-control-height); flex: 1 1 auto; min-width: 0; align-items: center; gap: var(--cs-space-12); padding: 0 var(--cs-space-4); font-family: var(--cs-font-display); font-size: var(--cs-text-lg); }
 .brand img { border: 1px solid var(--cs-border); border-radius: 11px; }
 .brand span, .brand small { display: block; }
 .brand small { color: var(--cs-text-muted); font-family: var(--cs-font-sans); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .07em; text-transform: uppercase; }
@@ -424,8 +428,10 @@ async function signOut(): Promise<void> {
 .app-shell--collapsed { --cs-rail-width: 76px; }
 .app-shell--collapsed .app-shell__rail { align-items: center; }
 .app-shell--collapsed .brand > span, .app-shell--collapsed .rail-navigation p, .app-shell--collapsed .rail-navigation a span { display: none; }
-.app-shell--collapsed .rail-navigation a { grid-template-columns: 19px; justify-content: center; width: 42px; }
+/* 折叠态 76px 容不下「logo+按钮」一行：rail-head 转纵向，钮居中回到 logo 下方。 */
+.app-shell--collapsed .rail-head { flex-direction: column; gap: var(--cs-space-8); }
 .app-shell--collapsed .rail-collapse { align-self: center; }
+.app-shell--collapsed .rail-navigation a { grid-template-columns: 19px; justify-content: center; width: 42px; }
 /* flex-shrink:0：fill 模式的列布局里，固定高度的 chrome 不参与内容溢出的分摊（L03 合同
    「chrome 保持自然高度，workspace 接收剩余视口」）。实测去掉顶栏按钮后内容基线变化，
    58px 的 topbar 一度被压到 42px，整页纵向链全部位移。 */
