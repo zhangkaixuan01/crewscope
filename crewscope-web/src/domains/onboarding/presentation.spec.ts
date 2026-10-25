@@ -29,6 +29,20 @@ describe('onboarding presentation', () => {
     expectPublic(onboardingProjectionProblem(), 'onboarding_projection_unavailable')
     expectPublic(offlineOnboardingProblem(), 'network_unavailable')
   })
+
+  it('maps invalid_value by field: input fields keep remediation copy, platform registry fields explain the deployment conflict', () => {
+    const teamName = invalidValueError('team.name')
+    expectPublic(presentOnboardingProblem(teamName), 'invalid_value')
+    expect(presentOnboardingProblem(teamName).message).toContain('1 至 200 个字符')
+
+    for (const field of ['modelProvider.contentHash', 'modelCatalog.contentHash', 'modelPrice.contentHash']) {
+      const problem = presentOnboardingProblem(invalidValueError(field))
+      expectPublic(problem, 'platform_catalog_conflict')
+      expect(problem.message).toContain('管理员')
+    }
+
+    expectPublic(presentOnboardingProblem(apiError('invalid_value')), 'invalid_value')
+  })
 })
 
 function expectPublic(problem: { code: string, title: string, message: string }, code: string): void {
@@ -40,5 +54,12 @@ function apiError(code: string): CrewScopeApiError {
   return new CrewScopeApiError(400, {
     code, message: 'private onboarding detail', correlationId: 'private-correlation',
     retryable: false, currentVersion: null, details: {},
+  })
+}
+
+function invalidValueError(field: string): CrewScopeApiError {
+  return new CrewScopeApiError(422, {
+    code: 'invalid_value', message: 'private onboarding detail', correlationId: 'private-correlation',
+    retryable: false, currentVersion: null, details: { field, reason: 'private reason' },
   })
 }

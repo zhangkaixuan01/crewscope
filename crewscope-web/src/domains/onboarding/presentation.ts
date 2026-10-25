@@ -36,6 +36,18 @@ export function presentOnboardingProblem(error: unknown): OnboardingProblem {
     case 'invalid_request':
     case 'request_too_large':
       return problem('invalid_request', '团队名称无法提交', '请使用 1 至 200 个字符的团队名称。', 'error')
+    case 'invalid_value': {
+      const field = error.envelope.details.field ?? ''
+      if (/^model(Provider|Catalog|Price)\./.test(field)) {
+        return problem(
+          'platform_catalog_conflict',
+          '平台模型目录与部署数据不一致',
+          '内置模型目录和现有部署数据冲突，请联系管理员对齐目录后再创建团队。',
+          'error',
+        )
+      }
+      return problem('invalid_value', '团队名称无法提交', '请使用 1 至 200 个字符的团队名称。', 'error')
+    }
     default:
       return problem('onboarding_unavailable', '暂时无法建立团队', '请稍后重新检查或安全重试。', 'error')
   }
