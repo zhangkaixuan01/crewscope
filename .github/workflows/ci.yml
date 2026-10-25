@@ -370,9 +370,67 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL
 
+  critical_path:
+    # M13h first-run smoke: one throwaway production Compose stack (quickstart-generated,
+    # credential-free) and one brand-new account walking the whole acquisition path through
+    # the real UI — register, onboard the team, open the conversation page, exchange the
+    # first message. Both M13-era release-level bricks (503 registration_unavailable, 422
+    # modelProvider.contentHash) shipped while every mock e2e was green; only a real stack
+    # guards this path. Agent reply asserts the designed failure boundary (visible, terminal,
+    # nothing swallowed) because the stack intentionally carries no model credentials.
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.dependencies == 'true'
+    needs: changes
+    name: Critical path smoke (real stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CREWSCOPE_QUICKSTART_PROJECT_NAME: crewscope-critical-path
+      CREWSCOPE_QUICKSTART_RUNTIME_ROOT: /tmp/crewscope-critical-path
+      CREWSCOPE_WEB_PORT: "18090"
+      CREWSCOPE_REGISTRATION_MODE: OPEN
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: crewscope-web/pnpm-lock.yaml
+      - name: Install web dependencies
+        working-directory: crewscope-web
+        run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        working-directory: crewscope-web
+        run: pnpm exec playwright install chromium
+      - name: Build and start the throwaway stack
+        run: ./deploy/team-beta/quickstart.sh up
+      - name: Run the first-run smoke
+        working-directory: crewscope-web
+        env:
+          CREWSCOPE_REAL_BASE_URL: http://127.0.0.1:18090
+        run: pnpm exec playwright test --config playwright.critical-path.config.ts
+      - name: Dump stack logs
+        if: failure()
+        run: ./deploy/team-beta/quickstart.sh compose logs --no-color --tail 300 api postgres
+      - name: Teardown the throwaway stack
+        if: always()
+        run: ./deploy/team-beta/quickstart.sh reset
+      - name: Upload critical-path evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: critical-path-evidence
+          path: |
+            crewscope-web/playwright-report-critical-path/
+            crewscope-web/test-results-critical-path/
+          if-no-files-found: warn
+          retention-days: 14
+
   release-gate:
     if: always()
-    needs: [changes, backend, frontend, frontend_e2e, quality, dependency_security_osv, dependency_security_web, image_security]
+    needs: [changes, backend, frontend, frontend_e2e, quality, critical_path, dependency_security_osv, dependency_security_web, image_security]
     runs-on: ubuntu-latest
     steps:
       - name: Enforce the M7 release gate
@@ -385,11 +443,13 @@ jobs:
           DEPENDENCY_OSV_RESULT: ${{ needs.dependency_security_osv.result }}
           DEPENDENCY_WEB_RESULT: ${{ needs.dependency_security_web.result }}
           IMAGE_SECURITY_RESULT: ${{ needs.image_security.result }}
+          CRITICAL_PATH_RESULT: ${{ needs.critical_path.result }}
           BACKEND_NEEDED: ${{ needs.changes.outputs.backend }}
           FRONTEND_NEEDED: ${{ needs.changes.outputs.frontend }}
           DEPENDENCIES_NEEDED: ${{ needs.changes.outputs.dependencies }}
           IMAGES_NEEDED: ${{ needs.changes.outputs.images }}
           QUALITY_NEEDED: ${{ needs.changes.outputs.quality }}
+          CRITICAL_PATH_NEEDED: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.dependencies == 'true' }}
         run: |
           test "$CHANGES_RESULT" = "success"
           check_result() {
@@ -405,6 +465,7 @@ jobs:
           check_result "$FRONTEND_NEEDED" "$FRONTEND_RESULT"
           check_result "$FRONTEND_NEEDED" "$FRONTEND_E2E_RESULT"
           check_result "$QUALITY_NEEDED" "$QUALITY_RESULT"
+          check_result "$CRITICAL_PATH_NEEDED" "$CRITICAL_PATH_RESULT"
           check_result "$DEPENDENCIES_NEEDED" "$DEPENDENCY_OSV_RESULT"
           check_result "$DEPENDENCIES_NEEDED" "$DEPENDENCY_WEB_RESULT"
           check_result "$IMAGES_NEEDED" "$IMAGE_SECURITY_RESULT"
