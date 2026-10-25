@@ -55,9 +55,11 @@ const emit = defineEmits<{ toggle: [] }>()
    从未生效：折叠态一直渲染完整 header（标题+计数+按钮），文字越出面板裁剪盒。
    与左侧 conversation-list-panel 的折叠行为对齐：只剩撑满竖条的折叠钮。 */
 .participant-panel.collapsed > :not(header) { display: none; }
-.participant-panel.collapsed > header { padding: var(--cs-space-8); border-bottom: 0; }
+.participant-panel.collapsed > header { padding: var(--cs-space-4); border-bottom: 0; }
 .participant-panel.collapsed > header > :not(.pane-collapse) { display: none; }
-.participant-panel.collapsed .pane-collapse { width: 100%; min-width: 0; padding-inline: var(--cs-space-4); }
+/* M13g：「展开参与者」整词横排在 44px 竖条内必然溢出（5 字 × 12px ≈ 60px）。竖排沿轨
+   书写（CJK 轨式折叠惯例），文案完整可读，整轨宽度即触达面积；min-height 保证命中区。 */
+.participant-panel.collapsed .pane-collapse { width: 100%; min-width: 0; min-height: 120px; padding: var(--cs-space-8) 0; writing-mode: vertical-rl; }
 /* The ≤1280 grid-column belongs to the page (it re-places this panel into a bottom row); here
    only the roster re-flow is ours. */
 @media (max-width: 1280px) { .participant-panel ul { display: grid; grid-template-columns: repeat(3, 1fr); } }

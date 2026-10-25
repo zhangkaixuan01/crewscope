@@ -1366,10 +1366,11 @@ async function redirectIfForbidden(): Promise<void> {
 .focus-mode-toggle[aria-pressed='true'] { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); color: var(--cs-text-brand); }
 .focus-mode-toggle:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: 2px; }
 .conversation-list-panel.collapsed > :not(header) { display: none; }
-.conversation-list-panel.collapsed .conversation-list-header { padding-inline: var(--cs-space-8); }
+.conversation-list-panel.collapsed .conversation-list-header { padding-inline: var(--cs-space-4); }
 .conversation-list-panel.collapsed .conversation-list-header > div:first-child { display: none; }
-/* M13f：折叠竖条 44px 内，折叠钮 padding 会让文字越出面板裁剪盒；按钮撑满竖条（宽度即触达面积）。
-   参与者面板的折叠规则在 ConversationParticipantsPanel 自己的 scoped 里（页面 scoped 选不中组件内部元素）。 */
+/* M13g：折叠竖条 44px 内，两个动作钮横向放不下会把折叠钮挤出面板（压到拖拽条与内容区）；
+   改为纵向堆叠并撑满竖条宽度（宽度即触达面积），内边距收窄到 4px 让「展开」文案完整可读。 */
+.conversation-list-panel.collapsed .conversation-list-header__actions { flex-direction: column; align-items: stretch; width: 100%; gap: var(--cs-space-4); }
 .conversation-list-panel.collapsed .pane-collapse { width: 100%; min-width: 0; padding-inline: var(--cs-space-4); }
 .pane-resizer { position: relative; z-index: 2; width: 8px; min-height: 100%; padding: 0; border: 0; background: transparent; cursor: col-resize; }
 .pane-resizer::after { position: absolute; inset: 0 3px; content: ''; background: var(--cs-border); opacity: .65; transition: opacity var(--cs-motion-fast) var(--cs-ease-out); }
