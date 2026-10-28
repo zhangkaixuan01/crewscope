@@ -2039,7 +2039,7 @@ test('desktop rail pins the account area while navigation scrolls independently'
   await expect(page.getByRole('menu', { name: '账号菜单' })).toBeVisible()
 })
 
-test('Conversation preserves its draft offline and resumes submission online', async ({ page, context }) => {
+test('Conversation preserves its draft offline and resumes submission online', async ({ page, context }, testInfo) => {
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
   const composer = page.getByRole('form', { name: '发送消息' })
   const message = composer.getByLabel('消息内容')
@@ -2053,6 +2053,9 @@ test('Conversation preserves its draft offline and resumes submission online', a
   await expect(message).toHaveValue('保留这份离线草稿')
   await expect(composer.getByRole('button', { name: '发送' })).toBeDisabled()
   await expect(message).toHaveAttribute('placeholder', /当前离线，可继续编辑草稿/)
+  // The banner is the only offline surface with its own box (soft danger fill + padding) —
+  // guard it so divider sweeps cannot silently flatten it again (bb10a9a2 lesson).
+  await expect(page.locator('.network-banner')).toHaveScreenshot(`offline-network-banner-${testInfo.project.name}.png`)
 
   await context.setOffline(false)
 

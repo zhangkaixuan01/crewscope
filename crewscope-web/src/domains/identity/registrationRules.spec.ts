@@ -47,10 +47,21 @@ describe('validateRegistrationInput', () => {
       .toBe('邮箱需要包含一个可用的本地部分和域名（如 name@example.com）')
   })
 
+  // ADR-25 deny list in full — every server entry must trip the client pre-check
+  // (welcome12345 was once copied as welcome1234 and only a full-set assertion catches that).
   it.each([
+    '123456789012',
+    'adminadmin123',
+    'administrator',
+    'Administrator',
+    'changeme1234',
+    'iloveyou12345',
+    'letmein12345',
     'password1234',
     'PASSWORD1234',
-    'Administrator',
+    'passwordpassword',
+    'qwerty123456',
+    'welcome12345',
   ])('rejects common password %s before submit', password => {
     expect(validateRegistrationInput({ ...valid(), password }).password)
       .toBe('密码过于常见，请更换一段不易猜到的长密码')

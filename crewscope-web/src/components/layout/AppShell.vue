@@ -405,7 +405,7 @@ async function signOut(): Promise<void> {
  */
 .app-shell { --cs-rail-width: 264px; min-height: 100vh; background: var(--cs-canvas); }
 .skip-link { position: fixed; top: 8px; left: 8px; z-index: var(--cs-z-toast); padding: var(--cs-space-8) var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-action-primary); color: var(--cs-action-primary-text); font-size: var(--cs-text-sm); transform: translateY(-160%); }.skip-link:focus { transform: translateY(0); }
-.network-banner { position: relative; z-index: var(--cs-z-banner); display: flex; min-height: 36px; align-items: center; justify-content: center; gap: var(--cs-space-8);  color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-align: center; }.network-banner span { color: var(--cs-danger); }
+.network-banner { position: relative; z-index: var(--cs-z-banner); display: flex; min-height: 36px; align-items: center; justify-content: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-16); background: var(--cs-danger-soft); color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-align: center; }.network-banner span { color: var(--cs-danger); }
 .app-shell__rail { position: fixed; inset: 0 auto 0 0; z-index: var(--cs-z-raised); display: flex; width: var(--cs-rail-width); height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; padding: var(--cs-space-20) var(--cs-space-16) var(--cs-space-16); border-right: 1px solid var(--cs-border); background: var(--cs-surface); color: var(--cs-text); }
 /* M13b-F01：组织组加入后 nav 溢出转为滚动，flex 收缩曾把 30px 折叠钮压到 23px（WCAG
  * target-size serious）——rail 的固定行全部不参与收缩，溢出只由 .rail-navigation 承担。

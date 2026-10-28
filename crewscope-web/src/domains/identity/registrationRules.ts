@@ -30,7 +30,7 @@ const COMMON_REGISTRATION_PASSWORDS = new Set([
   'password1234',
   'passwordpassword',
   'qwerty123456',
-  'welcome1234',
+  'welcome12345',
 ])
 
 const EMAIL_LOCAL_ALLOWED_SYMBOLS = ".!#$%&'*+/=?^_`{|}~-"
