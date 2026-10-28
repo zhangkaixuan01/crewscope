@@ -19,6 +19,7 @@ import { queryValue } from '../utils/queryParams'
 import { AUTH_PRINCIPAL } from '../app/auth'
 import { subscribeF05Epoch } from '../app/f05Storage'
 import { clearConversationCreateDraft } from '../domains/conversation/createDraft'
+import { STARTER_SUGGESTION } from '../domains/conversation/starterSuggestion'
 import { clearConversationMessageDraft, readConversationMessageDraft, writeConversationMessageDraft } from '../domains/conversation/messageDraft'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
@@ -100,9 +101,10 @@ onUnmounted(unsubscribeEpoch)
  * 拖动过的比例会以 v2 存回。
  */
 // M13f：初始 20% 在 1440 视口只有 ~213px，会话标题被时间列挤到不可读（与 1280 断点的
-// 220px 下限倒挂）；23% 让标题列回到可读宽度，消息列在 f09 量测视口留 ~20px 余量
-// 满足 R51 的 ≥700px 预算（26% 会压到 689px）。
-const leftPane = useResizablePane('cs.pref.conversation.left-pane.v2', 23, { min: 16, max: 36, side: 'left' })
+// 220px 下限倒挂）；23% 让标题列回到可读宽度。M13g rail 244→264px 后 23% 的消息列只剩
+// 8.7px 余量（f09 实测 708.7px，R51 预算 ≥700px），降到 22% 恢复 ~19px 缓冲；1440 下
+// 左栏 ~228px 仍高于 220px 断点下限（26% 会把消息列压到 689px）。
+const leftPane = useResizablePane('cs.pref.conversation.left-pane.v2', 22, { min: 16, max: 36, side: 'left' })
 const rightPane = useResizablePane('cs.pref.conversation.right-pane.v2', 18, { min: 16, max: 34, side: 'right' })
 const leftPaneRatio = leftPane.ratio
 const leftPaneCollapsed = leftPane.collapsed
@@ -283,9 +285,8 @@ const composerPlaceholder = computed(() => {
   return canInvokeAgent.value ? '向 Personal Agent 描述目标或补充上下文…' : '向 Conversation 追加团队消息…'
 })
 // 首句建议：所有者尚未发言、对话里已有 Agent 消息（starter 欢迎正是这个形态）且草稿为空时，
-// 把欢迎消息里的示例目标降为一键。文案需与 StarterConversationProvisioningService.WELCOME_MARKDOWN
-// 中的示例保持一致，两处同步修改。
-const STARTER_SUGGESTION = '帮我规划一次版本发布的检查清单'
+// 把欢迎消息里的示例目标降为一键。常量与后端 WELCOME_MARKDOWN 的逐字一致由
+// domains/conversation/starterSuggestion.spec.ts 直读后端源码守护。
 const starterSuggestion = computed(() => {
   if (!canInvokeAgent.value || agentBusy.value || agentAwaitingClarification.value) return null
   if (currentDraft.value.trim()) return null
@@ -1355,7 +1356,7 @@ async function redirectIfForbidden(): Promise<void> {
 .conversation-workspace { display: grid; flex: 1 1 auto; min-height: min(640px, 100%); grid-template-columns: 310px minmax(440px, 1fr) 280px; gap: var(--cs-space-16); }
 .conversation-list-panel, .conversation-detail, .participant-panel { min-height: 0; overflow: hidden; }.conversation-list-panel { display: flex; flex-direction: column; }
 .conversation-list-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-20); }
-.conversation-list-header h2, .participant-panel h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-md); }.conversation-list-header span, .participant-panel header > span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.conversation-list-header h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-md); }.conversation-list-header span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .conversation-list-header__actions { display: flex; align-items: center; gap: var(--cs-space-8); }
 .conversation-list-header button { display: grid; width: var(--cs-density-control-height); height: var(--cs-density-control-height); place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand); cursor: pointer; }
 .conversation-list { display: grid; overflow-y: auto; align-content: start; padding: var(--cs-space-8); margin: 0; list-style: none; }
@@ -1375,13 +1376,14 @@ async function redirectIfForbidden(): Promise<void> {
 .message-stage { position: relative; min-height: 0; overflow: hidden; background: linear-gradient(180deg, var(--cs-surface-subtle) 0%, var(--cs-surface-accent) 100%); }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; overflow-anchor: none; padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-24); }.older-messages { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-12); min-height: 32px; margin-bottom: var(--cs-space-8); }.older-messages > span { color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-list { display: grid; gap: var(--cs-space-16); max-width: 900px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: var(--cs-space-8); justify-self: start; max-width: min(88%, 760px); }.message-row.own { grid-template-columns: minmax(0, 1fr) 30px; justify-self: end; }.message-row.own .message-avatar { grid-column: 2; }.message-row.own article { grid-column: 1; grid-row: 1; border-color: var(--cs-border-accent); background: var(--cs-surface-accent-strong); }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.message-row.own .message-avatar { background: var(--cs-brand-600); color: var(--cs-text-on-dark); }.message-row article { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 5px 13px 13px; background: var(--cs-surface); font-size: var(--cs-text-sm); box-shadow: var(--cs-shadow-raised); }.message-row.own article { border-radius: 13px 5px 13px 13px; }.message-row article > header { display: flex; align-items: center; gap: var(--cs-space-8); margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row article > header strong { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.message-row article > header span { margin-left: auto; }.message-copy { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: calc(var(--cs-space-8) * -1); border: 0; border-radius: 9px; background: transparent; color: var(--cs-text-muted); cursor: pointer; }.message-copy:hover, .message-copy:focus-visible { background: var(--cs-surface-subtle); color: var(--cs-text-brand); }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row.system article > header { justify-content: center; margin-bottom: var(--cs-space-2); }.message-row.pending article { opacity: .72; }.message-row.failed article { border-color: var(--cs-danger-border); background: var(--cs-danger-soft); opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-8); color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: var(--cs-space-8); margin: var(--cs-space-64) auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid var(--cs-agent-border); border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: var(--cs-text-base); }.message-empty p { color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
 .message-row.streaming article { border-color: var(--cs-agent-border); background: var(--cs-agent-soft); transition: opacity var(--cs-motion-base) var(--cs-ease-out), transform var(--cs-motion-base) var(--cs-ease-out); }.message-row.streaming.reconnecting article { border-style: dashed; }.stream-placeholder { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .conversation-welcome { display: grid; max-width: 470px; place-items: center; align-self: center; justify-self: center; padding: var(--cs-space-64) var(--cs-space-24); text-align: center; }.conversation-welcome > span { margin-bottom: var(--cs-space-20); }.conversation-welcome h2 { margin-bottom: var(--cs-space-8); font: var(--cs-text-xl) var(--cs-font-display); }.conversation-welcome > p:not(.eyebrow) { margin-bottom: var(--cs-space-20); color: var(--cs-text-secondary); font-size: var(--cs-text-base); line-height: var(--cs-leading-relaxed); }
-.participant-panel header { padding: var(--cs-space-20); }.participant-panel ul { padding: var(--cs-space-8); margin: 0; list-style: none; }.participant-panel li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-12); }.participant-panel li:last-child { border: 0; }.participant-panel li > span:first-child { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }.participant-panel li > span.agent { background: var(--cs-agent-soft); color: var(--cs-agent); }.participant-panel li strong, .participant-panel li small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.participant-panel li strong { font-size: var(--cs-text-sm); }.participant-panel li small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.participant-placeholder { display: grid; place-items: center; gap: var(--cs-space-12); padding: var(--cs-space-48) var(--cs-space-32); color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); text-align: center; }
+/* 参与者面板的内部样式（header/ul/li/…）全部由 ConversationParticipantsPanel 自己的 scoped 承载：
+   页面 scoped 只能命中组件根元素，写在这里的选择器永不生效（M13f 判例）。 */
 .mobile-back { display: none; }
 @media (max-width: 767px) { .conversation-workspace { display: block; min-height: 0; }.conversation-list-panel, .conversation-detail { min-height: 0; height: 100%; }.conversation-list-panel { display: flex; }.conversation-detail { display: none; }.conversation-workspace.has-selection .conversation-list-panel { display: none; }.conversation-workspace.has-selection .conversation-detail { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }.mobile-back { display: flex; align-items: center; gap: var(--cs-space-8); width: 100%; min-height: 42px; padding: 0 var(--cs-space-16); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }.conversation-detail__header { padding: var(--cs-space-16) var(--cs-space-16); }.message-history { padding: var(--cs-space-12) var(--cs-space-12) var(--cs-space-20); }.message-row { max-width: 90%; } }
 
 /* Conversation mode keeps the center timeline fluid while side panes can be adjusted or folded.
  * M13b-F09（R51）：CSS fallback 与 v2 偏好默认同步为 20%/18%。 */
-.conversation-workspace { grid-template-columns: var(--conversation-left-pane, 20%) 8px minmax(0, 1fr) 8px var(--conversation-right-pane, 18%); }
+.conversation-workspace { grid-template-columns: var(--conversation-left-pane, 22%) 8px minmax(0, 1fr) 8px var(--conversation-right-pane, 18%); }
 /* 专注模式（R51）：左右栏与两个 resizer 整体退场，消息列独占全宽；限定 ≥768 是因为
  * ≤767 的移动互斥布局本来就没有双栏，focus 规则在那里只会误伤列表面板。 */
 @media (min-width: 768px) {
