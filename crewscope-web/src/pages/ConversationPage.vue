@@ -671,7 +671,13 @@ async function submitMessage(content: string): Promise<void> {
   // The server may also have committed the invocation's user message before the stream failed
   // (真栈判例：#2 已落库而 invoke 返回 false)——恢复草稿会诱发一键重复发送，已落库就不还原。
   if (!sent && selected.value?.id === conversationId && !currentDraft.value) {
-    const landed = messageStore.state.items.some(message =>
+    // An established invocation (invocationId + the staged content) proves the server already
+    // accepted this submission — RUN_ERROR fails the agent turn, not the user message. Without
+    // this the store refresh lag resurrected the draft beside the rendered pending row.
+    const acceptedByServer = invokesAgent
+      && realtimeStore.state.invocationId !== null
+      && realtimeStore.state.submittedContent === content
+    const landed = acceptedByServer || messageStore.state.items.some(message =>
       message.type === 'USER_MESSAGE'
       && message.authorPrincipalId === principal.id
       && message.content === content)

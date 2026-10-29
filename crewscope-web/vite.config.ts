@@ -23,7 +23,10 @@ const localCollaborationWsProxy: ProxyOptions = {
   ws: true,
   changeOrigin: true,
   configure(proxy) {
-    proxy.on('proxyReq', request => request.setHeader('Origin', 'http://localhost:8080'))
+    // Upgrades emit `proxyReqWs`, not `proxyReq` — listening on the HTTP event left the
+    // browser Origin (localhost:5173) on the handshake, and SameOriginWebFilter answered
+    // 403 cross_origin_rejected, so local dev realtime could never leave `degraded`.
+    proxy.on('proxyReqWs', request => request.setHeader('Origin', 'http://localhost:8080'))
   },
 }
 

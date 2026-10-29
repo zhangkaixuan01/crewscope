@@ -69,13 +69,15 @@ function eventTypeLabel(item: ActivityItem): string {
   return enumLabel(item.eventType, activityEventTypeLabels)
 }
 
-function outcome(item: ActivityItem): string {
+/** Outcome text when the event carries one; lifecycle events (TEAM_CREATED) have none and
+ *  render no badge — restating the type label next to the type heading duplicated it. */
+function outcome(item: ActivityItem): string | null {
   const values = item.payload.values
-  return values.outcome ?? values.status ?? values.result ?? values.decision ?? eventTypeLabel(item)
+  return values.outcome ?? values.status ?? values.result ?? values.decision ?? null
 }
 
 function outcomeTone(item: ActivityItem): 'success' | 'danger' | 'warning' | 'info' | 'neutral' {
-  const value = outcome(item).toUpperCase()
+  const value = (outcome(item) ?? '').toUpperCase()
   if (/(SUCCEEDED|COMPLETED|APPROVED|DONE|ACTIVE)/.test(value)) return 'success'
   if (/(FAILED|REJECTED|CANCELLED|BLOCKED|ERROR)/.test(value)) return 'danger'
   if (/(WAITING|PENDING|REVIEW|UNKNOWN)/.test(value)) return 'warning'
@@ -124,7 +126,7 @@ function referenceLabel(type: string): string {
           <span class="activity-marker" aria-hidden="true"><CircleDot :size="13" /></span>
           <article>
             <header>
-              <div class="activity-kind"><Activity :size="14" aria-hidden="true" /><strong>{{ eventTypeLabel(item) }}</strong><StatusBadge :tone="outcomeTone(item)">{{ outcome(item) }}</StatusBadge></div>
+              <div class="activity-kind"><Activity :size="14" aria-hidden="true" /><strong>{{ eventTypeLabel(item) }}</strong><StatusBadge v-if="outcome(item)" :tone="outcomeTone(item)">{{ outcome(item) }}</StatusBadge></div>
               <Clock3 :size="11" aria-hidden="true" /><RelativeTime :value="item.occurredAt" />
             </header>
             <dl>

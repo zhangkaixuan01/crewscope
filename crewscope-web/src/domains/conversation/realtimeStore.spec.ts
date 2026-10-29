@@ -248,6 +248,31 @@ describe('conversation realtime store', () => {
     store.reset()
   })
 
+  it('localizes known RUN_ERROR diagnostics instead of surfacing raw English text', async () => {
+    const gateway = new FixtureRealtimeGateway()
+    gateway.invocations.push(connection('invocation-english-code', [
+      item(agui('run-error-code', 'RUN_ERROR', {
+        safeMessage: 'The Personal Agent runtime configuration is unavailable.',
+        runtimeCode: 'AGENT_CONFIGURATION_UNAVAILABLE',
+        retryable: false,
+      })),
+    ]))
+    gateway.invocations.push(connection('invocation-english-verbatim', [
+      item(agui('run-error-verbatim', 'RUN_ERROR', {
+        safeMessage: 'The Personal Agent runtime configuration is unavailable.',
+        retryable: false,
+      })),
+    ]))
+    const store = createStore(gateway)
+    store.synchronize(scope)
+
+    expect(await store.invoke(scope, '验证错误文案', fixtureIds.principal, 4)).toBe(false)
+    expect(store.state.errorMessage).toBe('Personal Agent 尚未完成模型配置，请先到配置中心补齐后再试。')
+    expect(await store.invoke(scope, '验证逐字兜底', fixtureIds.principal, 4)).toBe(false)
+    expect(store.state.errorMessage).toBe('Personal Agent 尚未完成模型配置，请先到配置中心补齐后再试。')
+    store.reset()
+  })
+
   it('retains recovery coordinates for an explicitly retryable RUN_ERROR', async () => {
     const gateway = new FixtureRealtimeGateway()
     gateway.invocations.push(connection('invocation-run-error', [

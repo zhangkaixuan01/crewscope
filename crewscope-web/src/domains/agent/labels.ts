@@ -54,13 +54,21 @@ export const agentMemoryDegradedLabels: Record<string, string> = {
   POLICY_UNAVAILABLE: '引用的记忆策略暂不可用',
 }
 
+/**
+ * `{ownership}{role}` with the redundant prefix folded: USER+PERSONAL_ASSISTANT and
+ * TEAM+TEAM_COORDINATOR would otherwise render as「个人个人助理」/「团队团队协调者」.
+ */
+export function agentOwnershipRoleLabel(ownershipType: string, runtimeRole: string): string {
+  const ownership = agentOwnershipTypeLabels[ownershipType as AgentOwnershipType] ?? ownershipType
+  const role = agentRuntimeRoleLabels[runtimeRole as AgentRuntimeRole] ?? runtimeRole
+  return role.startsWith(ownership) ? role : `${ownership}${role}`
+}
+
 /** `{displayName} · 个人 Specialist` — the one-line identity used in every Agent picker. */
 export function agentIdentityLabel(agent: {
   displayName: string
   ownershipType: string
   runtimeRole: string
 }): string {
-  const ownership = agentOwnershipTypeLabels[agent.ownershipType as AgentOwnershipType] ?? agent.ownershipType
-  const role = agentRuntimeRoleLabels[agent.runtimeRole as AgentRuntimeRole] ?? agent.runtimeRole
-  return `${agent.displayName} · ${ownership}${role}`
+  return `${agent.displayName} · ${agentOwnershipRoleLabel(agent.ownershipType, agent.runtimeRole)}`
 }

@@ -83,6 +83,17 @@ describe('ActivityStream', () => {
     expect(embedded.get('.activity-stream__header h2').text()).toBe('WorkItem Activity')
     expect(embedded.get('.activity-stream__header').text()).toContain('历史模式')
   })
+
+  it('renders no outcome badge for lifecycle events whose only fact is the type itself', async () => {
+    const wrapper = await mounted({ items: [
+      activity({ eventId: 'event-lifecycle', eventType: 'TEAM_CREATED', payload: { schemaName: 'x', schemaVersion: 1, values: {} } }),
+    ], nextCursor: null })
+    const kinds = wrapper.findAll('.activity-kind')
+    expect(kinds).toHaveLength(1)
+    expect(kinds[0]!.find('strong').text()).toBe('TEAM_CREATED')
+    // 真人走查判例：badge 复述事件类型＝同卡片双份 TEAM_CREATED，只留标题。
+    expect(kinds[0]!.find('.status-badge').exists()).toBe(false)
+  })
 })
 
 async function mounted(overrides: Record<string, unknown>) {

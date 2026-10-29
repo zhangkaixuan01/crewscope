@@ -30,6 +30,22 @@ function presentAgentInvocationError(error: unknown, fallback: string): string {
   return fallback
 }
 
+/**
+ * RUN_ERROR frames carry the backend's English diagnostic text (AgentScopeNativeRuntime).
+ * Prefer the structured runtimeCode when present; known verbatim messages map to the same
+ * localized copy so the conversation surface never shows raw English diagnostics.
+ */
+const RUN_ERROR_SAFE_MESSAGE_COPY: Record<string, string> = {
+  'The Personal Agent runtime configuration is unavailable.': AGENT_INVOCATION_ERROR_COPY.AGENT_CONFIGURATION_UNAVAILABLE,
+}
+
+function presentRunErrorText(payload: Record<string, unknown>): string {
+  const runtimeCode = typeof payload.runtimeCode === 'string' ? payload.runtimeCode : null
+  if (runtimeCode && AGENT_INVOCATION_ERROR_COPY[runtimeCode]) return AGENT_INVOCATION_ERROR_COPY[runtimeCode]
+  const raw = publicText(payload.safeMessage, 1, 1_000) ? String(payload.safeMessage).trim() : ''
+  return RUN_ERROR_SAFE_MESSAGE_COPY[raw] ?? (raw || 'Agent 暂时无法回复')
+}
+
 export type AgentInvocationPhase =
   | 'idle'
   | 'connecting'
@@ -342,11 +358,7 @@ export function createConversationRealtimeStore(
         return true
       case 'RUN_ERROR':
         clearPendingClarification(scopeKeyFromActive())
-        failInvocation(
-          publicText(payload.safeMessage, 1, 1_000) ? payload.safeMessage.trim() : 'Agent 暂时无法回复',
-          null,
-          payload.retryable === true,
-        )
+        failInvocation(presentRunErrorText(payload), null, payload.retryable === true)
         return true
       default:
         // Unknown AG-UI events remain undisclosed until the frontend contract explicitly supports them.

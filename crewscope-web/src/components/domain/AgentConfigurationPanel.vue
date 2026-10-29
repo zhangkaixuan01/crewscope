@@ -37,8 +37,7 @@ import { useDirtyForm } from '../../composables/useDirtyForm'
 import {
   agentBindingSourceLabels,
   agentExecutionScopeLabels,
-  agentOwnershipTypeLabels,
-  agentRuntimeRoleLabels,
+  agentOwnershipRoleLabel,
   agentStatusLabels,
 } from '../../domains/agent/labels'
 import { enumLabel } from '../../domains/shared/labels'
@@ -418,8 +417,6 @@ async function transition(transition: AgentLifecycleTransition): Promise<void> {
 }
 
 function agentStatusLabel(value: string): string { return enumLabel(value, agentStatusLabels) }
-function ownershipLabel(value: string): string { return enumLabel(value, agentOwnershipTypeLabels) }
-function roleLabel(value: string): string { return enumLabel(value, agentRuntimeRoleLabels) }
 function scopeLabel(value: string): string { return enumLabel(value, agentExecutionScopeLabels) }
 function bindingSourceLabel(value: string | null | undefined): string {
   return enumLabel(value, agentBindingSourceLabels)
@@ -451,7 +448,7 @@ function integerOrNull(value: PreferenceNumber): number | null {
   <section class="agent-configuration panel" aria-labelledby="agent-configuration-title">
     <header class="configuration-header">
       <span class="configuration-icon"><Bot :size="21" aria-hidden="true" /></span>
-      <div><p class="eyebrow">Agent 设置 · {{ ownershipLabel(agent.ownershipType) }}{{ roleLabel(agent.runtimeRole) }}</p><h2 id="agent-configuration-title" ref="heading" tabindex="-1">{{ agent.displayName }}</h2><span class="mono">{{ agent.templateKey }}@{{ agent.templateVersion }} · Profile v{{ agent.version }}</span></div>
+      <div><p class="eyebrow">Agent 设置 · {{ agentOwnershipRoleLabel(agent.ownershipType, agent.runtimeRole) }}</p><h2 id="agent-configuration-title" ref="heading" tabindex="-1">{{ agent.displayName }}</h2><span class="mono">{{ agent.templateKey }}@{{ agent.templateVersion }} · Profile v{{ agent.version }}</span></div>
       <StatusBadge :tone="agent.status === 'ACTIVE' ? 'success' : agent.status === 'DISABLED' ? 'warning' : 'neutral'" dot>{{ agentStatusLabel(agent.status) }}</StatusBadge>
       <button type="button" aria-label="关闭 Agent 设置" @click="requestClose"><X :size="18" /></button>
     </header>
