@@ -19,7 +19,16 @@ LABEL org.opencontainers.image.title="CrewScope Web" \
       org.opencontainers.image.revision="${CREWSCOPE_REVISION}" \
       org.opencontainers.image.source="https://github.com/zhangkaixuan01/crewscope"
 
+# Same alpine-layer CVE posture as the backend image: the pinned nginx-unprivileged layer
+# ships brotli-libs 1.2.0-r0 (CVE-2026-111497, CRITICAL, trivy gate) and the upstream digest
+# has not picked up the fix — `apk upgrade` against the 3.23 repository lands 1.2.1-r0 while
+# the base stays pinned. The base image defaults to USER 101, so root is needed for the
+# upgrade only and the unprivileged stance resumes right after. Runs before the COPY lines
+# so source changes never bust its cache.
+USER root
+RUN apk upgrade --no-cache
+USER 101:101
+
 COPY deploy/team-beta/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build --chown=101:101 /workspace/crewscope-web/dist /usr/share/nginx/html
-USER 101:101
 EXPOSE 8080
