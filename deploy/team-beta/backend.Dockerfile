@@ -39,7 +39,12 @@ LABEL org.opencontainers.image.title="CrewScope Backend" \
 
 # The Worker invokes only the platform-owned Git and Docker CLI adapters. Package installation stays
 # in the image build; no host Java or Node installation is needed.
+# `apk upgrade` refreshes the pinned temurin runtime layer against the 3.24 repository: the layer
+# ships brotli-libs 1.2.0-r1 (CVE-2026-111497, CRITICAL, trivy gate) and the upstream digest has
+# not picked up the fix yet — and a plain `apk add brotli-libs` keeps the installed version, so
+# upgrading is what actually clears the finding while the base stays pinned.
 RUN apk add --no-cache docker-cli git tini \
+    && apk upgrade --no-cache \
     && addgroup -S -g "${CREWSCOPE_GID}" crewscope \
     && adduser -S -D -H -u "${CREWSCOPE_UID}" -G crewscope crewscope \
     && install -d -o crewscope -g crewscope \
