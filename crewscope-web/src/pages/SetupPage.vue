@@ -211,7 +211,7 @@ async function goToday(): Promise<void> {
       </section>
 
       <section v-if="nextAction" class="next-step panel" aria-labelledby="next-step-heading">
-        <div class="next-step__icon"><ArrowRight :size="19" /></div><div><h2 id="next-step-heading">{{ capabilityLabel(nextAction.capability) }}</h2><p>{{ reasonLabel(nextAction.reasonCode) }} · 责任方：{{ nextAction.responsibleParty }}</p></div>
+        <div class="next-step__icon"><ArrowRight :size="18" /></div><div><h2 id="next-step-heading">{{ capabilityLabel(nextAction.capability) }}</h2><p>{{ reasonLabel(nextAction.reasonCode) }} · 责任方：{{ nextAction.responsibleParty }}</p></div>
         <BaseButton size="small" :disabled="!online" @click="goAction(nextAction)">{{ actionLabel(nextAction.actionKey) }}<ArrowRight :size="14" /></BaseButton>
       </section>
 
@@ -251,7 +251,7 @@ async function goToday(): Promise<void> {
           <article v-for="item in health.items" :key="item.component" class="health-row" role="listitem">
             <div class="health-row__body"><h3>{{ healthComponentLabel(item.component) }}</h3><small>{{ healthReasonLabel(item.reasonCode) }} · 责任方：{{ item.responsibleParty }}</small></div>
             <StatusBadge :tone="statusTone(item.status)" dot>{{ statusLabel(item.status) }}</StatusBadge>
-            <BaseButton v-if="item.actionKey && item.status !== 'READY'" variant="secondary" size="small" :disabled="!online" @click="goAction(item)">{{ actionLabel(item.actionKey) }}<ArrowRight :size="13" /></BaseButton>
+            <BaseButton v-if="item.actionKey && item.status !== 'READY'" variant="secondary" size="small" :disabled="!online" @click="goAction(item)">{{ actionLabel(item.actionKey) }}<ArrowRight :size="14" /></BaseButton>
           </article>
         </div>
         <p v-if="healthOpen" class="snapshot-note">配置健康观测于 {{ new Date(health.observedAt).toLocaleString('zh-CN') }}</p>
@@ -262,9 +262,9 @@ async function goToday(): Promise<void> {
         <div class="panel-heading"><div><p class="eyebrow">能力清单</p><h2 id="capability-heading">能力与前置条件</h2><p>可继续配置的成员看到明确入口；无权限时展示责任方，不暴露内部错误细节。</p></div><StatusBadge :tone="readiness.requiredReady ? 'success' : 'warning'" dot>{{ readiness.requiredReady ? '必需项已就绪' : '仍需配置' }}</StatusBadge></div>
         <div class="capability-list" role="list">
           <article v-for="item in pendingCapabilities" :key="item.capability" class="capability-card" :class="`capability-card--${item.status.toLowerCase()}`" role="listitem">
-            <div class="capability-card__icon"><component :is="iconFor(item.capability)" :size="17" aria-hidden="true" /></div>
+            <div class="capability-card__icon"><component :is="iconFor(item.capability)" :size="16" aria-hidden="true" /></div>
             <div class="capability-card__body"><div class="capability-card__title"><h3>{{ capabilityLabel(item.capability) }}</h3><span v-if="item.required" class="required-mark">必需</span><StatusBadge :tone="statusTone(item.status)" dot>{{ statusLabel(item.status) }}</StatusBadge></div><p>{{ capabilityDescription(item.capability) }}</p><small>{{ reasonLabel(item.reasonCode) }} · 责任方：{{ item.responsibleParty }}</small></div>
-            <BaseButton v-if="item.actionKey && item.canConfigure && item.status === 'ACTION_REQUIRED'" variant="secondary" size="small" :disabled="!online" @click="goAction(item)">{{ actionLabel(item.actionKey) }}<ArrowRight :size="13" /></BaseButton>
+            <BaseButton v-if="item.actionKey && item.canConfigure && item.status === 'ACTION_REQUIRED'" variant="secondary" size="small" :disabled="!online" @click="goAction(item)">{{ actionLabel(item.actionKey) }}<ArrowRight :size="14" /></BaseButton>
             <span v-else-if="item.status === 'BLOCKED'" class="responsibility"><CircleAlert :size="14" />请联系 {{ item.responsibleParty }}</span>
             <span v-else-if="item.status === 'UNAVAILABLE'" class="responsibility"><WifiOff :size="14" />恢复服务后重试</span>
           </article>
@@ -276,7 +276,7 @@ async function goToday(): Promise<void> {
         </div>
         <div v-if="showReadyCapabilities" id="setup-ready-capabilities" class="capability-list capability-list--ready" role="list">
           <article v-for="item in readyCapabilities" :key="item.capability" class="capability-card capability-card--ready" role="listitem">
-            <div class="capability-card__icon"><component :is="iconFor(item.capability)" :size="17" aria-hidden="true" /></div>
+            <div class="capability-card__icon"><component :is="iconFor(item.capability)" :size="16" aria-hidden="true" /></div>
             <div class="capability-card__body"><div class="capability-card__title"><h3>{{ capabilityLabel(item.capability) }}</h3><span v-if="item.required" class="required-mark">必需</span><StatusBadge tone="success" dot>已就绪</StatusBadge></div><p>{{ capabilityDescription(item.capability) }}</p></div>
           </article>
         </div>

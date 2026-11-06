@@ -124,14 +124,14 @@ watch(() => props.owner, refresh)
       trigger-class="saved-views__trigger"
     >
       <template #trigger>
-        <BookmarkCheck v-if="currentView" :size="13" aria-hidden="true" />
-        <Bookmark v-else :size="13" aria-hidden="true" />
+        <BookmarkCheck v-if="currentView" :size="14" aria-hidden="true" />
+        <Bookmark v-else :size="14" aria-hidden="true" />
         视图
       </template>
       <p class="saved-views__storage">本机存储，不跨设备同步</p>
 
       <button type="button" role="menuitem" class="saved-views__default" @click="applyView(null)">
-        <RotateCcw :size="13" aria-hidden="true" />
+        <RotateCcw :size="14" aria-hidden="true" />
         默认
         <small>{{ currentView ? '回到页面默认筛选' : '页面默认筛选' }}</small>
       </button>

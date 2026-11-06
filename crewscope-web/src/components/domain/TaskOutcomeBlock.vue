@@ -77,7 +77,7 @@ function shortHash(value: string): string {
 <template>
   <div v-if="attempt" class="task-outcome" data-testid="task-outcome">
     <header>
-      <FileCode2 v-if="attempt.coding" :size="15" /><CircleDashed v-else :size="15" />
+      <FileCode2 v-if="attempt.coding" :size="14" /><CircleDashed v-else :size="14" />
       <strong>{{ headline }}</strong>
       <StatusBadge :tone="tone" dot>{{ attempt.coding ? 'Coding 执行' : '非 Coding 执行' }}</StatusBadge>
     </header>
@@ -91,7 +91,7 @@ function shortHash(value: string): string {
     </p>
     <p class="outcome-test" :class="{ failed: testsFailed }">{{ testLine }}</p>
     <ul v-if="awaitingLines.length" class="outcome-awaiting" aria-label="待人审与外部交付事实">
-      <li v-for="line in awaitingLines" :key="line"><TriangleAlert :size="13" />{{ line }}</li>
+      <li v-for="line in awaitingLines" :key="line"><TriangleAlert :size="14" />{{ line }}</li>
     </ul>
     <p v-if="pinnedMismatch" class="outcome-mismatch" role="status"><TriangleAlert :size="14" />证据版本不一致：入口引用锚定的 finalHash 与当前加载的 Diff 不相同，请以下方变更区实际内容为准。</p>
   </div>

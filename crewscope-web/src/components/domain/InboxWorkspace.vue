@@ -326,7 +326,7 @@ function rowSubtitle(item: InboxItem): string {
     <section v-if="batchReport" class="batch-report panel" aria-label="批量处置结果">
       <header>
         <div><strong>{{ batchReport.status === 'READ' ? '批量标记已读' : batchReport.status === 'ACTED' ? '批量标记已处理' : '批量归档' }}结果</strong><span>{{ batchSummary }}</span></div>
-        <button type="button" aria-label="关闭批量结果" @click="emit('dismissBatchReport')"><X :size="15" /></button>
+        <button type="button" aria-label="关闭批量结果" @click="emit('dismissBatchReport')"><X :size="14" /></button>
       </header>
       <ul>
         <li v-for="entry in batchReport.results" :key="entry.itemId">
@@ -375,20 +375,20 @@ function rowSubtitle(item: InboxItem): string {
                   <StatusBadge tone="neutral">{{ typePresentation[item.itemType].label }}</StatusBadge>
                   <StatusBadge :tone="priorityTone(item.priority)">{{ inboxPriorityLabels[item.priority] }}</StatusBadge>
                   <StatusBadge :tone="dispositionTone(item.dispositionStatus)">{{ dispositionLabel(item.dispositionStatus) }}</StatusBadge>
-                  <span v-if="item.deadline" :class="{ overdue: isOverdue(item) }"><Clock3 :size="11" aria-hidden="true" /><RelativeTime :value="item.deadline" /></span>
-                  <span v-else :class="{ overdue: isOverdue(item) }"><Clock3 :size="11" aria-hidden="true" />无截止时间</span>
+                  <span v-if="item.deadline" :class="{ overdue: isOverdue(item) }"><Clock3 :size="12" aria-hidden="true" /><RelativeTime :value="item.deadline" /></span>
+                  <span v-else :class="{ overdue: isOverdue(item) }"><Clock3 :size="12" aria-hidden="true" />无截止时间</span>
                 </div>
-                <footer><span class="inbox-card__source" :class="{ closed: item.sourceStatus !== 'OPEN' }">{{ item.sourceStatus === 'OPEN' ? '来源仍需处理' : '来源已关闭' }}</span><button type="button" :aria-label="`查看 ${typePresentation[item.itemType].label} 详情`" @click="openDetail(item.inboxItemId)">查看详情<ChevronRight :size="13" aria-hidden="true" /></button></footer>
+                <footer><span class="inbox-card__source" :class="{ closed: item.sourceStatus !== 'OPEN' }">{{ item.sourceStatus === 'OPEN' ? '来源仍需处理' : '来源已关闭' }}</span><button type="button" :aria-label="`查看 ${typePresentation[item.itemType].label} 详情`" @click="openDetail(item.inboxItemId)">查看详情<ChevronRight :size="14" aria-hidden="true" /></button></footer>
               </article>
             </li>
           </ol>
 
-          <footer v-if="nextCursor"><BaseButton variant="secondary" size="small" :loading="loadingMore" @click="emit('loadMore')"><RefreshCw :size="13" />加载更多</BaseButton></footer>
+          <footer v-if="nextCursor"><BaseButton variant="secondary" size="small" :loading="loadingMore" @click="emit('loadMore')"><RefreshCw :size="14" />加载更多</BaseButton></footer>
         </template>
       </section>
 
       <aside v-if="selectedItemId" class="inbox-detail panel" aria-label="Inbox 详情">
-        <header><div><p>Member disposition</p><h2 ref="detailHeading" tabindex="-1">Inbox 详情</h2></div><button type="button" aria-label="关闭 Inbox 详情" @click="closeDetailAndRestore()"><X :size="17" /></button></header>
+        <header><div><p>Member disposition</p><h2 ref="detailHeading" tabindex="-1">Inbox 详情</h2></div><button type="button" aria-label="关闭 Inbox 详情" @click="closeDetailAndRestore()"><X :size="16" /></button></header>
         <StatePanel v-if="detailPhase === 'idle' || detailPhase === 'loading'" state="loading" compact />
         <StatePanel v-else-if="detailPhase === 'error' && !detail" :state="detailError?.kind === 'forbidden' ? 'forbidden' : 'error'" compact :description="detailError?.message" @retry="emit('retryDetail', selectedItemId)" />
 
@@ -415,10 +415,10 @@ function rowSubtitle(item: InboxItem): string {
             <div v-if="selected.closeReason"><dt>关闭原因</dt><dd>{{ label(selected.closeReason, inboxCloseReasonLabels) }}</dd></div>
           </dl>
 
-          <section class="inbox-detail__source"><ShieldCheck :size="16" aria-hidden="true" /><div><strong>服务端授权来源</strong><span class="mono">{{ selected.source.id }}</span></div><BaseButton size="small" variant="secondary" :loading="targetPhase === 'loading'" :disabled="!online" @click="emit('openTarget', selectedItemId)">打开来源<ArrowUpRight :size="13" /></BaseButton></section>
+          <section class="inbox-detail__source"><ShieldCheck :size="16" aria-hidden="true" /><div><strong>服务端授权来源</strong><span class="mono">{{ selected.source.id }}</span></div><BaseButton size="small" variant="secondary" :loading="targetPhase === 'loading'" :disabled="!online" @click="emit('openTarget', selectedItemId)">打开来源<ArrowUpRight :size="14" /></BaseButton></section>
 
           <section class="inbox-detail__actions">
-            <header><div><CircleAlert :size="15" aria-hidden="true" /><strong>我的处置</strong></div><span>强 ETag · 可逆处置</span></header>
+            <header><div><CircleAlert :size="14" aria-hidden="true" /><strong>我的处置</strong></div><span>强 ETag · 可逆处置</span></header>
             <p>处置只影响当前成员的 Inbox 视图，来源业务事实保持独立。</p>
             <div>
               <BaseButton
@@ -429,7 +429,7 @@ function rowSubtitle(item: InboxItem): string {
                 :loading="commandForSelection?.phase === 'pending' && commandForSelection.operation === 'inbox-disposition'"
                 :disabled="!online || commandForSelection?.phase === 'pending'"
                 @click="requestDisposition(selectedItemId, status)"
-              ><ArchiveRestore v-if="(status === 'READ' || status === 'UNREAD') && selected.dispositionStatus === 'ARCHIVED'" :size="13" /><Eye v-else-if="status === 'READ'" :size="13" /><CheckCheck v-else-if="status === 'ACTED'" :size="13" /><Archive v-else-if="status === 'ARCHIVED'" :size="13" /><BellRing v-else :size="13" />{{ actionLabel(status, selected.dispositionStatus) }}</BaseButton>
+              ><ArchiveRestore v-if="(status === 'READ' || status === 'UNREAD') && selected.dispositionStatus === 'ARCHIVED'" :size="14" /><Eye v-else-if="status === 'READ'" :size="14" /><CheckCheck v-else-if="status === 'ACTED'" :size="14" /><Archive v-else-if="status === 'ARCHIVED'" :size="14" /><BellRing v-else :size="14" />{{ actionLabel(status, selected.dispositionStatus) }}</BaseButton>
             </div>
           </section>
         </template>

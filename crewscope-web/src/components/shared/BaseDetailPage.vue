@@ -91,7 +91,7 @@ watch(
         <p class="detail-panel__eyebrow">{{ eyebrow }}</p>
         <h2 ref="detailHeading" tabindex="-1">{{ title }}</h2>
       </div>
-      <button type="button" :aria-label="closeLabel" @click="emit('close')"><X :size="17" /></button>
+      <button type="button" :aria-label="closeLabel" @click="emit('close')"><X :size="16" /></button>
     </header>
 
     <StatePanel v-if="(detailPhase === 'idle' || detailPhase === 'loading') && !entry" state="loading" :title="loadingTitle" />

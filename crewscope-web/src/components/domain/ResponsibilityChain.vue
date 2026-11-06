@@ -47,8 +47,8 @@ async function release(member: ResponsibilityAssignment): Promise<void> {
   <ol class="responsibility-chain" aria-label="责任链">
     <li v-for="(member, index) in orderedMembers" :key="member.id">
       <span class="responsibility-chain__avatar" :class="{ agent: member.actorType !== 'USER' }">
-        <Bot v-if="member.actorType !== 'USER'" :size="15" aria-hidden="true" />
-        <UserRound v-else :size="15" aria-hidden="true" />
+        <Bot v-if="member.actorType !== 'USER'" :size="14" aria-hidden="true" />
+        <UserRound v-else :size="14" aria-hidden="true" />
       </span>
       <span class="responsibility-chain__copy">
         <small>{{ roleLabel(member) }}</small>

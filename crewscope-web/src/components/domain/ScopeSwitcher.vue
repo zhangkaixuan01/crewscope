@@ -81,7 +81,7 @@ function openProjectCreate(): void {
       <div v-else-if="store.state.phase === 'empty'" class="scope-menu__state" role="status">当前账号还没有加入 Team。</div>
       <template v-else>
         <div class="scope-menu__group">
-          <p><UsersRound :size="13" />Team</p>
+          <p><UsersRound :size="14" />Team</p>
           <button
             v-for="team in store.state.teams"
             :key="team.id"
@@ -98,8 +98,8 @@ function openProjectCreate(): void {
 
         <div class="scope-menu__group scope-menu__projects">
           <div class="scope-menu__group-heading">
-            <p><BriefcaseBusiness :size="13" />WorkProject</p>
-            <button v-if="canManageProjects" type="button" role="menuitem" aria-label="创建 WorkProject" @click="openProjectCreate"><Plus :size="13" />新建</button>
+            <p><BriefcaseBusiness :size="14" />WorkProject</p>
+            <button v-if="canManageProjects" type="button" role="menuitem" aria-label="创建 WorkProject" @click="openProjectCreate"><Plus :size="14" />新建</button>
           </div>
           <div v-if="store.state.projects.length === 0" class="scope-menu__state">这个 Team 还没有 WorkProject。</div>
           <button
@@ -118,7 +118,7 @@ function openProjectCreate(): void {
         </div>
       </template>
 
-      <footer><Layers3 :size="13" />切换范围会保留当前入口，并清除不兼容的 Focus。</footer>
+      <footer><Layers3 :size="14" />切换范围会保留当前入口，并清除不兼容的 Focus。</footer>
     </BaseMenu>
 
     <WorkProjectCreateDialog

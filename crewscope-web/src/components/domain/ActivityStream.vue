@@ -123,19 +123,19 @@ function referenceLabel(type: string): string {
            列表前——strip 的 note 与徽标已收敛表达连接态（ActivityPage），这里只保留事实本身。 -->
       <ol class="activity-list" aria-label="团队活动列表">
         <li v-for="item in items" :key="item.eventId">
-          <span class="activity-marker" aria-hidden="true"><CircleDot :size="13" /></span>
+          <span class="activity-marker" aria-hidden="true"><CircleDot :size="14" /></span>
           <article>
             <header>
               <div class="activity-kind"><Activity :size="14" aria-hidden="true" /><strong>{{ eventTypeLabel(item) }}</strong><StatusBadge v-if="outcome(item)" :tone="outcomeTone(item)">{{ outcome(item) }}</StatusBadge></div>
-              <Clock3 :size="11" aria-hidden="true" /><RelativeTime :value="item.occurredAt" />
+              <Clock3 :size="12" aria-hidden="true" /><RelativeTime :value="item.occurredAt" />
             </header>
             <dl>
               <!-- M13b-F12（二轮 A18）：dt 与详情面板同一套中文词（操作者/关联对象），不再裸英文术语。 -->
-              <div><dt><UserRound :size="11" aria-hidden="true" />操作者</dt><dd>{{ actor(item) }}</dd></div>
-              <div><dt><ArrowRight :size="11" aria-hidden="true" />关联对象</dt><dd>{{ subject(item) }}</dd></div>
+              <div><dt><UserRound :size="12" aria-hidden="true" />操作者</dt><dd>{{ actor(item) }}</dd></div>
+              <div><dt><ArrowRight :size="12" aria-hidden="true" />关联对象</dt><dd>{{ subject(item) }}</dd></div>
             </dl>
             <div class="activity-evidence">
-              <span><Link2 :size="11" aria-hidden="true" />证据</span>
+              <span><Link2 :size="12" aria-hidden="true" />证据</span>
               <RouterLink v-for="reference in item.references" :key="`${reference.type}:${reference.id}`" :to="referenceTarget(reference, item.eventId)">
                 {{ referenceLabel(reference.type) }} · {{ reference.id.slice(0, 8) }}
               </RouterLink>
@@ -147,7 +147,7 @@ function referenceLabel(type: string): string {
 
       <footer v-if="nextCursor" class="activity-stream__footer">
         <BaseButton variant="secondary" size="small" :loading="loadingMore" :disabled="!online" @click="emit('loadMore')">
-          <RefreshCw :size="13" aria-hidden="true" />加载更早活动
+          <RefreshCw :size="14" aria-hidden="true" />加载更早活动
         </BaseButton>
       </footer>
     </template>

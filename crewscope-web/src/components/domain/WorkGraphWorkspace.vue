@@ -143,9 +143,9 @@ watch(() => props.focusId, id => {
         <span>{{ graphStore ? blockedGraphSummaryLabel(visibleNodes.length, visibleEdges.length) : '等待加载' }}</span>
       </div>
       <nav class="view-switcher" aria-label="工作项视图">
-        <button type="button" aria-label="列表视图" @click="emit('switch-view', 'list')"><List :size="15" />List</button>
-        <button type="button" aria-label="看板视图" @click="emit('switch-view', 'board')"><Columns3 :size="15" />Board</button>
-        <button type="button" class="active" aria-label="依赖图视图" aria-current="true"><Network :size="15" />Graph</button>
+        <button type="button" aria-label="列表视图" @click="emit('switch-view', 'list')"><List :size="14" />List</button>
+        <button type="button" aria-label="看板视图" @click="emit('switch-view', 'board')"><Columns3 :size="14" />Board</button>
+        <button type="button" class="active" aria-label="依赖图视图" aria-current="true"><Network :size="14" />Graph</button>
       </nav>
     </header>
 
@@ -154,7 +154,7 @@ watch(() => props.focusId, id => {
     <!-- An empty graph is a door back to the work itself, not a dead end: the M9-Q01 empty-state
          contract wants the next member step right here. -->
     <StatePanel v-else-if="blocked?.phase === 'empty'" state="empty" title="当前没有阻塞中的工作项">
-      <template #action><BaseButton variant="secondary" @click="emit('switch-view', 'list')"><List :size="15" />回到列表视图</BaseButton></template>
+      <template #action><BaseButton variant="secondary" @click="emit('switch-view', 'list')"><List :size="14" />回到列表视图</BaseButton></template>
     </StatePanel>
     <template v-else>
       <p v-if="truncationNote" class="graph-workspace__note" role="status">{{ truncationNote }}</p>

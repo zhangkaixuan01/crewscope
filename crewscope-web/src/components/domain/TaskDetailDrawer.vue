@@ -350,7 +350,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
               <div class="task-hero detail-card">
                 <div class="acceptance">
                   <p>验收标准</p>
-                  <ul><li v-for="criterion in details.acceptanceCriteria" :key="criterion"><CheckCircle2 :size="13" />{{ criterion }}</li></ul>
+                  <ul><li v-for="criterion in details.acceptanceCriteria" :key="criterion"><CheckCircle2 :size="14" />{{ criterion }}</li></ul>
                 </div>
                 <dl class="compact-facts">
                   <div><dt>来源</dt><dd>{{ label(details.source.type, taskSourceTypeLabels) }}</dd></div>
@@ -361,10 +361,10 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
               </div>
 
               <section class="detail-card responsibility-card">
-                <div class="section-heading"><div><h3>责任快照 <span>{{ details.responsibilitySnapshot.length }}</span></h3></div><ShieldCheck :size="17" /></div>
+                <div class="section-heading"><div><h3>责任快照 <span>{{ details.responsibilitySnapshot.length }}</span></h3></div><ShieldCheck :size="16" /></div>
                 <div v-if="details.responsibilitySnapshot.length" class="responsibility-list">
                   <article v-for="entry in details.responsibilitySnapshot" :key="entry.assignmentId">
-                    <i><CircleUserRound :size="15" /></i>
+                    <i><CircleUserRound :size="14" /></i>
                     <div><strong>{{ principalName(entry.principalId) }}</strong><span>{{ label(entry.principalType, principalTypeLabels) }} · {{ displayDate(entry.acceptedAt) }}</span></div>
                     <StatusBadge>{{ label(entry.role, workItemResponsibilityRoleLabels) }}</StatusBadge>
                   </article>
@@ -383,7 +383,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
               />
 
               <section class="detail-card fleet-card">
-                <div class="section-heading"><div><h3>Runtime 状态</h3></div><ServerCog :size="17" /></div>
+                <div class="section-heading"><div><h3>Runtime 状态</h3></div><ServerCog :size="16" /></div>
                 <StatePanel v-if="fleetPhase === 'loading' || fleetPhase === 'idle'" state="loading" title="正在读取 Runtime 健康" />
                 <StatePanel v-else-if="fleetPhase === 'error' && !fleet" state="error" :description="fleetErrorMessage ?? undefined" @retry="onRetryFleet" />
                 <template v-else-if="fleet">
@@ -391,7 +391,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
                     <div><StatusBadge :tone="factTone(fleet.health)" dot>{{ label(fleet.health, runtimeFleetHealthLabels) }}</StatusBadge><small>{{ fleet.environment }}</small></div>
                     <strong>{{ fleet.capacity.available }}<span>/ {{ fleet.capacity.maximum }} 可用</span></strong>
                   </div>
-                  <div v-if="fleet.staleWorkerCount > 0" class="runtime-alert" role="status"><TriangleAlert :size="15" /><span><strong>{{ fleet.staleWorkerCount }} 个 Worker 失联</strong>Fleet 已降级，当前 attempt 可能进入恢复或等待。</span></div>
+                  <div v-if="fleet.staleWorkerCount > 0" class="runtime-alert" role="status"><TriangleAlert :size="14" /><span><strong>{{ fleet.staleWorkerCount }} 个 Worker 失联</strong>Fleet 已降级，当前 attempt 可能进入恢复或等待。</span></div>
                   <dl class="compact-facts">
                     <div><dt>活跃 Worker</dt><dd>{{ fleet.activeWorkerCount }} / {{ fleet.workerCount }}</dd></div>
                     <div><dt>执行中容量</dt><dd>{{ fleet.capacity.active }}</dd></div>
@@ -399,14 +399,14 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
                     <div><dt>观测时间</dt><dd>{{ displayDate(fleet.observedAt) }}</dd></div>
                   </dl>
                   <div v-if="fleet.waitingCauses.length" class="wait-causes"><span v-for="cause in fleet.waitingCauses" :key="cause.cause">{{ label(cause.cause, runtimeWaitCauseLabels) }} · {{ cause.count }}</span></div>
-                  <p v-if="fleetErrorMessage" class="inline-error">{{ fleetErrorMessage }} <button type="button" @click="onRetryFleet"><RefreshCw :size="11" />刷新</button></p>
+                  <p v-if="fleetErrorMessage" class="inline-error">{{ fleetErrorMessage }} <button type="button" @click="onRetryFleet"><RefreshCw :size="12" />刷新</button></p>
                 </template>
               </section>
             </section>
 
             <section id="ws-discussion" class="workspace-section" tabindex="-1" aria-label="讨论">
               <section v-if="associationPhase !== 'empty'" class="detail-card associations-card">
-                <div class="section-heading"><div><h3>关联对话</h3></div><MessageSquare :size="17" /></div>
+                <div class="section-heading"><div><h3>关联对话</h3></div><MessageSquare :size="16" /></div>
                 <StatePanel v-if="associationPhase === 'loading' || associationPhase === 'idle'" state="loading" title="正在读取关联对象" />
                 <StatePanel v-else-if="associationPhase === 'error' && !associations" state="error" :description="associationErrorMessage ?? undefined" @retry="onRetryAssociations" />
                 <template v-else-if="associations">
@@ -422,7 +422,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
                     </button>
                   </div>
                   <p v-else class="empty-note">这个 Task 没有当前成员可见的关联 Conversation。</p>
-                  <p v-if="associationErrorMessage" class="inline-error">{{ associationErrorMessage }} <button type="button" @click="onRetryAssociations"><RefreshCw :size="11" />刷新</button></p>
+                  <p v-if="associationErrorMessage" class="inline-error">{{ associationErrorMessage }} <button type="button" @click="onRetryAssociations"><RefreshCw :size="12" />刷新</button></p>
                 </template>
               </section>
             </section>
@@ -439,7 +439,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
                 </div>
                 <div class="execution-id-card__actions">
                   <BaseButton size="small" variant="ghost" :disabled="!selectedExecutionId" :aria-describedby="selectedExecutionId ? undefined : 'execution-id-absent-hint'" @click="copyExecutionId">{{ copiedExecutionId ? '已复制' : '复制 ID' }}</BaseButton>
-                  <BaseButton size="small" variant="secondary" :disabled="!selectedExecutionId" :aria-describedby="selectedExecutionId ? undefined : 'execution-id-absent-hint'" @click="onDistillExecution"><Sparkles :size="13" />蒸馏为知识</BaseButton>
+                  <BaseButton size="small" variant="secondary" :disabled="!selectedExecutionId" :aria-describedby="selectedExecutionId ? undefined : 'execution-id-absent-hint'" @click="onDistillExecution"><Sparkles :size="14" />蒸馏为知识</BaseButton>
                 </div>
               </section>
               <TaskControlPanel
@@ -590,7 +590,7 @@ function locateReviewFinding(location: ReviewFindingEvidence): void {
 
     <template #footer>
       <div class="task-detail-footer">
-        <span><Clock3 :size="13" />详情来自耐久 Task Runtime 公开投影</span>
+        <span><Clock3 :size="14" />详情来自耐久 Task Runtime 公开投影</span>
         <!-- M12b-F01 主操作层级：footer 唯一动作升为主 CTA，不再与周围说明文字等权。 -->
         <BaseButton size="small" @click="$emit('openWorkItem')">查看工作项</BaseButton>
       </div>

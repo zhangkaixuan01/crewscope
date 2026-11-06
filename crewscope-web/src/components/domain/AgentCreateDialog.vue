@@ -130,7 +130,7 @@ function submit(): void {
         <legend>Agent Template</legend>
         <label v-for="template in visibleTemplates" :key="coordinate(template)" :class="{ active: templateCoordinate === coordinate(template) }">
           <input v-model="templateCoordinate" type="radio" :value="coordinate(template)" />
-          <Code2 :size="19" aria-hidden="true" />
+          <Code2 :size="18" aria-hidden="true" />
           <span><strong>{{ templateLabel(template) }}</strong><small class="mono">{{ template.key }}@{{ template.version }}</small><small>{{ publisherLabel(template.publisherType) }}发布</small><small>{{ template.declaredCapabilities.join(' · ') || '固定受控能力' }}</small></span>
         </label>
       </fieldset>
@@ -142,7 +142,7 @@ function submit(): void {
       </label>
 
       <section v-if="selectedTemplate" class="template-boundary" aria-label="Template 安全边界">
-        <ShieldCheck :size="17" aria-hidden="true" />
+        <ShieldCheck :size="16" aria-hidden="true" />
         <div><strong>固定边界</strong><span>需要模型能力：{{ selectedTemplate.requiredModelCapabilities.join('、') || '无额外要求' }}。System Prompt、Tool 和 Structured Output Schema 不由浏览器提交。</span></div>
       </section>
       <p v-if="errorMessage" class="command-error" role="alert">{{ errorMessage }}</p>

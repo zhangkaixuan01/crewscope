@@ -58,7 +58,7 @@ const toneByState: Record<WorkspaceAction['state'], 'neutral' | 'warning' | 'dan
         class="workspace-action__link"
         :href="`#${action.anchor}`"
         @click.prevent="emit('locate', action.anchor!)"
-      >前往{{ action.anchor === 'ws-review' ? '审查与交付' : '执行控制' }}<ChevronRight :size="13" aria-hidden="true" /></a>
+      >前往{{ action.anchor === 'ws-review' ? '审查与交付' : '执行控制' }}<ChevronRight :size="14" aria-hidden="true" /></a>
     </div>
   </section>
 </template>

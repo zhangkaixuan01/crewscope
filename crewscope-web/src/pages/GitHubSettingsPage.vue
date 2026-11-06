@@ -585,7 +585,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
     <StatePanel v-else-if="!canManage" state="forbidden" title="需要 Provider 管理权限" description="只有具备 Provider 管理权限的成员可以查看和创建 GitHub Connection。"><template #action><BaseButton variant="secondary" size="small" @click="router.push({ name: 'access-denied', query: { requiredPermission: permissions.providerManage } })">查看权限说明</BaseButton></template></StatePanel>
     <div v-else class="github-page page-shell">
       <StatePanel v-if="errorMessage" state="error" compact :description="errorMessage" @retry="loadConnections" />
-      <p v-if="successMessage" class="command-message" role="status"><CheckCircle2 :size="15" />{{ successMessage }}</p>
+      <p v-if="successMessage" class="command-message" role="status"><CheckCircle2 :size="14" />{{ successMessage }}</p>
 
       <section v-if="formOpen" class="panel connection-form-panel">
         <div class="panel-heading"><div><h2>创建 GitHub Connection</h2><p>Token 仅随本次请求发送，服务端只保存安全凭证引用和授权投影。</p></div></div>
@@ -613,7 +613,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
             </label>
           </details>
           <p class="form-hint"><ShieldCheck :size="14" />{{ isTeamConnection ? '团队 App Connection 将以当前 Team 身份执行。' : '个人 OAuth Connection 仅用于当前成员授权的个人任务。' }}</p>
-          <div class="form-actions"><BaseButton type="button" variant="secondary" :disabled="submitting" @click="closeForm">取消</BaseButton><BaseButton type="submit" :loading="submitting"><Plus :size="15" />创建</BaseButton></div>
+          <div class="form-actions"><BaseButton type="button" variant="secondary" :disabled="submitting" @click="closeForm">取消</BaseButton><BaseButton type="submit" :loading="submitting"><Plus :size="14" />创建</BaseButton></div>
           <p v-if="formError && !submitting" class="field-message error" role="alert"><TriangleAlert :size="14" />{{ formError }}</p>
         </form>
       </section>
@@ -625,7 +625,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
                原生 button；选中态补 aria-pressed，不再只靠视觉 class。 -->
         <ul v-else class="connection-list" aria-label="GitHub Connection 列表">
           <li v-for="connection in connections" :key="connection.id"><button class="connection-card" :class="{ selected: selectedId === connection.id }" type="button" :aria-pressed="selectedId === connection.id" @click="selectConnection(connection.id)">
-            <span class="connection-card__icon"><KeyRound :size="17" /></span><span class="connection-card__body"><strong>{{ connection.externalAccountLogin || 'GitHub account' }}</strong><small>{{ connectionIdentity(connection) }} · {{ connection.id.slice(0, 8) }}</small></span><StatusBadge :tone="statusTone(connection.status)" dot>{{ label(connection.status, providerConnectionStatusLabels) }}</StatusBadge>
+            <span class="connection-card__icon"><KeyRound :size="16" /></span><span class="connection-card__body"><strong>{{ connection.externalAccountLogin || 'GitHub account' }}</strong><small>{{ connectionIdentity(connection) }} · {{ connection.id.slice(0, 8) }}</small></span><StatusBadge :tone="statusTone(connection.status)" dot>{{ label(connection.status, providerConnectionStatusLabels) }}</StatusBadge>
           </button></li>
         </ul>
       </section>
@@ -639,7 +639,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
         <p id="github-binding-reason" class="sr-only">{{ bindingMissingReason }}</p>
         <StatePanel v-if="loadingDetail" state="loading" compact title="正在读取 Connection 事实" />
         <StatePanel v-else-if="repositories.length === 0" state="empty" compact title="暂无可访问仓库" description="检查 Token 权限和 Repository Allowlist 后重新同步。"><template #action><BaseButton variant="secondary" size="small" :loading="syncing" :disabled="!online" @click="synchronize">重新同步 Catalog</BaseButton></template></StatePanel>
-        <ul v-else class="repository-list"><li v-for="repository in repositories" :key="repository.externalRepositoryId"><Link2 :size="15" /><span><strong>{{ repository.fullName }}</strong><small>{{ label(repository.visibility, repositoryVisibilityLabels) }} · 默认分支 {{ repository.defaultBranch }}</small></span><BaseButton v-if="selectedConnection.ownerType === 'TEAM' && scopeStore.state.selectedProjectId" variant="secondary" size="small" :disabled="!online || !bindings.some(binding => binding.status === 'ACTIVE' && binding.grantId)" :aria-describedby="bindingMissingReason ? 'github-binding-reason' : undefined" @click="openImport(repository)"><UploadCloud :size="13" />导入</BaseButton></li></ul>
+        <ul v-else class="repository-list"><li v-for="repository in repositories" :key="repository.externalRepositoryId"><Link2 :size="14" /><span><strong>{{ repository.fullName }}</strong><small>{{ label(repository.visibility, repositoryVisibilityLabels) }} · 默认分支 {{ repository.defaultBranch }}</small></span><BaseButton v-if="selectedConnection.ownerType === 'TEAM' && scopeStore.state.selectedProjectId" variant="secondary" size="small" :disabled="!online || !bindings.some(binding => binding.status === 'ACTIVE' && binding.grantId)" :aria-describedby="bindingMissingReason ? 'github-binding-reason' : undefined" @click="openImport(repository)"><UploadCloud :size="14" />导入</BaseButton></li></ul>
         <section v-if="importRepository" class="import-panel" aria-labelledby="import-title">
           <div><h3 id="import-title">导入 {{ importRepository.fullName }}</h3><p>导入到当前 WorkProject：{{ selectedProjectName }}。</p></div>
           <label>受管仓库代号

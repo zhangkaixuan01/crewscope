@@ -44,7 +44,7 @@ function tone(status: TaskExecution['status']): 'success' | 'warning' | 'danger'
     <p class="execution-selector__heading">执行选择</p>
 
     <div v-if="conflict" class="execution-conflict" role="alert">
-      <TriangleAlert :size="15" aria-hidden="true" />
+      <TriangleAlert :size="14" aria-hidden="true" />
       <div>
         <strong>执行坐标冲突</strong>
         <span>taskExecution={{ shortId(conflict.unified) }} 与 attempt={{ shortId(conflict.alias) }} 指向不同执行。写动作已禁止，请选择要用的一侧；选择会改写为统一参数并清除另一侧。</span>

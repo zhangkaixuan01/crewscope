@@ -189,16 +189,16 @@ function formatDate(value: string): string {
     </div>
 
     <form v-if="createOpen" class="invitation-form" @submit.prevent="createInvitation">
-      <div class="invitation-form__title"><span><Mail :size="17" /></span><div><h3>创建一次性邀请</h3><p>邮箱留空时，任何获得链接的账号都可以接受。</p></div><button type="button" aria-label="关闭创建邀请" :disabled="commandPending" @click="closeCreate()"><X :size="16" /></button></div>
+      <div class="invitation-form__title"><span><Mail :size="16" /></span><div><h3>创建一次性邀请</h3><p>邮箱留空时，任何获得链接的账号都可以接受。</p></div><button type="button" aria-label="关闭创建邀请" :disabled="commandPending" @click="closeCreate()"><X :size="16" /></button></div>
       <label>目标邮箱（可选）<input ref="emailInput" v-model="targetEmail" name="invitationEmail" type="email" autocomplete="off" maxlength="254" :disabled="commandPending" placeholder="member@example.com"></label>
       <label>加入角色<BaseSelect v-model="targetRole" name="invitationRole" :disabled="commandPending"><option value="MEMBER">Member</option><option value="TEAM_LEAD">Team Lead</option><option value="TEAM_ADMIN">Team Admin</option><option value="AUDITOR">Auditor</option></BaseSelect></label>
       <label>有效期<BaseSelect v-model="expiresInMinutes" name="invitationExpiry" :disabled="commandPending"><option :value="1_440">1 天</option><option :value="10_080">7 天</option><option :value="20_160">14 天</option><option :value="43_200">30 天</option></BaseSelect></label>
       <div class="invitation-form__actions"><BaseButton type="submit" :loading="commandPending && store.state.commandKind === 'create'" :disabled="!online">创建邀请链接</BaseButton><BaseButton variant="ghost" :disabled="commandPending" @click="closeCreate()">取消</BaseButton></div>
 
       <div v-if="shareLink" class="one-time-link" role="status">
-        <div><Link2 :size="17" /><span><strong>一次性链接已生成</strong><small>离开或关闭后无法再次查看，请立即复制。</small></span></div>
+        <div><Link2 :size="16" /><span><strong>一次性链接已生成</strong><small>离开或关闭后无法再次查看，请立即复制。</small></span></div>
         <input ref="shareInput" :value="shareLink" readonly aria-label="一次性邀请链接" @focus="($event.target as HTMLInputElement).select()">
-        <BaseButton type="button" variant="secondary" @click="copyLink"><template #icon><Check v-if="copyState === 'copied'" :size="15" /><Clipboard v-else :size="15" /></template>{{ copyState === 'copied' ? '已复制' : '复制链接' }}</BaseButton>
+        <BaseButton type="button" variant="secondary" @click="copyLink"><template #icon><Check v-if="copyState === 'copied'" :size="14" /><Clipboard v-else :size="14" /></template>{{ copyState === 'copied' ? '已复制' : '复制链接' }}</BaseButton>
       </div>
     </form>
 
@@ -209,14 +209,14 @@ function formatDate(value: string): string {
       <li v-for="invitation in store.state.items" :key="invitation.id" class="invitation-row">
         <span class="invitation-row__icon"><Mail :size="16" /></span>
         <div class="invitation-row__identity"><strong>{{ invitation.targetEmail ?? '不限邮箱' }}</strong><small>{{ roleLabel(invitation.targetRole) }} · 创建于 {{ formatDate(invitation.createdAt) }}</small></div>
-        <div class="invitation-row__expiry"><Clock3 :size="13" /><span>{{ invitation.status === 'PENDING' ? `有效至 ${formatDate(invitation.expiresAt)}` : invitation.resolvedAt ? formatDate(invitation.resolvedAt) : '已结束' }}</span></div>
+        <div class="invitation-row__expiry"><Clock3 :size="14" /><span>{{ invitation.status === 'PENDING' ? `有效至 ${formatDate(invitation.expiresAt)}` : invitation.resolvedAt ? formatDate(invitation.resolvedAt) : '已结束' }}</span></div>
         <StatusBadge :tone="statusTone(invitation.status)" dot>{{ statusLabel(invitation.status) }}</StatusBadge>
         <BaseButton v-if="invitation.status === 'PENDING'" variant="ghost" size="small" :disabled="!online" @click="openRevoke(invitation)">撤销</BaseButton>
       </li>
       <BaseButton v-if="store.state.nextCursor" class="load-more" variant="secondary" :loading="store.state.managementPhase === 'loading'" @click="store.loadManagement(organizationId, teamId, true)">加载更多</BaseButton>
     </ul>
 
-    <footer class="invitation-manager__note"><ShieldCheck :size="15" /><span>邀请链接只显示一次；列表和日志不保存明文 Token。</span></footer>
+    <footer class="invitation-manager__note"><ShieldCheck :size="14" /><span>邀请链接只显示一次；列表和日志不保存明文 Token。</span></footer>
 
     <BaseDialog
       :open="revokeTarget !== null"

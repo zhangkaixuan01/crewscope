@@ -71,7 +71,7 @@ const retryWired = computed(() => {
 
 <template>
   <section class="state-panel" :class="{ compact }" :aria-busy="busy" :aria-live="assertive ? 'assertive' : 'polite'" aria-atomic="true" :role="assertive ? 'alert' : 'status'">
-    <component :is="presentation.icon" :class="{ spinning: state === 'loading' || state === 'reconnecting' || state === 'recovering' }" :size="22" aria-hidden="true" />
+    <component :is="presentation.icon" :class="{ spinning: state === 'loading' || state === 'reconnecting' || state === 'recovering' }" :size="20" aria-hidden="true" />
     <div>
       <!-- M13b-F12（二轮 A16）：标题层级交给调用面——默认 h2（页面 h1 → 面板 h2 顺层），
            嵌套在 h2 分区里的面板传 heading-level=3 维持层级。此前固定 h3，全站 h1 直接跳 h3。 -->

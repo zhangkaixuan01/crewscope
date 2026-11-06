@@ -405,15 +405,15 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
     close-label="关闭交给 Agent 对话框"
     @close="requestClose"
   >
-    <template #icon><Bot :size="19" /></template>
+    <template #icon><Bot :size="18" /></template>
     <form :id="formId" class="delegate-form" @submit.prevent="submit">
-      <div v-if="contextPhase === 'loading'" class="context-state" role="status" aria-live="polite"><RefreshCw class="spin" :size="15" />正在读取责任链、候选 Agent 与项目默认值…</div>
-      <div v-else-if="contextPhase === 'error'" class="context-state error" role="alert"><TriangleAlert :size="15" /><span>{{ contextError ?? '暂时无法读取委托上下文' }}</span><BaseButton type="button" size="small" variant="secondary" :disabled="submitting || retryable" @click="taskStore.loadDelegationContext(codingScope.projectId, workItem.id, true)">重试</BaseButton></div>
+      <div v-if="contextPhase === 'loading'" class="context-state" role="status" aria-live="polite"><RefreshCw class="spin" :size="14" />正在读取责任链、候选 Agent 与项目默认值…</div>
+      <div v-else-if="contextPhase === 'error'" class="context-state error" role="alert"><TriangleAlert :size="14" /><span>{{ contextError ?? '暂时无法读取委托上下文' }}</span><BaseButton type="button" size="small" variant="secondary" :disabled="submitting || retryable" @click="taskStore.loadDelegationContext(codingScope.projectId, workItem.id, true)">重试</BaseButton></div>
 
       <template v-if="context">
       <p v-if="context.activeExecution" class="active-execution-note" role="note"><Info :size="14" />当前执行仍按原说明继续；补充要求请发布评论，或等本轮完成后开启新一轮。</p>
 
-      <section class="responsibility-preview" aria-label="责任预览"><ShieldCheck :size="17" /><div><strong>Owner · {{ ownerName }}</strong><span>Executor · {{ selectedCandidate?.displayName ?? '请选择执行 Agent' }}；服务端会再次授权。</span></div></section>
+      <section class="responsibility-preview" aria-label="责任预览"><ShieldCheck :size="16" /><div><strong>Owner · {{ ownerName }}</strong><span>Executor · {{ selectedCandidate?.displayName ?? '请选择执行 Agent' }}；服务端会再次授权。</span></div></section>
 
       <fieldset v-if="mode === 'assign-and-start'" class="mode-choice">
         <legend>发送意图</legend>
@@ -438,11 +438,11 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
         </div>
         <div class="agent-meta"><span>{{ selectedCandidate ? ownershipLabel(selectedCandidate) : '—' }}</span><span>{{ selectedCandidate ? stateLabel(selectedCandidate) : '由服务端标注状态' }}</span></div>
         <ul v-if="blockedCandidates.length" class="blocked-candidates" aria-label="暂不可分配的候选">
-          <li v-for="candidate in blockedCandidates" :key="candidate.agentProfileId"><TriangleAlert :size="13" /><span>{{ candidate.displayName }} · {{ stateLabel(candidate) }}{{ candidate.reason ? `——${candidate.reason}` : '' }}</span></li>
+          <li v-for="candidate in blockedCandidates" :key="candidate.agentProfileId"><TriangleAlert :size="14" /><span>{{ candidate.displayName }} · {{ stateLabel(candidate) }}{{ candidate.reason ? `——${candidate.reason}` : '' }}</span></li>
         </ul>
 
         <div v-if="effectiveMode !== 'assign-only'" class="preflight-shell" aria-live="polite" aria-atomic="true">
-          <div v-if="preflightResource?.phase === 'loading'" class="preflight-state"><RefreshCw class="spin" :size="15" aria-hidden="true" /></div>
+          <div v-if="preflightResource?.phase === 'loading'" class="preflight-state"><RefreshCw class="spin" :size="14" aria-hidden="true" /></div>
           <div v-else-if="preflightCurrent && approvedPreflight" class="preflight-card">
             <div class="preflight-header"><div><CheckCircle2 :size="16" /><strong>PolicySnapshot Preflight 通过</strong></div><span :class="approvedPreflight.executionScope.toLowerCase()">{{ enumLabel(approvedPreflight.executionScope, agentExecutionScopeLabels) }}</span></div>
             <dl>
@@ -455,8 +455,8 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
             </dl>
             <p v-if="approvedPreflight.executionScope === 'TEAM'">TEAM 执行只允许 TEAM / ORGANIZATION Connection，USER Key 已在服务端禁用。</p>
           </div>
-          <div v-else-if="preflightResource?.phase === 'error'" class="preflight-state error" role="alert"><TriangleAlert :size="15" /><span>{{ preflightError() }}</span><BaseButton v-if="preflightConfigurable" type="button" size="small" variant="secondary" :disabled="submitting || retryable" @click="goConfigure('model-settings')">去配置模型并返回</BaseButton><BaseButton type="button" size="small" variant="secondary" :disabled="submitting || retryable" @click="runPreflight">重新预检</BaseButton></div>
-          <div v-else class="preflight-state"><ShieldCheck :size="15" />选择 Agent 与配置后执行服务端预检。</div>
+          <div v-else-if="preflightResource?.phase === 'error'" class="preflight-state error" role="alert"><TriangleAlert :size="14" /><span>{{ preflightError() }}</span><BaseButton v-if="preflightConfigurable" type="button" size="small" variant="secondary" :disabled="submitting || retryable" @click="goConfigure('model-settings')">去配置模型并返回</BaseButton><BaseButton type="button" size="small" variant="secondary" :disabled="submitting || retryable" @click="runPreflight">重新预检</BaseButton></div>
+          <div v-else class="preflight-state"><ShieldCheck :size="14" />选择 Agent 与配置后执行服务端预检。</div>
         </div>
       </section>
 
@@ -477,7 +477,7 @@ function goConfigure(target: 'model-settings' | 'repository-settings'): void {
           <li>{{ assignsResponsibility ? `责任：把 ${selectedCandidate?.displayName ?? '所选 Agent'} 记为 EXECUTOR` : '责任：沿用当前责任链，不新增分配' }}</li>
           <li v-if="effectiveMode !== 'assign-only'">启动：一次可审计执行（{{ codingIntentLine }}）</li>
           <li v-else>启动：本次不启动任何执行</li>
-          <li v-for="gap in defaultGaps" :key="gap" class="gap"><TriangleAlert :size="13" />{{ gap }}</li>
+          <li v-for="gap in defaultGaps" :key="gap" class="gap"><TriangleAlert :size="14" />{{ gap }}</li>
           <li v-if="defaultGaps.length" class="gap gap-action"><BaseButton type="button" size="small" variant="secondary" :disabled="submitting || retryable" @click="goConfigure('repository-settings')">去补配执行默认值并返回</BaseButton></li>
         </ul>
       </section>

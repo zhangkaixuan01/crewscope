@@ -217,7 +217,7 @@ function canonicalPath(path: string): boolean {
 <template>
   <section class="coding-target" :class="{ disabled: !form.enabled }" aria-labelledby="coding-target-title">
     <div class="coding-header">
-      <span><Code2 :size="17" aria-hidden="true" /></span>
+      <span><Code2 :size="16" aria-hidden="true" /></span>
       <div><strong id="coding-target-title">Coding Agent</strong><small>在受管 Worktree 与 Sandbox 中执行代码任务</small></div>
       <label class="coding-switch"><input v-model="form.enabled" type="checkbox" :disabled="disabled"><span>{{ form.enabled ? '已启用' : '通用任务' }}</span></label>
     </div>

@@ -191,8 +191,8 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
         </div>
       </section>
 
-      <div v-if="phase === 'error'" class="inline-warning" role="status"><CircleAlert :size="15" />刷新失败，保留上次健康事实。{{ error?.message }}</div>
-      <div v-if="!online" class="inline-warning" role="status"><CircleAlert :size="15" />离线期间保留当前摘要，并暂停自动刷新与管理命令。</div>
+      <div v-if="phase === 'error'" class="inline-warning" role="status"><CircleAlert :size="14" />刷新失败，保留上次健康事实。{{ error?.message }}</div>
+      <div v-if="!online" class="inline-warning" role="status"><CircleAlert :size="14" />离线期间保留当前摘要，并暂停自动刷新与管理命令。</div>
 
       <section class="health-grid" aria-label="运行组件健康摘要">
         <article v-for="component in summary.components" :key="component.component" class="health-card">
@@ -211,11 +211,11 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
     <section class="evidence-panel" aria-labelledby="evidence-heading">
       <header><div><h2 id="evidence-heading">一键演示证据入口</h2></div><span>入口集合 · 不代替验收结论</span></header>
       <nav class="evidence-links" aria-label="MVP 演示证据">
-        <RouterLink :to="{ name: 'activity', query: $route.query }"><Activity :size="17" /><span>Team Activity</span></RouterLink>
-        <RouterLink :to="{ name: 'inbox', query: $route.query }"><Inbox :size="17" /><span>我的 Inbox</span></RouterLink>
-        <RouterLink :to="{ name: 'team-observer', query: $route.query }"><Gauge :size="17" /><span>Team Observer</span></RouterLink>
-        <RouterLink v-if="canManage" :to="{ name: 'audit', query: $route.query }"><ShieldCheck :size="17" /><span>审计中心</span></RouterLink>
-        <RouterLink v-if="canManage" :to="{ name: 'lark-settings', query: $route.query }"><Send :size="17" /><span>飞书与通知</span></RouterLink>
+        <RouterLink :to="{ name: 'activity', query: $route.query }"><Activity :size="16" /><span>Team Activity</span></RouterLink>
+        <RouterLink :to="{ name: 'inbox', query: $route.query }"><Inbox :size="16" /><span>我的 Inbox</span></RouterLink>
+        <RouterLink :to="{ name: 'team-observer', query: $route.query }"><Gauge :size="16" /><span>Team Observer</span></RouterLink>
+        <RouterLink v-if="canManage" :to="{ name: 'audit', query: $route.query }"><ShieldCheck :size="16" /><span>审计中心</span></RouterLink>
+        <RouterLink v-if="canManage" :to="{ name: 'lark-settings', query: $route.query }"><Send :size="16" /><span>飞书与通知</span></RouterLink>
       </nav>
     </section>
 
@@ -223,7 +223,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
       <header><div><h2 id="admin-heading">Projection 与恢复管理</h2></div><StatusBadge tone="warning">强确认</StatusBadge></header>
       <StatePanel v-if="diagnosticsPhase === 'loading' && !diagnostics" state="loading" title="正在读取管理员诊断" />
       <StatePanel v-else-if="diagnosticsPhase === 'error' && !diagnostics" state="error" title="管理员诊断暂时不可用" :description="diagnosticsError?.message" @retry="emit('refresh')" />
-      <div v-if="diagnosticsPhase === 'error' && diagnostics" class="inline-warning" role="status"><CircleAlert :size="15" />诊断刷新失败，管理命令已禁用，请先重新加载。</div>
+      <div v-if="diagnosticsPhase === 'error' && diagnostics" class="inline-warning" role="status"><CircleAlert :size="14" />诊断刷新失败，管理命令已禁用，请先重新加载。</div>
 
       <div v-if="diagnostics" class="projection-list">
         <article v-for="projection in diagnostics.projections" :key="projection.projectionName" class="projection-card">
@@ -236,7 +236,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
           <dl class="projection-metrics"><div><dt>Gap</dt><dd>{{ projection.gapCount }}</dd></div><div><dt>Dead Letter</dt><dd>{{ projection.deadLetterCount }}</dd></div><div><dt>Failure</dt><dd>{{ projection.latestFailureCode ?? '—' }}</dd></div><div><dt>Job</dt><dd>{{ projection.rebuildJobId ? short(projection.rebuildJobId) : '—' }}</dd></div></dl>
           <div class="projection-actions">
             <p :id="`projection-reason-${projection.projectionName}`" class="sr-only">{{ projectionCommandReason(projection) }}</p>
-            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error' || projection.shadowGeneration != null" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'start')"><RotateCcw :size="13" />影子重建</BaseButton>
+            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error' || projection.shadowGeneration != null" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'start')"><RotateCcw :size="14" />影子重建</BaseButton>
             <BaseButton v-if="projection.validateConfirmation" size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'validate')">验证</BaseButton>
             <BaseButton v-if="projection.switchConfirmation" size="small" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'switch')">切换</BaseButton>
             <BaseButton v-if="projection.cancelConfirmation" size="small" variant="ghost" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`projection-reason-${projection.projectionName}`" @click="openProjection(projection, 'cancel')">取消</BaseButton>
@@ -247,11 +247,11 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
       </div>
 
       <div v-if="diagnostics" class="recovery-section">
-        <header><div><Siren :size="17" /><strong>Dead Letter 与恢复候选</strong></div><span>{{ diagnostics.recoveryCandidates.length }} 个</span></header>
+        <header><div><Siren :size="16" /><strong>Dead Letter 与恢复候选</strong></div><span>{{ diagnostics.recoveryCandidates.length }} 个</span></header>
         <ul v-if="diagnostics.recoveryCandidates.length">
           <li v-for="candidate in diagnostics.recoveryCandidates" :key="candidate.referenceHash">
             <div><strong>{{ actionLabels[candidate.action] }}</strong><small>{{ enumLabel(candidate.type, recoveryCandidateTypeLabels) }} · {{ short(candidate.referenceHash) }}</small></div>
-            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`recovery-reason-${candidate.referenceHash}`" @click="openRecovery(candidate)"><History :size="13" />执行恢复</BaseButton>
+            <BaseButton size="small" variant="secondary" :disabled="!online || commandPending || diagnosticsPhase === 'error'" :aria-describedby="`recovery-reason-${candidate.referenceHash}`" @click="openRecovery(candidate)"><History :size="14" />执行恢复</BaseButton>
             <p :id="`recovery-reason-${candidate.referenceHash}`" class="sr-only">{{ diagnosticsBlockedReason }}</p>
           </li>
         </ul>
@@ -260,7 +260,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
     </section>
 
     <section v-if="command.phase !== 'idle' && !pending" class="command-result" :class="command.phase" aria-live="polite">
-      <div><CheckCircle2 v-if="command.phase === 'success'" :size="17" /><CircleAlert v-else :size="17" /><strong>{{ command.phase === 'success' ? '命令已接受' : command.phase === 'conflict' ? '版本已变化' : '命令执行失败' }}</strong></div>
+      <div><CheckCircle2 v-if="command.phase === 'success'" :size="16" /><CircleAlert v-else :size="16" /><strong>{{ command.phase === 'success' ? '命令已接受' : command.phase === 'conflict' ? '版本已变化' : '命令执行失败' }}</strong></div>
       <p v-if="command.phase === 'success'">Command {{ receiptId() ? short(receiptId()!) : '—' }}。已回读权威健康与诊断；不会自动重放。</p>
       <p v-else>{{ command.error?.message }}<template v-if="command.error?.currentVersion != null"> · 服务端版本 v{{ command.error.currentVersion }}</template></p>
       <BaseButton size="small" variant="ghost" @click="emit('clearCommand')">关闭</BaseButton>

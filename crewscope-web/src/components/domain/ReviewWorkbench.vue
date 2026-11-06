@@ -260,7 +260,7 @@ function label(value: string | null | undefined, labels: Record<string, string>)
           :loading="command.phase === 'pending' && command.operation === 'create'"
           @click="onCreate"
         >
-          <Bot :size="13" aria-hidden="true" />发起审查
+          <Bot :size="14" aria-hidden="true" />发起审查
         </BaseButton>
       </template>
     </StatePanel>
@@ -346,7 +346,7 @@ function label(value: string | null | undefined, labels: Record<string, string>)
               <div class="finding-fix"><strong>建议修复</strong><span>{{ finding.suggestedFix }}</span></div>
               <div class="finding-locations" aria-label="Finding 证据位置">
                 <button v-for="evidence in finding.evidence" :key="`${evidence.path}:${evidence.startLine}:${evidence.endLine}`" type="button" @click="emit('locate', evidence)">
-                  <FileDiff :size="11" /><span>{{ evidence.path }}</span><b>L{{ evidence.startLine }}–{{ evidence.endLine }}</b><small>验收 #{{ evidence.acceptanceCriterionIndex + 1 }}</small>
+                  <FileDiff :size="12" /><span>{{ evidence.path }}</span><b>L{{ evidence.startLine }}–{{ evidence.endLine }}</b><small>验收 #{{ evidence.acceptanceCriterionIndex + 1 }}</small>
                 </button>
               </div>
             </article>
@@ -362,8 +362,8 @@ function label(value: string | null | undefined, labels: Record<string, string>)
               <p v-if="!canGate" id="review-gate-eligibility">当前成员不持有可用于 Gate 的 Active USER Reviewer 责任；最终 Eligibility 由服务端复验。</p>
               <p v-else>成员结论与 Agent Advisory 分开记录，提交时重新验证职责分离和 Reviewer Eligibility。</p>
             </div>
-            <BaseButton v-if="['OPEN', 'IN_PROGRESS'].includes(detail.status)" size="small" :disabled="!canExecute" :aria-describedby="busyGateReason ? 'review-busy-reason' : undefined" :loading="command.phase === 'pending' && command.operation === 'execute'" @click="onExecute"><Bot :size="13" />{{ detail.status === 'IN_PROGRESS' ? '恢复 Reviewer' : '运行 Reviewer' }}</BaseButton>
-            <BaseButton v-if="detail.status === 'COMPLETED' && !terminalDecision" size="small" variant="secondary" :disabled="!canSubmitGate" :aria-describedby="canGate ? (busyGateReason ? 'review-busy-reason' : undefined) : 'review-gate-eligibility'" @click="openDecision"><ShieldCheck :size="13" />提交成员结论</BaseButton>
+            <BaseButton v-if="['OPEN', 'IN_PROGRESS'].includes(detail.status)" size="small" :disabled="!canExecute" :aria-describedby="busyGateReason ? 'review-busy-reason' : undefined" :loading="command.phase === 'pending' && command.operation === 'execute'" @click="onExecute"><Bot :size="14" />{{ detail.status === 'IN_PROGRESS' ? '恢复 Reviewer' : '运行 Reviewer' }}</BaseButton>
+            <BaseButton v-if="detail.status === 'COMPLETED' && !terminalDecision" size="small" variant="secondary" :disabled="!canSubmitGate" :aria-describedby="canGate ? (busyGateReason ? 'review-busy-reason' : undefined) : 'review-gate-eligibility'" @click="openDecision"><ShieldCheck :size="14" />提交成员结论</BaseButton>
             <p id="review-busy-reason" class="sr-only">{{ busyGateReason }}</p>
           </div>
           <ol v-if="detail.decisions.length" class="decision-history">

@@ -17,24 +17,24 @@ import crewScopeMark from '../../design/crewscope-mark.svg'
 
       <div class="auth-crew-map" aria-hidden="true">
         <div class="auth-crew-map__node">
-          <UserRound :size="17" aria-hidden="true" />
+          <UserRound :size="16" aria-hidden="true" />
           <span>你<small>最终责任人</small></span>
         </div>
         <span class="auth-crew-map__line" aria-hidden="true" />
         <div class="auth-crew-map__node auth-crew-map__node--agent">
-          <Bot :size="17" aria-hidden="true" />
+          <Bot :size="16" aria-hidden="true" />
           <span>Personal Agent<small>理解并执行</small></span>
         </div>
         <span class="auth-crew-map__line" aria-hidden="true" />
         <div class="auth-crew-map__node">
-          <UsersRound :size="17" aria-hidden="true" />
+          <UsersRound :size="16" aria-hidden="true" />
           <span>你的团队<small>协作与 Review</small></span>
         </div>
       </div>
     </div>
 
     <ul class="auth-brand-panel__proof">
-      <li><ShieldCheck :size="15" aria-hidden="true" />服务端 Session 与完整审计</li>
+      <li><ShieldCheck :size="14" aria-hidden="true" />服务端 Session 与完整审计</li>
     </ul>
   </aside>
 </template>

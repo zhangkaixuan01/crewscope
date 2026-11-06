@@ -353,16 +353,16 @@ function bindingLabel(binding: BindingView): string {
 
       <section class="agent-entry-grid" aria-label="Agent 类型入口">
         <article class="agent-entry agent-entry--personal">
-          <span class="agent-entry__icon"><UserRound :size="21" aria-hidden="true" /></span>
+          <span class="agent-entry__icon"><UserRound :size="20" aria-hidden="true" /></span>
           <div><h2>个人 Agent</h2></div>
           <strong>{{ personalAgents.length + specialistAgents.length }} 个</strong>
-          <footer><a class="touch-target" href="#personal-agent-directory">查看个人 Agent</a><BaseButton class="entry-create" size="small" variant="ghost" @click="openCreate($event, 'USER')"><Plus :size="13" />创建个人 Agent</BaseButton></footer>
+          <footer><a class="touch-target" href="#personal-agent-directory">查看个人 Agent</a><BaseButton class="entry-create" size="small" variant="ghost" @click="openCreate($event, 'USER')"><Plus :size="14" />创建个人 Agent</BaseButton></footer>
         </article>
         <article class="agent-entry agent-entry--team">
-          <span class="agent-entry__icon"><Building2 :size="21" aria-hidden="true" /></span>
+          <span class="agent-entry__icon"><Building2 :size="20" aria-hidden="true" /></span>
           <div><h2>团队 Agent</h2></div>
           <strong>{{ teamAgents.length }} 个</strong>
-          <footer><a class="touch-target" href="#team-agent-directory">查看团队 Agent</a><BaseButton v-if="canManageTeamAgents" class="entry-create" size="small" variant="ghost" @click="openCreate($event, 'TEAM')"><Plus :size="13" />创建团队 Agent</BaseButton></footer>
+          <footer><a class="touch-target" href="#team-agent-directory">查看团队 Agent</a><BaseButton v-if="canManageTeamAgents" class="entry-create" size="small" variant="ghost" @click="openCreate($event, 'TEAM')"><Plus :size="14" />创建团队 Agent</BaseButton></footer>
         </article>
       </section>
 
@@ -391,7 +391,7 @@ function bindingLabel(binding: BindingView): string {
         <header class="panel-heading">
           <div><p class="eyebrow">{{ group.agents.length }} 个</p><h2 :id="`agent-group-${group.key}`">{{ group.title }}</h2><p>{{ group.description }}</p></div>
           <div v-if="group.key === 'team'" class="team-agent-actions">
-            <RouterLink class="touch-target" :to="teamAgentWorkTarget">前往 Work 分配<ArrowRight :size="13" /></RouterLink>
+            <RouterLink class="touch-target" :to="teamAgentWorkTarget">前往 Work 分配<ArrowRight :size="14" /></RouterLink>
           </div>
         </header>
         <div v-if="group.agents.length === 0" class="agent-group-empty" role="status">
@@ -411,7 +411,7 @@ function bindingLabel(binding: BindingView): string {
               :aria-label="`${agent.displayName}，${statusLabel(agent)}`"
             >
               <div class="agent-card__heading">
-                <span class="agent-avatar"><Bot v-if="agent.defaultProfile" :size="21" /><Cpu v-else-if="agent.runtimeRole === 'CODING'" :size="21" /><Boxes v-else :size="21" /></span>
+                <span class="agent-avatar"><Bot v-if="agent.defaultProfile" :size="20" /><Cpu v-else-if="agent.runtimeRole === 'CODING'" :size="20" /><Boxes v-else :size="20" /></span>
                 <div><h3>{{ agent.displayName }}</h3><p>{{ roleLabel(agent) }}</p></div>
                 <StatusBadge :tone="statusTone(agent)" dot>{{ statusLabel(agent) }}</StatusBadge>
               </div>

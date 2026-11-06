@@ -121,7 +121,7 @@ async function removeRelation(edge: WorkItemRelationEdge): Promise<void> {
 
 <template>
   <section class="detail-section relations-section">
-    <div class="section-heading"><div><h3>阻塞与拆分 <span>{{ edges.length }}</span></h3></div><Network :size="17" /></div>
+    <div class="section-heading"><div><h3>阻塞与拆分 <span>{{ edges.length }}</span></h3></div><Network :size="16" /></div>
     <StatePanel v-if="anchor?.phase === 'loading' && !anchor.relations" state="loading" description="正在加载工作项关系" />
     <p v-else-if="anchor?.phase === 'error'" class="relations-error" role="alert">
       {{ anchor.errorMessage ?? '暂时无法加载工作项关系' }}
@@ -161,7 +161,7 @@ async function removeRelation(edge: WorkItemRelationEdge): Promise<void> {
             <option value="splitFromSource" :disabled="splitSourceTaken">{{ splitSourceTaken ? '本项已有拆分来源' : relationOptionLabels.splitFromSource }}</option>
           </BaseSelect>
         </label>
-        <BaseButton type="submit" size="small" variant="secondary" :loading="pending" :disabled="!selection"><CircleSlash :size="13" />添加关系</BaseButton>
+        <BaseButton type="submit" size="small" variant="secondary" :loading="pending" :disabled="!selection"><CircleSlash :size="14" />添加关系</BaseButton>
       </form>
       <p v-if="commandError" class="relations-error" role="alert">{{ commandError }}</p>
     </template>

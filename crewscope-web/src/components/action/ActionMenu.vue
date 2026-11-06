@@ -58,7 +58,7 @@ function reasonId(action: WorkItemAvailableTransition): string {
         @click="choose(action)"
       >
         <span>{{ confirmingTarget === action.targetStatus ? `再次点击确认${action.label}` : action.label }}</span>
-        <ArrowRight v-if="action.enabled" :size="13" />
+        <ArrowRight v-if="action.enabled" :size="14" />
       </button>
       <p v-if="!action.enabled" :id="reasonId(action)" class="action-menu__reason">
         {{ action.reasonMessage ?? '当前不可执行' }}

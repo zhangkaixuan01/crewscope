@@ -37,7 +37,7 @@ const emit = defineEmits<{ focus: [nodeId: string] }>()
             <span class="graph-hierarchy__title">{{ node.title }}</span>
             <span class="graph-hierarchy__meta">
               <StatusBadge :tone="workItemStatusTone[node.status]" dot>{{ workItemStatusLabels[node.status] }}</StatusBadge>
-              <span v-if="node.blockedCount > 0" class="graph-hierarchy__blocked"><CircleSlash :size="11" aria-hidden="true" />被 {{ node.blockedCount }} 项阻塞</span>
+              <span v-if="node.blockedCount > 0" class="graph-hierarchy__blocked"><CircleSlash :size="12" aria-hidden="true" />被 {{ node.blockedCount }} 项阻塞</span>
             </span>
           </button>
         </li>

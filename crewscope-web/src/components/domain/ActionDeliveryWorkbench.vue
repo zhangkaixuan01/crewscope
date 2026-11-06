@@ -286,7 +286,7 @@ function stageDescription(action: PlannedAction): string {
         <label>PR Title<input v-model="title" maxlength="256" :disabled="commandPending" /></label>
         <label>Expected Remote Head（可选）<input v-model="expectedRemoteHead" maxlength="40" class="mono" placeholder="仅在已知远端 Head 时填写" :disabled="commandPending" /></label>
         <label class="wide">PR Body<textarea v-model="body" rows="4" maxlength="65536" :disabled="commandPending" /></label>
-        <BaseButton :loading="store.state.command.operation === 'plan' && commandPending" :disabled="!planReady || !online || commandPending" aria-describedby="delivery-plan-reason" @click="plan"><GitPullRequestDraft :size="15" />生成 ActionBundle</BaseButton>
+        <BaseButton :loading="store.state.command.operation === 'plan' && commandPending" :disabled="!planReady || !online || commandPending" aria-describedby="delivery-plan-reason" @click="plan"><GitPullRequestDraft :size="14" />生成 ActionBundle</BaseButton>
       </div>
     </section>
 
@@ -320,12 +320,12 @@ function stageDescription(action: PlannedAction): string {
                 </template>
               </dl>
               <div v-if="action.receipt || action.externalResult" class="result-strip" aria-live="polite">
-                <CheckCircle2 v-if="action.receipt?.result.includes('SUCCEEDED')" :size="15" /><TriangleAlert v-else :size="15" />
+                <CheckCircle2 v-if="action.receipt?.result.includes('SUCCEEDED')" :size="14" /><TriangleAlert v-else :size="14" />
                 <div><strong>{{ deliveryOutcomeLabel(action) }}</strong><span>{{ action.externalResult ? `${label(action.externalResult.source, externalResultSourceLabels)} · ${action.receipt?.evidenceCode ?? label(action.externalResult.status, externalObjectStatusLabels)}` : action.receipt?.evidenceCode }} · {{ short(action.receipt?.externalIdentityHash ?? action.externalResult?.externalIdentityHash) }}</span></div>
                 <StatusBadge v-if="action.externalResult" :tone="statusTone(action.externalResult.status)">{{ label(action.externalResult.status, externalObjectStatusLabels) }}</StatusBadge>
               </div>
-              <div v-if="['UNKNOWN', 'RECONCILING'].includes(action.dispatch?.status ?? '')" class="reconcile-note" role="status"><CircleDashed :size="15" /><div><strong>{{ label(action.dispatch?.status, actionDispatchStatusLabels) }}</strong><span>外部副作用结果尚不确定；系统只查询 GitHub 并对账，不会盲目重放写操作。第 {{ action.dispatch?.reconciliationAttempts }} 次对账。</span></div></div>
-              <div v-if="action.dispatch?.status === 'MANUAL_REVIEW'" class="manual-note"><CloudOff :size="15" /><div><strong>已进入人工队列</strong><span>自动对账已达到边界，Owner 可在核对 Provider 审计后终结为失败。</span></div><BaseButton size="small" variant="secondary" :disabled="!canConfirm || !online" aria-describedby="delivery-manual-reason" @click="openManual(action)">人工终结</BaseButton></div>
+              <div v-if="['UNKNOWN', 'RECONCILING'].includes(action.dispatch?.status ?? '')" class="reconcile-note" role="status"><CircleDashed :size="14" /><div><strong>{{ label(action.dispatch?.status, actionDispatchStatusLabels) }}</strong><span>外部副作用结果尚不确定；系统只查询 GitHub 并对账，不会盲目重放写操作。第 {{ action.dispatch?.reconciliationAttempts }} 次对账。</span></div></div>
+              <div v-if="action.dispatch?.status === 'MANUAL_REVIEW'" class="manual-note"><CloudOff :size="14" /><div><strong>已进入人工队列</strong><span>自动对账已达到边界，Owner 可在核对 Provider 审计后终结为失败。</span></div><BaseButton size="small" variant="secondary" :disabled="!canConfirm || !online" aria-describedby="delivery-manual-reason" @click="openManual(action)">人工终结</BaseButton></div>
             </div>
           </article>
         </div>
@@ -336,7 +336,7 @@ function stageDescription(action: PlannedAction): string {
           <BaseButton v-if="!bundle.confirmation" :disabled="!canConfirm || !online || bundle.validity !== 'CURRENT' || commandPending" aria-describedby="delivery-review-reason" @click="openConfirmation">审查并确认</BaseButton>
           <BaseButton v-else-if="bundle.confirmation.status === 'ACTIVE' && !bundle.actions.some(item => item.dispatch && item.dispatch.status !== 'READY')" variant="secondary" :disabled="!canConfirm || !online || commandPending" aria-describedby="delivery-manual-reason" @click="store.cancel">撤回未执行确认</BaseButton>
         </div>
-        <p v-if="hasUnknown" class="webhook-note"><RefreshCw :size="13" />页面刷新会回读 Webhook/主动查询合并后的权威 ExternalResult；浏览器不推导外部成功。</p>
+        <p v-if="hasUnknown" class="webhook-note"><RefreshCw :size="14" />页面刷新会回读 Webhook/主动查询合并后的权威 ExternalResult；浏览器不推导外部成功。</p>
       </section>
     </template>
 
@@ -367,7 +367,7 @@ function stageDescription(action: PlannedAction): string {
       </div>
       <template #footer>
         <!-- 危险确认的初始焦点必须落在安全侧（取消），而不是 header 的关闭钮或破坏性主钮。 -->
-        <BaseButton variant="secondary" :disabled="commandPending" autofocus @click="closeConfirmation()">取消</BaseButton><BaseButton :loading="store.state.command.operation === 'confirm' && commandPending" :disabled="!digestAcknowledged || !online || !canConfirm" @click="confirm"><ShieldCheck :size="15" />精确确认</BaseButton>
+        <BaseButton variant="secondary" :disabled="commandPending" autofocus @click="closeConfirmation()">取消</BaseButton><BaseButton :loading="store.state.command.operation === 'confirm' && commandPending" :disabled="!digestAcknowledged || !online || !canConfirm" @click="confirm"><ShieldCheck :size="14" />精确确认</BaseButton>
       </template>
     </BaseDialog>
 

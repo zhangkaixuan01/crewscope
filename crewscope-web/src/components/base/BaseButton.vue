@@ -24,7 +24,7 @@ withDefaults(defineProps<{
     :disabled="disabled || loading"
     :aria-busy="loading"
   >
-    <LoaderCircle v-if="loading" class="base-button__spinner" :size="15" aria-hidden="true" />
+    <LoaderCircle v-if="loading" class="base-button__spinner" :size="14" aria-hidden="true" />
     <slot name="icon" />
     <slot />
   </button>

@@ -134,7 +134,7 @@ function runAssign(): void {
       <header>
         <h3>批量结果</h3>
         <p>{{ summaryCounts }}</p>
-        <BaseButton size="small" variant="ghost" @click="emit('dismissResults')"><X :size="13" />关闭结果</BaseButton>
+        <BaseButton size="small" variant="ghost" @click="emit('dismissResults')"><X :size="14" />关闭结果</BaseButton>
       </header>
       <!-- M13b-F11（I01）：可逆批次不建撤销窗（批次撤销超出详情槽位语义），在结果条明示。 -->
       <p class="bulk-results__note">批量执行不提供一键撤销，请逐项核对结果。</p>

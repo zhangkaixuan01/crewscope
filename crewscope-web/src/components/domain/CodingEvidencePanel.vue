@@ -95,7 +95,7 @@ function download(document: ArtifactTextDocument): void {
   <section class="evidence-panel detail-card" aria-labelledby="coding-evidence-title" data-testid="coding-evidence-panel">
     <header class="evidence-heading">
       <div><p>Durable evidence · Read only</p><h3 id="coding-evidence-title">命令、测试与验收证据</h3></div>
-      <span><ShieldCheck :size="13" aria-hidden="true" />只读观察面</span>
+      <span><ShieldCheck :size="14" aria-hidden="true" />只读观察面</span>
     </header>
 
     <div class="evidence-layout">
@@ -119,7 +119,7 @@ function download(document: ArtifactTextDocument): void {
           </button>
         </div>
         <button v-if="commands?.nextCursor" class="load-more" type="button" :disabled="commandsPhase === 'loading'" @click="onLoadCommandsMore">
-          <RefreshCw :size="11" />{{ commandsPhase === 'loading' ? '读取中…' : '更多命令' }}
+          <RefreshCw :size="12" />{{ commandsPhase === 'loading' ? '读取中…' : '更多命令' }}
         </button>
       </section>
 
@@ -129,7 +129,7 @@ function download(document: ArtifactTextDocument): void {
           <dl>
             <div><dt>Kind / Tool</dt><dd>{{ label(selectedCommand.commandKind, commandKindLabels) }} · {{ selectedCommand.toolKey }}</dd></div>
             <div><dt>Exit Code</dt><dd>{{ selectedCommand.exitCode ?? '—' }}</dd></div>
-            <div><dt><Clock3 :size="11" />执行时长</dt><dd>{{ duration(selectedCommand) }}</dd></div>
+            <div><dt><Clock3 :size="12" />执行时长</dt><dd>{{ duration(selectedCommand) }}</dd></div>
             <div><dt>Timeout</dt><dd>{{ selectedCommand.timeoutSeconds }} s</dd></div>
           </dl>
           <p v-if="selectedCommand.failureClassification" class="failure"><TriangleAlert :size="12" />{{ label(selectedCommand.failureClassification, evidenceFailureClassificationLabels) }}</p>
@@ -142,7 +142,7 @@ function download(document: ArtifactTextDocument): void {
             <footer>
               <span v-if="!selectedLog.value.complete">日志仍有后续字节页</span><span v-else>完整性校验通过</span>
               <button v-if="!selectedLog.value.complete" type="button" :disabled="selectedLog.phase === 'loading'" @click="onLoadCommandLog(selectedCommand.id, true)">继续加载</button>
-              <button v-else-if="selectedLog.value.filename" type="button" @click="download(selectedLog.value)"><Download :size="11" />下载日志</button>
+              <button v-else-if="selectedLog.value.filename" type="button" @click="download(selectedLog.value)"><Download :size="12" />下载日志</button>
             </footer>
             <p v-if="selectedLog.phase === 'error'" class="artifact-error" role="alert">{{ selectedLog.errorMessage }} <button type="button" @click="onLoadCommandLog(selectedCommand.id, true)">重试当前页</button></p>
           </div>
@@ -163,10 +163,10 @@ function download(document: ArtifactTextDocument): void {
             </div>
             <p class="test-message">Generation {{ selectedTest.diffGeneration }} · {{ selectedTest.summary }}</p>
             <p v-if="selectedTest.failureClassification" class="failure"><TriangleAlert :size="12" />{{ label(selectedTest.failureClassification, evidenceFailureClassificationLabels) }}</p>
-            <div class="acceptance"><header><ListChecks :size="13" /><strong>验收结果</strong></header><ol><li v-for="item in orderedAcceptance" :key="item.criterionIndex"><CheckCircle2 v-if="item.status === 'PASSED'" :size="13" /><TriangleAlert v-else :size="13" /><div><strong>{{ item.criterion }}</strong><span>{{ item.summary }}</span></div><StatusBadge :tone="tone(item.status)">{{ label(item.status, acceptanceStatusLabels) }}</StatusBadge></li></ol><p v-if="!orderedAcceptance.length">当前测试轮次没有验收条目。</p></div>
+            <div class="acceptance"><header><ListChecks :size="14" /><strong>验收结果</strong></header><ol><li v-for="item in orderedAcceptance" :key="item.criterionIndex"><CheckCircle2 v-if="item.status === 'PASSED'" :size="14" /><TriangleAlert v-else :size="14" /><div><strong>{{ item.criterion }}</strong><span>{{ item.summary }}</span></div><StatusBadge :tone="tone(item.status)">{{ label(item.status, acceptanceStatusLabels) }}</StatusBadge></li></ol><p v-if="!orderedAcceptance.length">当前测试轮次没有验收条目。</p></div>
             <div v-if="selectedTest.testReport" class="report-block">
               <div class="artifact-heading"><strong>有界测试报告</strong><small>{{ selectedReport?.value ? `${bytes(selectedReport.value.loadedBytes)} / ${bytes(selectedReport.value.totalSize)}` : bytes(selectedTest.testReport.sizeBytes) }}</small></div>
-              <div v-if="selectedReport?.value" class="artifact-view"><pre role="region" tabindex="0" aria-label="只读测试报告"><code>{{ safeText(selectedReport.value.content) }}</code></pre><footer><span>{{ selectedReport.value.complete ? '完整性校验通过' : '报告仍有后续字节页' }}</span><button v-if="!selectedReport.value.complete" type="button" @click="onLoadTestReport(selectedTest.id, true)">继续加载</button><button v-else-if="selectedReport.value.filename" type="button" @click="download(selectedReport.value)"><Download :size="11" />下载报告</button></footer><p v-if="selectedReport.phase === 'error'" class="artifact-error" role="alert">{{ selectedReport.errorMessage }} <button type="button" @click="onLoadTestReport(selectedTest.id, true)">重试当前页</button></p></div>
+              <div v-if="selectedReport?.value" class="artifact-view"><pre role="region" tabindex="0" aria-label="只读测试报告"><code>{{ safeText(selectedReport.value.content) }}</code></pre><footer><span>{{ selectedReport.value.complete ? '完整性校验通过' : '报告仍有后续字节页' }}</span><button v-if="!selectedReport.value.complete" type="button" @click="onLoadTestReport(selectedTest.id, true)">继续加载</button><button v-else-if="selectedReport.value.filename" type="button" @click="download(selectedReport.value)"><Download :size="12" />下载报告</button></footer><p v-if="selectedReport.phase === 'error'" class="artifact-error" role="alert">{{ selectedReport.errorMessage }} <button type="button" @click="onLoadTestReport(selectedTest.id, true)">重试当前页</button></p></div>
               <StatePanel v-else-if="selectedReport?.phase === 'loading'" compact state="loading" title="正在读取首个报告页" />
               <StatePanel v-else-if="selectedReport?.phase === 'error'" compact state="error" :description="selectedReport.errorMessage ?? undefined" @retry="onLoadTestReport(selectedTest.id)" />
               <button v-else class="read-artifact" type="button" @click="onLoadTestReport(selectedTest.id)">读取首个报告页</button>

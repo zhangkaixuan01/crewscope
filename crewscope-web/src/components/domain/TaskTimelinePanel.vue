@@ -127,14 +127,14 @@ function displayTime(value: string): string {
     <template v-else>
       <div v-if="visibleEntries.length" class="timeline-list" role="list" aria-label="Task durable timeline">
         <article v-for="entry in visibleEntries" :key="entry.id" role="listitem" :class="{ recovery: entry.recovery }">
-          <i><History v-if="!entry.recovery" :size="13" /><RotateCcw v-else :size="13" /></i>
+          <i><History v-if="!entry.recovery" :size="14" /><RotateCcw v-else :size="14" /></i>
           <div><strong>{{ entry.title }}</strong><p v-if="entry.summary">{{ entry.summary }}</p><span>{{ displayTime(entry.occurredAt) }}<template v-if="entry.meta"> · {{ entry.meta }}</template></span></div>
           <StatusBadge :tone="entry.tone">{{ entry.progressPercent === null ? '事实' : `${entry.progressPercent}%` }}</StatusBadge>
         </article>
       </div>
       <p v-else class="empty-note"><Activity :size="14" />当前 attempt 还没有可展示的执行事件。</p>
       <div v-if="page?.hasMore" class="timeline-more"><BaseButton variant="secondary" size="small" @click="onLoadMore">继续追平历史</BaseButton></div>
-      <p v-if="errorMessage" class="timeline-error"><CircleAlert :size="12" />{{ errorMessage }} <button type="button" @click="onRetry"><RefreshCw :size="11" />刷新</button></p>
+      <p v-if="errorMessage" class="timeline-error"><CircleAlert :size="12" />{{ errorMessage }} <button type="button" @click="onRetry"><RefreshCw :size="12" />刷新</button></p>
     </template>
   </section>
 </template>

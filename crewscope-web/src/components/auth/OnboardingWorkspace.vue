@@ -140,9 +140,9 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
         <section class="onboarding__creation" aria-label="将要创建的内容">
           <h3>服务端将一次性准备好</h3>
           <ul>
-            <li><span><UsersRound :size="15" />团队工作空间</span></li>
-            <li><span><Bot :size="15" />你的 Personal Agent</span></li>
-            <li><span><ShieldCheck :size="15" />Owner 责任与权限</span></li>
+            <li><span><UsersRound :size="14" />团队工作空间</span></li>
+            <li><span><Bot :size="14" />你的 Personal Agent</span></li>
+            <li><span><ShieldCheck :size="14" />Owner 责任与权限</span></li>
           </ul>
         </section>
         <BaseButton class="onboarding__primary" type="submit" :disabled="!online" :loading="busy">

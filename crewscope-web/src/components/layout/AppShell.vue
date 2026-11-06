@@ -309,7 +309,7 @@ async function signOut(): Promise<void> {
         <template v-for="group in visibleNavigationGroups" :key="group.label">
           <p>{{ group.label }}</p>
           <RouterLink v-for="item in group.items" :key="item.label" :class="{ active: activeSection === item.section }" :to="navigationTarget(item.name)" :aria-current="activeSection === item.section ? 'page' : undefined">
-            <component :is="item.icon" :size="17" aria-hidden="true" />
+            <component :is="item.icon" :size="16" aria-hidden="true" />
             <span>{{ item.label }}</span>
           </RouterLink>
         </template>
@@ -341,7 +341,7 @@ async function signOut(): Promise<void> {
         </div>
         <ScopeSwitcher v-if="scopeStore && canReadScope" class="topbar-scope" />
         <button class="command-search" type="button" aria-label="打开命令面板，搜索工作、成员或 Agent" aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" @click="requestCommandPalette()">
-          <Search :size="16" aria-hidden="true" /><span>搜索工作、成员或 Agent</span><kbd><Command :size="11" /> K</kbd>
+          <Search :size="16" aria-hidden="true" /><span>搜索工作、成员或 Agent</span><kbd><Command :size="12" /> K</kbd>
         </button>
         <div class="topbar-actions">
           <span v-if="collaborationLabel" class="collab-pill" :class="`collab-pill--${collaborationPhase}`" role="status" aria-live="polite">
@@ -384,7 +384,7 @@ async function signOut(): Promise<void> {
       <nav id="mobile-navigation" class="mobile-navigation__links" @touchstart.passive="onMobileTouchStart" @touchend.passive="onMobileTouchEnd">
         <template v-for="group in visibleNavigationGroups" :key="group.label">
           <p>{{ group.label }}</p>
-          <RouterLink v-for="item in group.items" :key="item.label" :to="navigationTarget(item.name)" :aria-current="activeSection === item.section ? 'page' : undefined" @click="closeMobileNav"><component :is="item.icon" :size="17" aria-hidden="true" /><span>{{ item.label }}</span></RouterLink>
+          <RouterLink v-for="item in group.items" :key="item.label" :to="navigationTarget(item.name)" :aria-current="activeSection === item.section ? 'page' : undefined" @click="closeMobileNav"><component :is="item.icon" :size="16" aria-hidden="true" /><span>{{ item.label }}</span></RouterLink>
         </template>
       </nav>
     </BaseDrawer>

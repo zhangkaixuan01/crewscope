@@ -118,18 +118,18 @@ function openFromCard(event: MouseEvent): void {
       <p v-if="item.description">{{ item.description }}</p>
     </button>
     <div class="work-item-card__metadata">
-      <StatusBadge :tone="priorityTone"><CircleAlert :size="11" />{{ workItemPriorityLabels[item.priority] }}</StatusBadge>
+      <StatusBadge :tone="priorityTone"><CircleAlert :size="12" />{{ workItemPriorityLabels[item.priority] }}</StatusBadge>
       <!-- Being blocked is a fact about the work, not decoration: the count is the aggregate's
            authoritative blockerCount. M13b-F05（R34）: the badge is also the item's on-ramp into
            its graph neighbourhood — click lands in the graph view focused on this node. -->
-      <button v-if="blockedCount > 0" type="button" class="work-item-card__blocked" :title="`被 ${blockedCount} 个进行中的工作项阻塞，点击在依赖图中查看`" :aria-label="`被 ${blockedCount} 个进行中的工作项阻塞，在依赖图中查看`" @click.stop="emit('show-blockers')"><CircleSlash :size="11" aria-hidden="true" />被 {{ blockedCount }} 项阻塞</button>
+      <button v-if="blockedCount > 0" type="button" class="work-item-card__blocked" :title="`被 ${blockedCount} 个进行中的工作项阻塞，点击在依赖图中查看`" :aria-label="`被 ${blockedCount} 个进行中的工作项阻塞，在依赖图中查看`" @click.stop="emit('show-blockers')"><CircleSlash :size="12" aria-hidden="true" />被 {{ blockedCount }} 项阻塞</button>
       <span>{{ workItemTypeLabels[item.type] }}</span>
       <!-- Every time on the card is relative with the exact instant one keystroke away: a list of
            "2026/09/12 14:03:27" makes the member do the subtraction the page already knows how to
            do, and an absolute date with no time cannot be compared to now at all. -->
       <span v-if="item.dueAt" :class="{ overdue }"><CalendarClock :size="12" />截止 <RelativeTime :value="item.dueAt" /></span>
       <span>更新于 <RelativeTime :value="item.updatedAt" /></span>
-      <span v-for="label in item.labels.slice(0, labelBudget)" :key="label"><Tag :size="11" />{{ label }}</span>
+      <span v-for="label in item.labels.slice(0, labelBudget)" :key="label"><Tag :size="12" />{{ label }}</span>
       <span v-if="item.labels.length > labelBudget">+{{ item.labels.length - labelBudget }}</span>
     </div>
   </article>

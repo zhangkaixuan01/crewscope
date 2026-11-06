@@ -49,10 +49,10 @@ const retryTarget = (): RouteLocationRaw => {
         <small>{{ isOrgPermission ? '请联系组织 Owner 或管理员授予所需权限。' : '请联系 Team Owner 或管理员授予所需权限；顶部的范围切换器可切换 Team 后再试。' }}</small>
         <div class="access-panel__actions">
           <RouterLink v-slot="{ navigate }" custom :to="exit.to">
-            <BaseButton @click="navigate"><ArrowLeft :size="15" />{{ exit.label }}</BaseButton>
+            <BaseButton @click="navigate"><ArrowLeft :size="14" />{{ exit.label }}</BaseButton>
           </RouterLink>
           <RouterLink v-slot="{ navigate }" custom :to="retryTarget()">
-            <BaseButton variant="secondary" @click="navigate"><RotateCcw :size="15" />重试进入</BaseButton>
+            <BaseButton variant="secondary" @click="navigate"><RotateCcw :size="14" />重试进入</BaseButton>
           </RouterLink>
         </div>
       </div>

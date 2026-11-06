@@ -170,7 +170,7 @@ function checked(key: string): boolean {
           <label class="toggle"><input v-model="localPreferences.cacheEnabled" type="checkbox" /><span>允许模型缓存</span></label><label class="toggle"><input v-model="localPreferences.parallelToolCalls" type="checkbox" /><span>允许并行 Tool Call</span></label>
         </div>
       </details>
-      <section v-if="slotAvailable('KNOWLEDGE_SCOPE') || slotAvailable('BUDGET')" class="policy-preservation wide"><CircleAlert :size="17" /><div><strong>知识范围与预算策略</strong><span>当前引用：Memory {{ current?.memoryPolicy ? `${current.memoryPolicy.id} v${current.memoryPolicy.version}` : '未绑定' }}；Budget {{ current?.budgetPolicy ? `${current.budgetPolicy.id} v${current.budgetPolicy.version}` : '未绑定' }}。公开候选目录尚未交付，本页保留精确引用，不接受手填 UUID。</span></div></section>
+      <section v-if="slotAvailable('KNOWLEDGE_SCOPE') || slotAvailable('BUDGET')" class="policy-preservation wide"><CircleAlert :size="16" /><div><strong>知识范围与预算策略</strong><span>当前引用：Memory {{ current?.memoryPolicy ? `${current.memoryPolicy.id} v${current.memoryPolicy.version}` : '未绑定' }}；Budget {{ current?.budgetPolicy ? `${current.budgetPolicy.id} v${current.budgetPolicy.version}` : '未绑定' }}。公开候选目录尚未交付，本页保留精确引用，不接受手填 UUID。</span></div></section>
     </div>
   </section>
 </template>

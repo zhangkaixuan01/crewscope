@@ -303,8 +303,8 @@ function onKeydown(event: KeyboardEvent): void {
 
     <div v-if="selected && !replacing" class="principal-chip">
       <i :class="`principal-chip__icon--${selected.kind.toLowerCase()}`">
-        <Bot v-if="selected.kind === 'AGENT'" :size="13" />
-        <User v-else :size="13" />
+        <Bot v-if="selected.kind === 'AGENT'" :size="14" />
+        <User v-else :size="14" />
       </i>
       <span>
         <strong>{{ selected.displayName }}</strong>
@@ -323,7 +323,7 @@ function onKeydown(event: KeyboardEvent): void {
         size="small"
         :aria-label="`清除已选择的${label}`"
         @click="clear"
-      ><X :size="13" /></BaseButton>
+      ><X :size="14" /></BaseButton>
     </div>
 
     <div v-else class="principal-search">
@@ -365,15 +365,15 @@ function onKeydown(event: KeyboardEvent): void {
           @click="choose(entry)"
         >
           <i>
-            <Bot v-if="entry.kind === 'AGENT'" :size="13" />
-            <User v-else :size="13" />
+            <Bot v-if="entry.kind === 'AGENT'" :size="14" />
+            <User v-else :size="14" />
           </i>
           <span>
             <strong>{{ entry.displayName }}</strong>
             <small>{{ entry.optionSubtitle }}</small>
           </span>
           <StatusBadge v-if="entry.status !== 'ACTIVE'" tone="warning">{{ principalStatusLabels[entry.status] }}</StatusBadge>
-          <Check v-if="entry.principalId === modelValue" :size="13" />
+          <Check v-if="entry.principalId === modelValue" :size="14" />
         </button>
         <p v-if="loadMoreError" class="principal-state principal-state--error" role="alert">
           {{ loadMoreError }}

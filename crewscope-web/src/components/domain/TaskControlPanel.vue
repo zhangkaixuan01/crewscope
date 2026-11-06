@@ -143,7 +143,7 @@ const definitions: Record<MemberTaskCommandOperation, {
   <section class="task-control-panel" aria-labelledby="task-control-heading">
     <div class="task-control-heading">
       <div><p>Durable control</p><h3 id="task-control-heading">执行控制</h3></div>
-      <ShieldCheck :size="17" aria-hidden="true" />
+      <ShieldCheck :size="16" aria-hidden="true" />
     </div>
 
     <div v-if="attempt" class="task-control-current">
@@ -160,7 +160,7 @@ const definitions: Record<MemberTaskCommandOperation, {
         :loading="pending === 'PAUSE'"
         aria-label="暂停当前 Task"
         @click="openDialog('PAUSE')"
-      ><CirclePause :size="13" />暂停</BaseButton>
+      ><CirclePause :size="14" />暂停</BaseButton>
       <BaseButton
         v-if="availableOperations.includes('RESUME')"
         size="small"
@@ -168,7 +168,7 @@ const definitions: Record<MemberTaskCommandOperation, {
         :loading="pending === 'RESUME'"
         aria-label="恢复当前 Task"
         @click="openDialog('RESUME')"
-      ><Play :size="13" />恢复</BaseButton>
+      ><Play :size="14" />恢复</BaseButton>
       <BaseButton
         v-if="availableOperations.includes('RETRY')"
         size="small"
@@ -176,7 +176,7 @@ const definitions: Record<MemberTaskCommandOperation, {
         :loading="pending === 'RETRY'"
         aria-label="重试当前 Task"
         @click="openDialog('RETRY')"
-      ><RotateCcw :size="13" />重试</BaseButton>
+      ><RotateCcw :size="14" />重试</BaseButton>
       <BaseButton
         v-if="availableOperations.includes('CANCEL')"
         size="small"
@@ -185,15 +185,15 @@ const definitions: Record<MemberTaskCommandOperation, {
         :loading="pending === 'CANCEL'"
         aria-label="取消当前 Task"
         @click="openDialog('CANCEL')"
-      ><CircleStop :size="13" />取消</BaseButton>
+      ><CircleStop :size="14" />取消</BaseButton>
     </div>
     <p v-else class="task-control-note">
       {{ !canControl ? '当前成员没有这个 Task 的 Owner 或 Executor 控制责任。' : attempt ? '当前 attempt 没有可用控制操作。' : '正在恢复当前 attempt。' }}
     </p>
 
-    <p v-if="!online" class="task-control-offline" role="status"><WifiOff :size="13" />当前离线，控制命令将在恢复网络后才可提交。</p>
+    <p v-if="!online" class="task-control-offline" role="status"><WifiOff :size="14" />当前离线，控制命令将在恢复网络后才可提交。</p>
     <div v-if="versionConflict" class="task-control-conflict" role="alert">
-      <TriangleAlert :size="15" /><div><strong>执行事实已变化</strong><span>{{ definitions[versionConflict.operation].label }}基于 v{{ versionConflict.attemptedVersion }}，服务端当前版本为 {{ versionConflict.currentVersion === null ? '未知' : `v${versionConflict.currentVersion}` }}。页面已刷新。</span></div>
+      <TriangleAlert :size="14" /><div><strong>执行事实已变化</strong><span>{{ definitions[versionConflict.operation].label }}基于 v{{ versionConflict.attemptedVersion }}，服务端当前版本为 {{ versionConflict.currentVersion === null ? '未知' : `v${versionConflict.currentVersion}` }}。页面已刷新。</span></div>
     </div>
     <div v-if="errorMessage" class="task-control-error" role="alert">
       <span>{{ errorMessage }}</span>

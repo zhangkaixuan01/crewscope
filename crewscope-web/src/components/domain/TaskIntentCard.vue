@@ -140,7 +140,7 @@ function principalName(principalId: string): string {
 <template>
   <section class="intent-card" aria-labelledby="task-intent-title">
     <header>
-      <span><ClipboardCheck :size="17" aria-hidden="true" /></span>
+      <span><ClipboardCheck :size="16" aria-hidden="true" /></span>
       <div><p>Revision {{ intent.proposalRevision }}</p><h3 id="task-intent-title">结构化任务提案</h3></div>
       <StatusBadge :tone="intent.status === 'READY' ? 'warning' : intent.status === 'CONFIRMED' ? 'success' : intent.status === 'REJECTED' ? 'danger' : 'neutral'">{{ statusText(intent.status) }}</StatusBadge>
     </header>
@@ -210,9 +210,9 @@ function principalName(principalId: string): string {
       </div>
       <footer v-if="reviewable && isOwner && !rejecting">
         <p v-if="otherCommandPending" id="intent-confirm-reason" class="sr-only">正在提交上一次提案操作，完成前无法再次确认。</p>
-        <BaseButton variant="ghost" size="small" :disabled="Boolean(pending)" @click="editing = true"><template #icon><Pencil :size="13" /></template>修订</BaseButton>
-        <BaseButton variant="danger" size="small" :disabled="Boolean(pending)" @click="rejecting = true"><template #icon><X :size="13" /></template>拒绝</BaseButton>
-        <BaseButton size="small" :loading="pending === 'confirm'" :disabled="otherCommandPending" :aria-describedby="otherCommandPending ? 'intent-confirm-reason' : undefined" @click="emit('confirm')"><template #icon><Check :size="13" /></template>预检并确认</BaseButton>
+        <BaseButton variant="ghost" size="small" :disabled="Boolean(pending)" @click="editing = true"><template #icon><Pencil :size="14" /></template>修订</BaseButton>
+        <BaseButton variant="danger" size="small" :disabled="Boolean(pending)" @click="rejecting = true"><template #icon><X :size="14" /></template>拒绝</BaseButton>
+        <BaseButton size="small" :loading="pending === 'confirm'" :disabled="otherCommandPending" :aria-describedby="otherCommandPending ? 'intent-confirm-reason' : undefined" @click="emit('confirm')"><template #icon><Check :size="14" /></template>预检并确认</BaseButton>
       </footer>
       <p v-else-if="intent.decision" class="decision">{{ statusText(intent.status) }} · {{ intent.decision.decidedAt }}<template v-if="intent.decision.reason"> · {{ intent.decision.reason }}</template></p>
     </template>

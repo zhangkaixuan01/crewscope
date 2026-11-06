@@ -447,7 +447,7 @@ function integerOrNull(value: PreferenceNumber): number | null {
 <template>
   <section class="agent-configuration panel" aria-labelledby="agent-configuration-title">
     <header class="configuration-header">
-      <span class="configuration-icon"><Bot :size="21" aria-hidden="true" /></span>
+      <span class="configuration-icon"><Bot :size="20" aria-hidden="true" /></span>
       <div><p class="eyebrow">Agent 设置 · {{ agentOwnershipRoleLabel(agent.ownershipType, agent.runtimeRole) }}</p><h2 id="agent-configuration-title" ref="heading" tabindex="-1">{{ agent.displayName }}</h2><span class="mono">{{ agent.templateKey }}@{{ agent.templateVersion }} · Profile v{{ agent.version }}</span></div>
       <StatusBadge :tone="agent.status === 'ACTIVE' ? 'success' : agent.status === 'DISABLED' ? 'warning' : 'neutral'" dot>{{ agentStatusLabel(agent.status) }}</StatusBadge>
       <button type="button" aria-label="关闭 Agent 设置" @click="requestClose"><X :size="18" /></button>
@@ -511,7 +511,7 @@ function integerOrNull(value: PreferenceNumber): number | null {
             />
 
             <section v-if="allowedScopes.some(scope => preflight(scope))" class="preflight-results" aria-label="Model Preflight 结果">
-              <article v-for="scope in allowedScopes.filter(item => preflight(item))" :key="scope"><CheckCircle2 :size="17" /><div><strong>{{ scopeLabel(scope) }} Preflight 通过</strong><span>{{ preflight(scope)?.primary.modelId }} · {{ bindingSourceLabel(preflight(scope)?.bindingSource) }} · Price Revision {{ preflight(scope)?.primary.priceRevision }}</span></div></article>
+              <article v-for="scope in allowedScopes.filter(item => preflight(item))" :key="scope"><CheckCircle2 :size="16" /><div><strong>{{ scopeLabel(scope) }} Preflight 通过</strong><span>{{ preflight(scope)?.primary.modelId }} · {{ bindingSourceLabel(preflight(scope)?.bindingSource) }} · Price Revision {{ preflight(scope)?.primary.priceRevision }}</span></div></article>
             </section>
             <p v-if="localNotice" class="command-notice" role="status">{{ localNotice }}</p>
             <p v-if="commandForAgent?.errorMessage" class="command-error" role="alert">{{ commandForAgent.errorMessage }}</p>

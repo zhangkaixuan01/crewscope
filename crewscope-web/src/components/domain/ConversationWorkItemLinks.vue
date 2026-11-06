@@ -55,8 +55,8 @@ function originLabel(origin: ConversationWorkItemAssociation['origin']): string 
     <ul v-else>
       <li v-for="association in associations" :key="association.linkId">
         <span class="association-icon">
-          <MessageSquare v-if="direction === 'work-item'" :size="15" aria-hidden="true" />
-          <Link2 v-else :size="15" aria-hidden="true" />
+          <MessageSquare v-if="direction === 'work-item'" :size="14" aria-hidden="true" />
+          <Link2 v-else :size="14" aria-hidden="true" />
         </span>
         <div>
           <strong>{{ direction === 'conversation' ? association.workItem.key : association.conversation.title }}</strong>
@@ -70,7 +70,7 @@ function originLabel(origin: ConversationWorkItemAssociation['origin']): string 
           :aria-label="direction === 'conversation' ? `查看工作项 ${association.workItem.key}` : `返回对话 ${association.conversation.title}`"
           @click="emit('open', association)"
         >
-          {{ direction === 'conversation' ? '查看执行' : '返回对话' }}<ArrowRight :size="13" aria-hidden="true" />
+          {{ direction === 'conversation' ? '查看执行' : '返回对话' }}<ArrowRight :size="14" aria-hidden="true" />
         </BaseButton>
         <BaseButton
           v-if="direction === 'conversation' && association.origin === 'TASK_INTENT_CONFIRMATION' && canDelegate"

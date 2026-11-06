@@ -95,7 +95,7 @@ function shortHash(value: string): string {
         <span v-else class="mono">{{ summary.resultSourceReference }}</span>
       </template>
       <span v-else-if="outcome.reference" class="mono">{{ summary.resultSourceReference }}</span>
-      <BaseButton size="small" variant="secondary" :title="`结果引用：${summary.resultSourceReference}`" @click="copyReference"><Copy :size="13" />{{ copied ? '已复制' : '复制引用' }}</BaseButton>
+      <BaseButton size="small" variant="secondary" :title="`结果引用：${summary.resultSourceReference}`" @click="copyReference"><Copy :size="14" />{{ copied ? '已复制' : '复制引用' }}</BaseButton>
     </div>
 
     <ul v-if="waitingLines.length && outcome.state !== 'DELIVERED'" class="waiting-lines">

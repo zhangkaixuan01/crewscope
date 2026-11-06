@@ -41,7 +41,7 @@ function submit(): void {
 <template>
   <section class="clarification-card" aria-labelledby="clarification-title">
     <header>
-      <span><CircleHelp :size="17" aria-hidden="true" /></span>
+      <span><CircleHelp :size="16" aria-hidden="true" /></span>
       <div>
         <p>Clarification</p>
         <h3 id="clarification-title">Personal Agent 需要补充信息</h3>

@@ -108,7 +108,7 @@ watch(() => props.member.id, () => { open.value = false })
     :label="`${member.displayName} 的成员操作`"
     trigger-class="member-menu__trigger"
   >
-    <template #trigger><MoreHorizontal :size="15" /></template>
+    <template #trigger><MoreHorizontal :size="14" /></template>
     <button
       v-for="entry in entries()"
       :key="entry.key"

@@ -157,8 +157,8 @@ function parseTypes(value: unknown): SearchObjectType[] {
       <form class="search-form panel" role="search" @submit.prevent="submit">
         <label class="search-input"><SearchIcon :size="18" aria-hidden="true" /><input v-model="text" type="search" maxlength="100" placeholder="搜索标题、成员、仓库或对话" autocomplete="off" aria-label="搜索内容"><kbd>Enter</kbd></label>
         <div class="type-filter__options" role="group" aria-label="筛选对象类型">
-          <button v-for="type in searchObjectTypes" :key="type" type="button" :class="{ selected: selectedTypes.includes(type) }" :aria-pressed="selectedTypes.includes(type)" @click="toggleType(type)"><Check v-if="selectedTypes.includes(type)" :size="13" />{{ searchObjectTypeLabels[type] }}</button>
-          <button v-if="selectedTypes.length" type="button" class="type-filter__clear" @click="clearTypes"><X :size="13" />清除筛选</button>
+          <button v-for="type in searchObjectTypes" :key="type" type="button" :class="{ selected: selectedTypes.includes(type) }" :aria-pressed="selectedTypes.includes(type)" @click="toggleType(type)"><Check v-if="selectedTypes.includes(type)" :size="14" />{{ searchObjectTypeLabels[type] }}</button>
+          <button v-if="selectedTypes.length" type="button" class="type-filter__clear" @click="clearTypes"><X :size="14" />清除筛选</button>
         </div>
         <BaseButton type="submit" :disabled="!text.trim()">搜索</BaseButton>
       </form>
@@ -185,7 +185,7 @@ function parseTypes(value: unknown): SearchObjectType[] {
             <header><div><h2 :id="`search-${type}`">{{ searchObjectTypeLabels[type] }}</h2></div><span>{{ items.length }} 条</span></header>
             <!-- M13b-F12（二轮 A17）：结果是导航目标——RouterLink 让 Cmd+点击/新标签打开可用，
                  行为与 openResult 的 router.push 同一条路由。 -->
-              <ul><li v-for="item in items" :key="`${item.objectType}:${item.objectId}`"><RouterLink :to="item.route"><span class="result-main"><strong>{{ item.title }}</strong><small>{{ displayMeta(item) }} · <RelativeTime :value="item.updatedAt" /></small><em v-if="item.snippet">{{ item.snippet }}</em></span><ArrowRight :size="15" aria-hidden="true" /></RouterLink></li></ul>
+              <ul><li v-for="item in items" :key="`${item.objectType}:${item.objectId}`"><RouterLink :to="item.route"><span class="result-main"><strong>{{ item.title }}</strong><small>{{ displayMeta(item) }} · <RelativeTime :value="item.updatedAt" /></small><em v-if="item.snippet">{{ item.snippet }}</em></span><ArrowRight :size="14" aria-hidden="true" /></RouterLink></li></ul>
           </section>
         </div>
         <div v-if="store.state.result?.nextCursor" class="load-more"><BaseButton variant="secondary" :loading="loadingMore" :disabled="store.state.phase === 'loading'" @click="loadMore">{{ loadMoreError ? '重试本页' : '加载更多' }}</BaseButton><small v-if="loadMoreError" class="load-more__error" role="alert">本页加载失败，以上结果已保留。</small></div>

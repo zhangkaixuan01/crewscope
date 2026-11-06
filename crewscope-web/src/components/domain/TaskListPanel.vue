@@ -76,14 +76,14 @@ function ownerName(task: TaskSummary, owners: Array<{ principalId: string, displ
 
     <StatePanel v-if="phase === 'loading' || phase === 'idle'" state="loading" title="正在加载 Agent Tasks" />
     <StatePanel v-else-if="phase === 'error'" state="error" :description="errorMessage ?? undefined" @retry="onRetry" />
-    <StatePanel v-else-if="phase === 'empty'" state="empty" title="当前筛选下没有 Task" description="从工作项详情选择“交给 Agent 处理”，Task 会出现在这里。"><template v-if="hasFilter" #action><BaseButton variant="secondary" size="small" @click="clearFilters"><Filter :size="13" />清空状态与负责人筛选</BaseButton></template></StatePanel>
+    <StatePanel v-else-if="phase === 'empty'" state="empty" title="当前筛选下没有 Task" description="从工作项详情选择“交给 Agent 处理”，Task 会出现在这里。"><template v-if="hasFilter" #action><BaseButton variant="secondary" size="small" @click="clearFilters"><Filter :size="14" />清空状态与负责人筛选</BaseButton></template></StatePanel>
     <div v-else class="task-list">
       <article v-for="task in items" :key="task.id" class="task-card" :class="{ selected: task.id === selectedTaskId }">
         <button class="task-card__main" type="button" :data-task-id="task.id" :aria-label="`查看 Task：${task.objective}`" :aria-pressed="task.id === selectedTaskId" @click="onSelect(task)">
-          <span class="task-card__icon"><Bot :size="17" /></span>
+          <span class="task-card__icon"><Bot :size="16" /></span>
           <span class="task-card__copy">
             <span class="task-card__top"><strong>{{ task.objective }}</strong><StatusBadge :tone="statusTone(task.status)" dot>{{ statusLabels[task.status] }}</StatusBadge></span>
-            <span class="task-card__meta"><span><CircleUserRound :size="13" />{{ ownerName(task, owners) }}</span><span><Clock3 :size="13" />{{ executionLabel(task) }}</span></span>
+            <span class="task-card__meta"><span><CircleUserRound :size="14" />{{ ownerName(task, owners) }}</span><span><Clock3 :size="14" />{{ executionLabel(task) }}</span></span>
             <span v-if="task.currentWaitingReason" class="task-card__waiting">等待原因 · {{ enumLabel(task.currentWaitingReason, taskExecutionWaitReasonLabels) }}</span>
           </span>
         </button>
@@ -91,8 +91,8 @@ function ownerName(task: TaskSummary, owners: Array<{ principalId: string, displ
       </article>
       <div v-if="nextCursor || errorMessage" class="task-list__more">
         <p v-if="errorMessage" role="alert">{{ errorMessage }}</p>
-        <BaseButton v-if="nextCursor" size="small" variant="secondary" :loading="loadingMore" @click="onLoadMore"><LoaderCircle v-if="loadingMore" :size="13" /><span v-else>加载更多</span></BaseButton>
-        <BaseButton v-else-if="errorMessage" size="small" variant="ghost" @click="onRetry"><RefreshCw :size="13" />重试</BaseButton>
+        <BaseButton v-if="nextCursor" size="small" variant="secondary" :loading="loadingMore" @click="onLoadMore"><LoaderCircle v-if="loadingMore" :size="14" /><span v-else>加载更多</span></BaseButton>
+        <BaseButton v-else-if="errorMessage" size="small" variant="ghost" @click="onRetry"><RefreshCw :size="14" />重试</BaseButton>
       </div>
     </div>
   </section>

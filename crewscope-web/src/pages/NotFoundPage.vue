@@ -16,10 +16,10 @@ import AppShell from '../components/layout/AppShell.vue'
       <p class="not-found__note">链接可能已失效，或当前身份没有对应范围。请返回个人工作台，或使用搜索找到需要的内容。</p>
       <div class="not-found__actions">
         <RouterLink v-slot="{ navigate }" custom :to="{ name: 'today' }">
-          <BaseButton @click="navigate"><ArrowLeft :size="15" />返回 Today</BaseButton>
+          <BaseButton @click="navigate"><ArrowLeft :size="14" />返回 Today</BaseButton>
         </RouterLink>
         <RouterLink v-slot="{ navigate }" custom to="/search">
-          <BaseButton variant="secondary" @click="navigate"><Search :size="15" />打开搜索</BaseButton>
+          <BaseButton variant="secondary" @click="navigate"><Search :size="14" />打开搜索</BaseButton>
         </RouterLink>
       </div>
     </div>

@@ -534,8 +534,8 @@ function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
         <h3 id="diff-explorer-title">Diff Explorer</h3>
       </div>
       <div class="diff-heading__status" role="status" aria-live="polite">
-        <WifiOff v-if="liveState?.phase === 'reconnecting' || liveState?.phase === 'error' || projection.status === 'gap'" :size="13" />
-        <Wifi v-else :size="13" />
+        <WifiOff v-if="liveState?.phase === 'reconnecting' || liveState?.phase === 'error' || projection.status === 'gap'" :size="14" />
+        <Wifi v-else :size="14" />
         <span>{{ streamLabel }}</span>
       </div>
     </header>
@@ -571,7 +571,7 @@ function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
       <div class="diff-workspace" :style="{ '--tree-width': `${treeWidth}%` }">
         <aside class="diff-tree" aria-label="变更文件树">
           <label class="diff-search">
-            <Search :size="13" aria-hidden="true" />
+            <Search :size="14" aria-hidden="true" />
             <span class="sr-only">筛选变更文件</span>
             <input v-model="search" type="search" placeholder="筛选路径" />
           </label>
@@ -597,7 +597,7 @@ function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
                 <FileCode2 v-else :size="12" aria-hidden="true" />
                 <span>{{ row.name }}</span>
                 <StatusBadge :tone="changeTone(row.file?.changeKind ?? '')" :aria-label="changeName(row.file?.changeKind ?? '')">{{ changeLabel(row.file?.changeKind ?? '') }}</StatusBadge>
-                <Check v-if="isViewed(row.path)" :size="11" aria-label="已查看" />
+                <Check v-if="isViewed(row.path)" :size="12" aria-label="已查看" />
               </button>
             </template>
           </div>
@@ -618,7 +618,7 @@ function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
               <span class="patch-language">{{ selectedLanguage }}</span>
               <button type="button" class="patch-action" @click="toggleViewMode">{{ viewMode.value.value === 'unified' ? 'Split' : 'Unified' }}</button>
               <button type="button" class="patch-action" @click="toggleViewed(selectedFile.path)">{{ isViewed(selectedFile.path) ? '取消已查看' : '标记已查看' }}</button>
-              <button type="button" class="patch-action" @click="toggleFullscreen"><Maximize2 :size="11" />全屏</button>
+              <button type="button" class="patch-action" @click="toggleFullscreen"><Maximize2 :size="12" />全屏</button>
             </div>
           </header>
 
@@ -627,29 +627,29 @@ function tokensFor(line: ParsedPatchLine): SyntaxToken[] {
           </p>
 
           <div v-if="selectedFile?.binary" class="patch-message">
-            <Binary :size="22" /><strong>Binary 变更</strong><span>二进制内容不进入浏览器 Patch 视图。</span>
+            <Binary :size="20" /><strong>Binary 变更</strong><span>二进制内容不进入浏览器 Patch 视图。</span>
           </div>
           <div v-else-if="!attempt.details?.diffManifest" class="patch-message">
-            <Wifi :size="22" /><strong>实时文件摘要已同步</strong><span>Patch 内容在最终 DiffArtifact 发布后通过独立授权入口读取。</span>
+            <Wifi :size="20" /><strong>实时文件摘要已同步</strong><span>Patch 内容在最终 DiffArtifact 发布后通过独立授权入口读取。</span>
           </div>
           <StatePanel v-else-if="patchPhase === 'loading'" compact state="loading" title="正在分段读取 Patch" description="按字节分页读取并在完整性稳定后呈现。" />
           <StatePanel v-else-if="patchPhase === 'error'" compact state="error" title="Patch 暂时不可用" :description="patchErrorMessage ?? undefined" @retry="onLoadPatch" />
           <div v-else-if="patchPhase === 'idle'" class="patch-message">
-            <FileDiff :size="22" /><strong>Patch 已可读取</strong><span>内容由 Task、attempt 与 Artifact 关系授权。</span>
+            <FileDiff :size="20" /><strong>Patch 已可读取</strong><span>内容由 Task、attempt 与 Artifact 关系授权。</span>
             <button type="button" @click="onLoadPatch">读取单文件 Patch</button>
           </div>
           <div v-else-if="!selectedPatch" class="patch-message">
-            <FileDiff :size="22" /><strong>当前文件没有文本 Patch</strong><span>文件可能只发生元数据变化，或 Artifact 已按预算截断。</span>
+            <FileDiff :size="20" /><strong>当前文件没有文本 Patch</strong><span>文件可能只发生元数据变化，或 Artifact 已按预算截断。</span>
           </div>
           <div v-else-if="generatedFile || largeFile" class="patch-message">
-            <FileDiff :size="22" /><strong>{{ generatedFile ? '生成文件' : '大文件' }}已降级</strong>
+            <FileDiff :size="20" /><strong>{{ generatedFile ? '生成文件' : '大文件' }}已降级</strong>
             <span>{{ generatedFile ? '生成目录内容默认隐藏，避免噪声。' : '文件超过浏览器渲染预算，仅展示摘要。' }}</span>
           </div>
           <div v-else class="patch-code" role="region" :aria-label="`${selectedFile?.path} Patch`" tabindex="0" @keydown="handlePatchKeydown">
             <span v-if="!commentsEnabled" id="diff-comment-gate-note" class="sr-only">当前没有可提交评论的 Review，请先发起 Review</span>
             <code>
               <template v-for="line in patchLines" :key="line.id">
-                <span v-if="line.text.startsWith('···')" class="patch-context-toggle" @click="toggleBlock(line.id.slice(9))"><ChevronDown :size="11" />{{ line.text }}</span>
+                <span v-if="line.text.startsWith('···')" class="patch-context-toggle" @click="toggleBlock(line.id.slice(9))"><ChevronDown :size="12" />{{ line.text }}</span>
                 <span v-else class="patch-line" :class="[`patch-line--${line.kind}`, { focused: focusedLine === line.id, 'patch-line--split': viewMode.value.value === 'split' }]" @click="openComment(line)">
                   <button type="button" class="line-comment-button" :disabled="!commentsEnabled" :aria-describedby="commentsEnabled ? undefined : 'diff-comment-gate-note'" :aria-label="`评论第 ${line.newLine ?? line.oldLine ?? 0} 行`" @click.stop="openComment(line)">＋</button>
                   <i v-if="viewMode.value.value === 'split'">{{ line.oldLine ?? '' }}</i><i>{{ viewMode.value.value === 'split' ? line.newLine ?? '' : line.newLine ?? line.oldLine ?? '' }}</i><b><span v-for="(token, tokenIndex) in tokensFor(line)" :key="`${line.id}:${tokenIndex}`" :class="`syntax-${token.kind}`">{{ token.text }}</span></b>

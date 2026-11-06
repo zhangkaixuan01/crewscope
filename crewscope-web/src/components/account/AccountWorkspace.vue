@@ -250,7 +250,7 @@ function confirmSignOut(): void {
         </section>
 
         <section id="security" class="account-panel" aria-labelledby="security-title">
-          <header><div><h3 id="security-title">密码与安全</h3><p>修改密码会撤销当前账号的全部浏览器会话。</p></div><BaseButton v-if="!editPassword" variant="secondary" size="small" :disabled="!online" @click="editPassword = true"><template #icon><KeyRound :size="15" /></template>修改密码</BaseButton></header>
+          <header><div><h3 id="security-title">密码与安全</h3><p>修改密码会撤销当前账号的全部浏览器会话。</p></div><BaseButton v-if="!editPassword" variant="secondary" size="small" :disabled="!online" @click="editPassword = true"><template #icon><KeyRound :size="14" /></template>修改密码</BaseButton></header>
           <form v-if="editPassword" class="account-form account-form--password" @submit.prevent="submitPassword">
             <label>当前密码<input v-model="currentPassword" name="currentPassword" type="password" autocomplete="current-password" maxlength="512" :disabled="pending"></label>
             <label>新密码<input v-model="newPassword" name="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" :disabled="pending"><small>12–128 个字符，UTF-8 不超过 512 字节</small></label>
@@ -271,7 +271,7 @@ function confirmSignOut(): void {
         </section>
 
         <section id="sessions" class="account-panel" aria-labelledby="sessions-title">
-          <header><div><h3 id="sessions-title">登录会话</h3><p>这里列出本账号的全部浏览器会话；撤销其他设备不会影响当前登录。</p></div><BaseButton variant="danger" size="small" :disabled="!online" @click="openRevoke"><template #icon><LogOut :size="15" /></template>退出全部设备</BaseButton></header>
+          <header><div><h3 id="sessions-title">登录会话</h3><p>这里列出本账号的全部浏览器会话；撤销其他设备不会影响当前登录。</p></div><BaseButton variant="danger" size="small" :disabled="!online" @click="openRevoke"><template #icon><LogOut :size="14" /></template>退出全部设备</BaseButton></header>
           <p v-if="sessionsProblem" class="account-alert account-alert--warning" role="alert"><strong>会话操作未完成</strong><span>{{ sessionsProblem }}</span></p>
           <StatePanel v-if="sessionsPhase === 'loading'" state="loading" />
           <StatePanel v-else-if="sessionsPhase === 'error'" state="error" description="暂时无法读取登录会话。" @retry="emit('retrySessions')" />
@@ -280,7 +280,7 @@ function confirmSignOut(): void {
             <thead><tr><th scope="col">设备</th><th scope="col">最近活动</th><th scope="col">登录时间</th><th scope="col"><span class="sr-only">操作</span></th></tr></thead>
             <tbody>
               <tr v-for="session in sessions" :key="session.sessionId" :data-testid="`session-row-${session.current ? 'current' : 'other'}`">
-                <th scope="row"><span class="session-device"><MonitorSmartphone :size="15" aria-hidden="true" />{{ session.device }}</span><span v-if="session.current" class="session-badge">本机</span></th>
+                <th scope="row"><span class="session-device"><MonitorSmartphone :size="14" aria-hidden="true" />{{ session.device }}</span><span v-if="session.current" class="session-badge">本机</span></th>
                 <td>{{ formatDateTime(session.lastAccessedAt) }}</td>
                 <td>{{ formatDateTime(session.createdAt) }}</td>
                 <td class="sessions-table__actions"><BaseButton variant="ghost" size="small" :disabled="!online || deletingSessionId !== null" :loading="sessionBusy(session)" @click="askRevokeSession(session)">{{ session.current ? '退出本设备' : '撤销' }}</BaseButton></td>

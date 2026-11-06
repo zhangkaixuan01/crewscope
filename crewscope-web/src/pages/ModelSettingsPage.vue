@@ -392,7 +392,7 @@ function trainingPolicyLabel(value: string): string { return enumLabel(value, tr
         <ul v-else class="connection-list" role="list">
           <li v-for="connection in connections" :key="connection.id">
             <button type="button" :data-connection-id="connection.id" :class="{ selected: selection.connectionId === connection.id }" @click="selectConnection(connection)">
-              <span class="connection-provider"><KeyRound :size="17" /><span><strong>{{ connection.providerKey }}</strong><small>{{ connection.region }} · Credential v{{ connection.credentialVersion }}</small></span></span>
+              <span class="connection-provider"><KeyRound :size="16" /><span><strong>{{ connection.providerKey }}</strong><small>{{ connection.region }} · Credential v{{ connection.credentialVersion }}</small></span></span>
               <span class="connection-badges"><StatusBadge :tone="connectionTone(connection.status)" dot>{{ connectionStatusLabel(connection.status) }}</StatusBadge><StatusBadge :tone="healthTone(connection.healthStatus)" dot>{{ healthStatusLabel(connection.healthStatus) }}</StatusBadge></span>
               <span class="connection-meta"><small>费用 {{ enumLabel(connection.billingSubjectType, modelSubjectTypeLabels) }}</small><small>Failures {{ connection.consecutiveFailures }}</small><small>Version {{ connection.version }}</small></span>
             </button>

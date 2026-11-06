@@ -86,7 +86,7 @@ function openFromCard(event: MouseEvent): void {
     @dragend="draggable && emit('drag-end')"
   >
     <header class="desk-card__head">
-      <GripVertical v-if="draggable" class="desk-card__grip" :size="13" aria-hidden="true" />
+      <GripVertical v-if="draggable" class="desk-card__grip" :size="14" aria-hidden="true" />
       <span v-if="showRole" class="desk-card__role">{{ roleLabel }}</span>
       <StatusTransitionMenu
         v-if="transitions.length"

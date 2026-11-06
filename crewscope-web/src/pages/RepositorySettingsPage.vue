@@ -301,7 +301,7 @@ function updatedAt(value: string): string {
       <section v-if="showCreate" class="create-binding panel" aria-labelledby="create-binding-title" @keydown.esc="closeCreate">
         <div class="panel-heading">
           <div><h2 id="create-binding-title">绑定受管仓库</h2><p>Repository Key 来自 Worker 的受管本地 Catalog，默认 Branch 在创建前完成 Preflight。</p></div>
-          <button type="button" aria-label="关闭绑定仓库面板" @click="closeCreate"><X :size="17" /></button>
+          <button type="button" aria-label="关闭绑定仓库面板" @click="closeCreate"><X :size="16" /></button>
         </div>
         <form class="binding-form" @submit.prevent="createBinding">
           <label>Repository Key
@@ -317,10 +317,10 @@ function updatedAt(value: string): string {
           </label>
           <div class="form-actions">
             <BaseButton type="button" variant="secondary" :loading="draftPreflight?.phase === 'loading'" :disabled="!catalogReady || !inputValid || !online" :aria-describedby="catalogReason ? 'repository-catalog-reason' : undefined" @click="preflightDraft">
-              <ShieldCheck :size="15" />运行 Preflight
+              <ShieldCheck :size="14" />运行 Preflight
             </BaseButton>
             <BaseButton type="submit" :loading="command.phase === 'pending' && command.operation === 'create'" :disabled="!catalogReady || draftPreflight?.phase !== 'ready' || !online" :aria-describedby="catalogReason || draftPreflightReason ? 'repository-preflight-reason' : undefined">
-              <Plus :size="15" />确认绑定
+              <Plus :size="14" />确认绑定
             </BaseButton>
           </div>
           <p id="repository-preflight-reason" class="sr-only">{{ catalogReason || draftPreflightReason }}</p>
@@ -376,8 +376,8 @@ function updatedAt(value: string): string {
               <span><small>最近更新</small><strong>{{ updatedAt(binding.updatedAt) }}</strong></span>
               <span><small>操作人</small><strong>{{ actor(binding.updatedByPrincipalId) }}</strong></span>
             </div>
-            <p v-if="preflightFor(binding.id)?.phase === 'ready'" class="preflight-result success" role="status" aria-live="polite"><CheckCircle2 :size="13" />{{ preflightFor(binding.id)?.value?.baselineCommit.slice(0, 10) }} · Preflight 通过</p>
-            <p v-else-if="preflightFor(binding.id)?.phase === 'error'" class="preflight-result error" role="alert"><TriangleAlert :size="13" />{{ preflightFor(binding.id)?.errorMessage }}</p>
+            <p v-if="preflightFor(binding.id)?.phase === 'ready'" class="preflight-result success" role="status" aria-live="polite"><CheckCircle2 :size="14" />{{ preflightFor(binding.id)?.value?.baselineCommit.slice(0, 10) }} · Preflight 通过</p>
+            <p v-else-if="preflightFor(binding.id)?.phase === 'error'" class="preflight-result error" role="alert"><TriangleAlert :size="14" />{{ preflightFor(binding.id)?.errorMessage }}</p>
             <div class="binding-actions">
               <BaseButton variant="secondary" size="small" :loading="preflightFor(binding.id)?.phase === 'loading'" :disabled="!online" @click="preflightExisting(binding)"><ShieldCheck :size="14" />Preflight</BaseButton>
               <BaseButton
@@ -396,7 +396,7 @@ function updatedAt(value: string): string {
 
       <ProjectExecutionDefaultsPanel :scope="scope" />
 
-      <section class="security-note"><ShieldCheck :size="17" /><div><strong>浏览器披露边界</strong><span>Canonical Path、Managed Root、文件系统用户和原始 Git 输出停留在受信基础设施内。</span></div></section>
+      <section class="security-note"><ShieldCheck :size="16" /><div><strong>浏览器披露边界</strong><span>Canonical Path、Managed Root、文件系统用户和原始 Git 输出停留在受信基础设施内。</span></div></section>
     </div>
 
     <WorkProjectCreateDialog

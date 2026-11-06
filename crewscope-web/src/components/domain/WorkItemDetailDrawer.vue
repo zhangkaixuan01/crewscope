@@ -363,7 +363,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
           <h2>{{ item.title }}</h2>
           <!-- R40: the work description renders through the same shared safe Markdown pipeline as chat and comments. -->
           <SafeMarkdown v-if="item.description" class="detail-description" :content="item.description" />
-          <div class="detail-tags"><StatusBadge tone="info">{{ workItemTypeLabels[item.type] }}</StatusBadge><StatusBadge :tone="item.priority === 'URGENT' ? 'danger' : item.priority === 'HIGH' ? 'warning' : 'neutral'">{{ workItemPriorityLabels[item.priority] }}优先级</StatusBadge><span v-for="label in item.labels" :key="label"><Tag :size="11" />{{ label }}</span></div>
+          <div class="detail-tags"><StatusBadge tone="info">{{ workItemTypeLabels[item.type] }}</StatusBadge><StatusBadge :tone="item.priority === 'URGENT' ? 'danger' : item.priority === 'HIGH' ? 'warning' : 'neutral'">{{ workItemPriorityLabels[item.priority] }}优先级</StatusBadge><span v-for="label in item.labels" :key="label"><Tag :size="12" />{{ label }}</span></div>
           <!-- §4.1: delivered output or the honest waiting fact, right after the title facts. -->
           <WorkItemOutcomePanel
             :summary="item.summary"
@@ -377,13 +377,13 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         <ResourceChangeBanner :visible="changeBannerVisible" @refresh="refreshAfterRemoteChange" />
         <WorkItemContentEditor :key="item.id" :item="item" :can-participate="canParticipate" @dirty="editorDirty = $event" @saved="onContentSaved ? onContentSaved() : onRetry()" />
         <section v-if="versionConflict" class="conflict-panel" role="alert">
-          <RefreshCw :size="17" /><div><strong>检测到并发更新</strong><span>提交基于 v{{ versionConflict.attemptedVersion }}，服务端当前版本为 {{ versionConflict.currentVersion === null ? '未知' : `v${versionConflict.currentVersion}` }}。详情已刷新。</span></div>
+          <RefreshCw :size="16" /><div><strong>检测到并发更新</strong><span>提交基于 v{{ versionConflict.attemptedVersion }}，服务端当前版本为 {{ versionConflict.currentVersion === null ? '未知' : `v${versionConflict.currentVersion}` }}。详情已刷新。</span></div>
         </section>
         <p v-if="commandErrorMessage" class="command-error" role="alert">{{ commandErrorMessage }}</p>
         <p v-if="phase === 'error' && errorMessage" class="command-error" role="alert">{{ errorMessage }} <button type="button" @click="onRetry">重试</button></p>
 
         <section class="detail-section transition-section">
-          <div class="section-heading"><div><h3>状态流转</h3></div><ShieldCheck :size="17" /></div>
+          <div class="section-heading"><div><h3>状态流转</h3></div><ShieldCheck :size="16" /></div>
           <StatePanel v-if="availabilityPhase === 'loading' && !transitions.length" state="loading" description="正在确认可执行动作" />
           <p v-else-if="availabilityPhase === 'error'" class="command-error" role="alert">
             {{ availabilityErrorMessage ?? '暂时无法加载可执行动作' }}
@@ -412,7 +412,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
                   :loading="busyTransition"
                   aria-describedby="transition-help"
                   @click="submitTransition(transition)"
-                >{{ confirmingTransition === transition.targetStatus ? `再次点击确认${transition.label}` : transition.label }}<ArrowRight :size="13" /></BaseButton>
+                >{{ confirmingTransition === transition.targetStatus ? `再次点击确认${transition.label}` : transition.label }}<ArrowRight :size="14" /></BaseButton>
                 <p v-if="!transition.enabled" :id="transitionDomId(transition)" class="transition-reason">
                   {{ transition.reasonMessage ?? '当前不可执行' }}
                   <RouterLink v-if="transition.remedyRoute" :to="transition.remedyRoute">{{ transition.remedyLabel ?? '前往处理' }}</RouterLink>
@@ -450,7 +450,7 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         />
 
         <section class="detail-section responsibility-section">
-          <div class="section-heading"><div><h3>团队责任链 <span>{{ responsibilities.length }}</span></h3></div><ShieldCheck :size="17" /></div>
+          <div class="section-heading"><div><h3>团队责任链 <span>{{ responsibilities.length }}</span></h3></div><ShieldCheck :size="16" /></div>
           <WorkItemResponsibilityPanel
             :scope="scope"
             :phase="responsibilityPhase"
@@ -483,26 +483,26 @@ function resourceHref(resource: WorkItemResourceLink): string | undefined {
         <WorkItemRelationsPanel :scope="scope" :item="item" :can-participate="canParticipate" />
 
         <section class="detail-section comments-section">
-          <div class="section-heading"><div><h3>评论 <span>{{ details.comments.length }}</span></h3></div><MessageSquare :size="17" /></div>
+          <div class="section-heading"><div><h3>评论 <span>{{ details.comments.length }}</span></h3></div><MessageSquare :size="16" /></div>
           <div v-if="details.comments.length" class="comment-list">
             <article v-for="entry in details.comments" :key="entry.id"><i>{{ humanName(entry.authorPrincipalId).slice(0, 1).toUpperCase() }}</i><div><header><strong>{{ humanName(entry.authorPrincipalId) }}</strong><time>{{ displayDate(entry.createdAt) }}</time></header><SafeMarkdown class="comment-body" :content="entry.content" /></div></article>
           </div>
           <p v-else class="section-note">还没有评论。</p>
           <TypingIndicator :typers="workItemTypers" />
-          <form v-if="canCollaborate" class="comment-form" @submit.prevent="submitComment"><label for="work-item-comment">添加评论</label><textarea v-if="!commentPreviewing" id="work-item-comment" v-model="comment" rows="3" placeholder="记录决策、进展或需要协作的事项；@ 成员或 Agent 不会自动触发执行" :aria-invalid="commentSubmitted && !comment.trim()" /><div v-else class="comment-preview" :aria-label="`评论预览`"><SafeMarkdown v-if="comment.trim()" :content="comment" /><p v-else>暂无内容，回到编辑继续输入。</p></div><div class="comment-actions"><button type="button" class="comment-preview-toggle" :aria-pressed="commentPreviewing" @click="commentPreviewing = !commentPreviewing">{{ commentPreviewing ? '编辑' : '预览' }}</button><BaseButton v-if="canDelegate" type="button" variant="secondary" size="small" :disabled="!comment.trim()" title="以这条评论为执行目标发起委托确认；评论本身仍需单独发布才会留档" :aria-describedby="comment.trim() ? undefined : 'delegate-comment-reason'" @click="emit('delegate', comment.trim())"><Bot :size="13" />让 Agent 处理</BaseButton><BaseButton type="submit" size="small" :loading="commandPending === 'comment'"><Send :size="13" />发布评论</BaseButton></div><p v-if="canDelegate && !comment.trim()" id="delegate-comment-reason" class="comment-note">还没有可委托的评论内容——先在上面写下内容，「让 Agent 处理」才可用。</p><p class="comment-note">评论仅记录讨论，不会启动执行；要让 Agent 按这条内容行动，用「让 Agent 处理」单独确认委托。</p></form>
+          <form v-if="canCollaborate" class="comment-form" @submit.prevent="submitComment"><label for="work-item-comment">添加评论</label><textarea v-if="!commentPreviewing" id="work-item-comment" v-model="comment" rows="3" placeholder="记录决策、进展或需要协作的事项；@ 成员或 Agent 不会自动触发执行" :aria-invalid="commentSubmitted && !comment.trim()" /><div v-else class="comment-preview" :aria-label="`评论预览`"><SafeMarkdown v-if="comment.trim()" :content="comment" /><p v-else>暂无内容，回到编辑继续输入。</p></div><div class="comment-actions"><button type="button" class="comment-preview-toggle" :aria-pressed="commentPreviewing" @click="commentPreviewing = !commentPreviewing">{{ commentPreviewing ? '编辑' : '预览' }}</button><BaseButton v-if="canDelegate" type="button" variant="secondary" size="small" :disabled="!comment.trim()" title="以这条评论为执行目标发起委托确认；评论本身仍需单独发布才会留档" :aria-describedby="comment.trim() ? undefined : 'delegate-comment-reason'" @click="emit('delegate', comment.trim())"><Bot :size="14" />让 Agent 处理</BaseButton><BaseButton type="submit" size="small" :loading="commandPending === 'comment'"><Send :size="14" />发布评论</BaseButton></div><p v-if="canDelegate && !comment.trim()" id="delegate-comment-reason" class="comment-note">还没有可委托的评论内容——先在上面写下内容，「让 Agent 处理」才可用。</p><p class="comment-note">评论仅记录讨论，不会启动执行；要让 Agent 按这条内容行动，用「让 Agent 处理」单独确认委托。</p></form>
         </section>
 
         <section class="detail-section resources-section">
-          <div class="section-heading"><div><h3>关联资源 <span>{{ details.resourceLinks.length }}</span></h3></div><Link2 :size="17" /></div>
+          <div class="section-heading"><div><h3>关联资源 <span>{{ details.resourceLinks.length }}</span></h3></div><Link2 :size="16" /></div>
           <div v-if="details.resourceLinks.length" class="resource-list">
-            <article v-for="resource in details.resourceLinks" :key="resource.id"><i><Link2 :size="14" /></i><div><strong>{{ resource.label ?? workItemResourceTypeLabels[resource.resourceType] }}</strong><a v-if="resourceHref(resource)" :href="resourceHref(resource)" target="_blank" rel="noopener noreferrer">{{ resource.resourceReference }}<ExternalLink :size="11" /></a><span v-else class="mono">{{ resource.resourceReference }}</span></div><StatusBadge>{{ workItemResourceTypeLabels[resource.resourceType] }}</StatusBadge></article>
+            <article v-for="resource in details.resourceLinks" :key="resource.id"><i><Link2 :size="14" /></i><div><strong>{{ resource.label ?? workItemResourceTypeLabels[resource.resourceType] }}</strong><a v-if="resourceHref(resource)" :href="resourceHref(resource)" target="_blank" rel="noopener noreferrer">{{ resource.resourceReference }}<ExternalLink :size="12" /></a><span v-else class="mono">{{ resource.resourceReference }}</span></div><StatusBadge>{{ workItemResourceTypeLabels[resource.resourceType] }}</StatusBadge></article>
           </div>
           <p v-else class="section-note">还没有关联资源。</p>
           <form v-if="canCollaborate" class="resource-form" @submit.prevent="submitResource"><label><span>资源类型</span><BaseSelect v-model="resourceType"><option v-for="kind in workItemResourceTypes" :key="kind" :value="kind">{{ workItemResourceTypeLabels[kind] }}</option></BaseSelect></label><label><span>引用</span><input v-model="resourceReference" :placeholder="resourceType === 'EXTERNAL_URL' ? 'https://example.com/resource' : '资源的稳定标识'" :aria-invalid="resourceSubmitted && !resourceReference.trim()"></label><label><span>显示名称</span><input v-model="resourceLabel" placeholder="可选"></label><BaseButton type="submit" size="small" variant="secondary" :loading="commandPending === 'resource'">关联资源</BaseButton></form>
         </section>
 
         <section class="detail-section timeline-section">
-          <div class="section-heading"><div><h3>业务时间线 <span>{{ timeline.length }}</span></h3></div><Clock3 :size="17" /></div>
+          <div class="section-heading"><div><h3>业务时间线 <span>{{ timeline.length }}</span></h3></div><Clock3 :size="16" /></div>
           <WorkItemTimeline
             :phase="timelinePhase"
             :events="timeline"

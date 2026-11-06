@@ -571,7 +571,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
             compact
             title="没有需要你行动的事项"
           >
-            <template #action><RouterLink class="desk-empty-link touch-target" :to="{ name: 'work', query: route.query }">进入 Work <ArrowRight :size="13" /></RouterLink></template>
+            <template #action><RouterLink class="desk-empty-link touch-target" :to="{ name: 'work', query: route.query }">进入 Work <ArrowRight :size="14" /></RouterLink></template>
           </StatePanel>
           <div v-else class="action-required__grid">
             <button
@@ -618,7 +618,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
             title="没有分配到你的工作项"
             description="当前筛选下，这个 Team 的 WorkProject 里没有需要你承担的工作项。换一个项目或角色筛选，或到 Work 里取一项工作。"
           >
-            <template #action><RouterLink class="desk-empty-link touch-target" :to="{ name: 'work', query: route.query }">进入 Work <ArrowRight :size="13" /></RouterLink></template>
+            <template #action><RouterLink class="desk-empty-link touch-target" :to="{ name: 'work', query: route.query }">进入 Work <ArrowRight :size="14" /></RouterLink></template>
           </StatePanel>
 
           <div v-else class="desk-board" :class="{ 'desk-board--locked': !canDrag }" aria-label="我的工作看板" @keydown="handleBoardKeydown">
@@ -713,7 +713,7 @@ const todayLabel = new Intl.DateTimeFormat('zh-CN', {
         <div v-if="inboxSample" class="desk-inbox panel">
           <Inbox :size="16" aria-hidden="true" />
           <span><strong>Inbox</strong> 有 {{ inboxTotal }} 条未读</span>
-          <RouterLink :to="{ name: 'inbox', query: route.query }">查看全部 <ArrowRight :size="13" /></RouterLink>
+          <RouterLink :to="{ name: 'inbox', query: route.query }">查看全部 <ArrowRight :size="14" /></RouterLink>
         </div>
       </template>
 

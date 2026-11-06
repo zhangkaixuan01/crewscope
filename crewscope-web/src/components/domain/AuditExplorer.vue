@@ -204,7 +204,7 @@ function label(value: string | null | undefined, labels: Record<string, string>)
             <label>Outcome<BaseSelect v-model="form.outcome"><option value="">全部结果</option><option v-for="item in auditOutcomes" :key="item" :value="item">{{ item }}</option></BaseSelect></label>
           </div>
           <BaseMenu :open="advanced" initial-focus="none" placement="bottom-start" label="高级筛选" trigger-class="advanced-toggle touch-target" menu-class="audit-filter__menu" @update:open="advanced = $event">
-            <template #trigger><Filter :size="13" />高级筛选</template>
+            <template #trigger><Filter :size="14" />高级筛选</template>
             <div class="audit-filter__advanced">
               <label>开始时间<input v-model="form.from" type="datetime-local"></label>
               <label>结束时间<input v-model="form.to" type="datetime-local"></label>
@@ -223,10 +223,10 @@ function label(value: string | null | undefined, labels: Record<string, string>)
         <template #side>
           <div class="export-control">
             <label>导出上限<input v-model.number="maximumRows" type="number" min="1" max="10000" step="1"></label>
-            <BaseButton variant="secondary" size="small" :loading="exportPhase === 'loading'" :disabled="Boolean(exportDisabledReason) || maximumRows < 1 || maximumRows > 10000" @click="emit('export', maximumRows)"><Download :size="13" />导出 CSV</BaseButton>
+            <BaseButton variant="secondary" size="small" :loading="exportPhase === 'loading'" :disabled="Boolean(exportDisabledReason) || maximumRows < 1 || maximumRows > 10000" @click="emit('export', maximumRows)"><Download :size="14" />导出 CSV</BaseButton>
           </div>
           <BaseButton variant="ghost" size="small" @click="reset">重置</BaseButton>
-          <BaseButton size="small" type="submit"><Filter :size="13" />应用筛选</BaseButton>
+          <BaseButton size="small" type="submit"><Filter :size="14" />应用筛选</BaseButton>
         </template>
       </ScanToolbar>
       <p v-if="validation" class="filter-error" role="alert">{{ validation }}</p>
@@ -242,10 +242,10 @@ function label(value: string | null | undefined, labels: Record<string, string>)
       <section class="audit-list panel" aria-label="审计事件列表">
         <StatePanel v-if="missingSelectedEvent" compact state="empty" title="深链的审计事件在当前 Team 不可见" description="检查链接来源，或切换到事件所属的 Team。"><template #action><BaseButton variant="secondary" size="small" @click="emit('clearDeepLink')">清除深链，回到列表</BaseButton></template></StatePanel>
         <StatePanel v-if="initialLoading" state="loading" title="正在加载审计事实" />
-        <StatePanel v-else-if="forbidden" state="forbidden" title="无权查看团队审计" description="当前成员没有这个 Team 的 Audit 读取权限。"><template #action><RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.auditRead } }"><BaseButton variant="secondary" size="small"><ShieldCheck :size="15" />查看权限说明</BaseButton></RouterLink></template></StatePanel>
+        <StatePanel v-else-if="forbidden" state="forbidden" title="无权查看团队审计" description="当前成员没有这个 Team 的 Audit 读取权限。"><template #action><RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.auditRead } }"><BaseButton variant="secondary" size="small"><ShieldCheck :size="14" />查看权限说明</BaseButton></RouterLink></template></StatePanel>
         <StatePanel v-else-if="offline && items.length === 0" state="offline" title="离线时没有可用审计事实" />
         <StatePanel v-else-if="hardError && items.length === 0" state="error" :description="error?.message" @retry="emit('retry')" />
-        <StatePanel v-else-if="items.length === 0" state="empty" title="当前筛选没有审计事实"><template #action><BaseButton variant="secondary" @click="reset"><Filter :size="15" />清空筛选</BaseButton></template></StatePanel>
+        <StatePanel v-else-if="items.length === 0" state="empty" title="当前筛选没有审计事实"><template #action><BaseButton variant="secondary" @click="reset"><Filter :size="14" />清空筛选</BaseButton></template></StatePanel>
         <template v-else>
           <StatePanel v-if="offline" compact state="offline" title="正在展示最近同步的审计事实" description="离线期间筛选续页与导出保持关闭。">
             <template v-if="lastSyncedAt" #description>离线期间筛选续页与导出保持关闭。最近同步于 <RelativeTime :value="lastSyncedAt" />。</template>
@@ -264,12 +264,12 @@ function label(value: string | null | undefined, labels: Record<string, string>)
               <td data-label="操作"><button type="button" @click="openDetail(item.eventId)">查看详情</button></td>
             </tr></tbody>
           </BaseTable>
-          <footer v-if="nextCursor"><BaseButton variant="secondary" size="small" :loading="loadingMore" :disabled="!online" @click="emit('loadMore')"><RefreshCw :size="13" />加载更多</BaseButton></footer>
+          <footer v-if="nextCursor"><BaseButton variant="secondary" size="small" :loading="loadingMore" :disabled="!online" @click="emit('loadMore')"><RefreshCw :size="14" />加载更多</BaseButton></footer>
         </template>
       </section>
 
       <aside v-if="selectedEvent" class="audit-detail panel" aria-label="审计事件详情">
-        <header><div><p>Public audit fact</p><h2 ref="detailHeading" tabindex="-1">审计详情</h2></div><button type="button" aria-label="关闭审计详情" @click="closeDetailAndRestore()"><X :size="17" /></button></header>
+        <header><div><p>Public audit fact</p><h2 ref="detailHeading" tabindex="-1">审计详情</h2></div><button type="button" aria-label="关闭审计详情" @click="closeDetailAndRestore()"><X :size="16" /></button></header>
         <section class="audit-detail__hero"><StatusBadge :tone="outcomeTone(selectedEvent.outcome)">{{ auditOutcomeLabels[selectedEvent.outcome] }}</StatusBadge><StatusBadge tone="neutral">{{ auditRetentionLevelLabels[selectedEvent.retentionLevel] }}</StatusBadge><h3>{{ label(selectedEvent.eventType, activityEventTypeLabels) }}</h3><span>{{ categoryLabel(selectedEvent.category) }} · Schema v{{ selectedEvent.sourceSchemaVersion }}</span></section>
         <dl>
           <div><dt>事件标识</dt><dd class="mono">{{ selectedEvent.eventId }}</dd></div>
@@ -279,13 +279,13 @@ function label(value: string | null | undefined, labels: Record<string, string>)
           <div><dt>关联对象</dt><dd>{{ label(selectedEvent.subject.type, activitySubjectTypeLabels) }}<small class="mono">{{ selectedEvent.subject.id }}</small></dd></div>
           <div><dt>发生时间</dt><dd>{{ displayTime(selectedEvent.occurredAt) }}</dd></div>
         </dl>
-        <section v-if="selectedEvent.provider" class="safe-reference"><ShieldCheck :size="15" /><div><strong>Provider 安全引用</strong><span class="mono">Binding {{ selectedEvent.provider.providerBindingId }}</span><span class="mono">Connection {{ selectedEvent.provider.connectionId }}</span><span v-if="selectedEvent.provider.externalOperationHash" class="mono">Operation {{ selectedEvent.provider.externalOperationHash }}</span></div></section>
+        <section v-if="selectedEvent.provider" class="safe-reference"><ShieldCheck :size="14" /><div><strong>Provider 安全引用</strong><span class="mono">Binding {{ selectedEvent.provider.providerBindingId }}</span><span class="mono">Connection {{ selectedEvent.provider.connectionId }}</span><span v-if="selectedEvent.provider.externalOperationHash" class="mono">Operation {{ selectedEvent.provider.externalOperationHash }}</span></div></section>
         <section class="audit-summary"><h3>公开摘要</h3><p v-if="Object.keys(selectedEvent.summary).length === 0">此事件没有公开摘要字段。</p><dl v-else><div v-for="(value, key) in selectedEvent.summary" :key="key"><dt>{{ key }}</dt><dd>{{ value }}</dd></div></dl></section>
-        <section class="correlation-callout"><Link2 :size="15" /><div><strong>Correlation</strong><span class="mono">{{ selectedEvent.correlation.correlationId }}</span></div><BaseButton variant="secondary" size="small" @click="emit('openCorrelation', selectedEvent.correlation.correlationId)">查看关联链</BaseButton></section>
+        <section class="correlation-callout"><Link2 :size="14" /><div><strong>Correlation</strong><span class="mono">{{ selectedEvent.correlation.correlationId }}</span></div><BaseButton variant="secondary" size="small" @click="emit('openCorrelation', selectedEvent.correlation.correlationId)">查看关联链</BaseButton></section>
       </aside>
 
       <aside v-else-if="correlation" class="correlation-panel panel" aria-label="Correlation 关联链">
-        <header><div><p>Cross-object trace</p><h2>Correlation 链</h2></div><button type="button" aria-label="关闭 Correlation 链" @click="emit('closeCorrelation')"><X :size="17" /></button></header>
+        <header><div><p>Cross-object trace</p><h2>Correlation 链</h2></div><button type="button" aria-label="关闭 Correlation 链" @click="emit('closeCorrelation')"><X :size="16" /></button></header>
         <StatePanel v-if="correlation.phase === 'idle' || (correlation.phase === 'loading' && !correlation.value)" compact state="loading" />
         <StatePanel v-else-if="correlation.error?.kind === 'forbidden' && !correlation.value" compact state="forbidden"><template #action><RouterLink :to="{ name: 'access-denied', query: { requiredPermission: permissions.auditRead } }"><BaseButton variant="secondary" size="small">查看权限说明</BaseButton></RouterLink></template></StatePanel>
         <StatePanel v-else-if="correlation.phase === 'error' && !correlation.value" compact state="error" :description="correlation.error?.message" @retry="emit('retryCorrelation', correlationId)" />
@@ -295,7 +295,7 @@ function label(value: string | null | undefined, labels: Record<string, string>)
           <p class="correlation-id mono">{{ correlation.value.correlationId }}</p>
           <ol><li v-for="item in correlation.value.events" :key="item.eventId"><span>{{ label(item.source, correlationEventSourceLabels) }}</span><strong>{{ label(item.eventType, activityEventTypeLabels) }}</strong><small>{{ label(item.actorType, auditActorTypeLabels) }} · {{ displayTime(item.occurredAt) }}</small><StatusBadge :tone="outcomeTone(item.outcome)">{{ item.outcome ? label(item.outcome, auditOutcomeLabels) : '已记录' }}</StatusBadge></li></ol>
           <section class="correlation-objects"><h3>关联对象</h3><button v-for="item in correlation.value.objects" :key="`${item.type}:${item.id}`" type="button" @click="emit('navigate', item.href)"><span><strong>{{ label(item.type, correlationObjectTypeLabels) }}</strong><small class="mono">{{ item.id }}</small></span><ArrowUpRight :size="14" /></button></section>
-          <footer v-if="correlation.nextCursor"><BaseButton variant="secondary" size="small" :loading="correlation.loadingMore" :disabled="!online" @click="emit('loadMoreCorrelation', correlation.value.correlationId)"><RefreshCw :size="13" />加载更多节点</BaseButton></footer>
+          <footer v-if="correlation.nextCursor"><BaseButton variant="secondary" size="small" :loading="correlation.loadingMore" :disabled="!online" @click="emit('loadMoreCorrelation', correlation.value.correlationId)"><RefreshCw :size="14" />加载更多节点</BaseButton></footer>
         </template>
       </aside>
     </div>

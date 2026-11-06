@@ -300,7 +300,7 @@ function roleLabels(roles?: string[]): string {
         </section>
 
         <form v-if="showAddMember && canManageMembers" class="add-member panel" @submit.prevent="addMember">
-          <div class="add-member__heading"><i><UserRoundPlus :size="19" /></i><div><h2>添加已有用户</h2><p>按姓名搜索本组织的已有成员并加入当前 Team。</p></div><button type="button" aria-label="关闭添加成员" @click="showAddMember = false"><X :size="17" /></button></div>
+          <div class="add-member__heading"><i><UserRoundPlus :size="18" /></i><div><h2>添加已有用户</h2><p>按姓名搜索本组织的已有成员并加入当前 Team。</p></div><button type="button" aria-label="关闭添加成员" @click="showAddMember = false"><X :size="16" /></button></div>
           <PrincipalPicker
             v-model="targetPrincipalId"
             :scope="{ organizationId: team?.organizationId ?? '' }"
@@ -363,7 +363,7 @@ function roleLabels(roles?: string[]): string {
         <StatePanel v-else state="empty" title="需要成员管理权限" description="创建与撤销加入邀请需要 team:members:manage 权限。" />
       </template>
 
-      <section class="permission-note"><ShieldCheck :size="17" /><div><strong>权限守卫只改善界面体验</strong><span>导航和写按钮按当前会话权限显示；每次读取、生命周期命令与成员添加仍由服务端重新校验。</span></div></section>
+      <section class="permission-note"><ShieldCheck :size="16" /><div><strong>权限守卫只改善界面体验</strong><span>导航和写按钮按当前会话权限显示；每次读取、生命周期命令与成员添加仍由服务端重新校验。</span></div></section>
     </div>
 
     <MemberLifecycleDialog

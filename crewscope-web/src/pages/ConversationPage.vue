@@ -1169,7 +1169,7 @@ async function redirectIfForbidden(): Promise<void> {
                 v-if="messageStore.state.phase === 'empty' && messageStore.state.pending.length === 0 && !visibleInvocationMessage && !visibleStreamedReply && !agentBusy"
                 class="message-empty"
               >
-                <span><Bot :size="21" aria-hidden="true" /></span>
+                <span><Bot :size="20" aria-hidden="true" /></span>
                 <strong>开始这个对话</strong>
                 <p>发送第一条消息，向 Personal Agent 描述目标或补充团队上下文。</p>
               </div>
@@ -1183,7 +1183,7 @@ async function redirectIfForbidden(): Promise<void> {
                     :data-virtual-key="message.id"
                   >
                     <div v-if="message.type !== 'SYSTEM_NOTICE'" class="message-avatar">
-                      <Bot v-if="message.type === 'AGENT_MESSAGE'" :size="15" aria-hidden="true" />
+                      <Bot v-if="message.type === 'AGENT_MESSAGE'" :size="14" aria-hidden="true" />
                       <template v-else>{{ messageAuthor(message).slice(0, 1) }}</template>
                     </div>
                     <article>
@@ -1226,7 +1226,7 @@ async function redirectIfForbidden(): Promise<void> {
                   class="message-row agent streaming"
                   :class="{ reconnecting: realtimeStore.state.invocationPhase === 'reconnecting' }"
                 >
-                  <div class="message-avatar"><Bot :size="15" aria-hidden="true" /></div>
+                  <div class="message-avatar"><Bot :size="14" aria-hidden="true" /></div>
                   <article>
                     <header>
                       <strong>Personal Agent</strong>
@@ -1283,12 +1283,12 @@ async function redirectIfForbidden(): Promise<void> {
           />
         </template>
         <div v-else class="conversation-welcome">
-          <span><MessageSquarePlus :size="26" aria-hidden="true" /></span>
+          <span><MessageSquarePlus :size="24" aria-hidden="true" /></span>
 
           <h2>从一个对话开始</h2>
           <p v-if="focus">你正在处理 <strong>{{ focus }}</strong>。</p>
           <BaseButton @click="openCreate">
-            <template #icon><Plus :size="15" /></template>
+            <template #icon><Plus :size="14" /></template>
             新建对话
           </BaseButton>
         </div>

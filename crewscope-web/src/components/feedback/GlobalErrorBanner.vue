@@ -5,10 +5,10 @@ import { clearGlobalError, globalErrorMessage } from '../../app/errors'
 
 <template>
   <div v-if="globalErrorMessage" class="error-banner" role="alert">
-    <AlertTriangle :size="17" aria-hidden="true" />
+    <AlertTriangle :size="16" aria-hidden="true" />
     <span>{{ globalErrorMessage }}</span>
     <button type="button" aria-label="关闭错误提示" @click="clearGlobalError">
-      <X :size="17" aria-hidden="true" />
+      <X :size="16" aria-hidden="true" />
     </button>
   </div>
 </template>

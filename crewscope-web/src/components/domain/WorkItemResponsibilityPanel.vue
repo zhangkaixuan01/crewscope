@@ -161,7 +161,7 @@ async function submit(action: () => Promise<void>, clear?: () => void): Promise<
       </section>
 
       <details v-if="scope" class="agent-assignment">
-        <summary><Bot :size="13" />搜索目录页之外的 Agent</summary>
+        <summary><Bot :size="14" />搜索目录页之外的 Agent</summary>
         <form @submit.prevent="submit(() => onAssignExecutor(executorAgentPrincipalId!), () => { executorAgentPrincipalId = null })">
           <PrincipalPicker
             v-model="executorAgentPrincipalId"
@@ -186,7 +186,7 @@ async function submit(action: () => Promise<void>, clear?: () => void): Promise<
       </details>
     </div>
 
-    <p v-else class="responsibility-policy"><UserPlus :size="13" />当前账号可查看责任链；责任调整需要 Responsibility Manage 权限。</p>
+    <p v-else class="responsibility-policy"><UserPlus :size="14" />当前账号可查看责任链；责任调整需要 Responsibility Manage 权限。</p>
   </div>
 </template>
 

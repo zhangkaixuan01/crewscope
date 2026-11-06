@@ -181,7 +181,7 @@ async function save(): Promise<void> {
       <div class="team-preference__actions">
         <BaseButton size="small" :loading="pending" :disabled="!dirty" @click="save()">保存偏好</BaseButton>
       </div>
-      <p class="team-preference__note"><ShieldCheck :size="13" />保存只影响你自己，不会改变其他成员的通知。</p>
+      <p class="team-preference__note"><ShieldCheck :size="14" />保存只影响你自己，不会改变其他成员的通知。</p>
     </template>
   </section>
 </template>

@@ -30,14 +30,14 @@ const status = computed(() => {
     <p role="status" aria-live="polite" aria-atomic="true">{{ status }}</p>
     <ul aria-label="密码要求">
       <li :class="{ passed: minimumMet }">
-        <Check v-if="minimumMet" :size="13" aria-hidden="true" />
-        <Circle v-else :size="11" aria-hidden="true" />
+        <Check v-if="minimumMet" :size="14" aria-hidden="true" />
+        <Circle v-else :size="12" aria-hidden="true" />
         至少 {{ minimum }} 个字符
       </li>
-      <li class="neutral"><Check :size="13" aria-hidden="true" />支持完整短语</li>
+      <li class="neutral"><Check :size="14" aria-hidden="true" />支持完整短语</li>
       <li :class="{ failed: !maximumMet }">
-        <X v-if="!maximumMet" :size="13" aria-hidden="true" />
-        <Circle v-else :size="11" aria-hidden="true" />
+        <X v-if="!maximumMet" :size="14" aria-hidden="true" />
+        <Circle v-else :size="12" aria-hidden="true" />
         最多 {{ maximum }} 个字符
       </li>
     </ul>

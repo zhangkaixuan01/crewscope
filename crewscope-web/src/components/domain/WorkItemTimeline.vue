@@ -43,13 +43,13 @@ function actorName(event: WorkItemTimelineEvent): string {
     <ol v-else aria-label="工作项时间线">
       <li v-for="event in events" :key="event.eventId">
         <i :class="{ agent: event.actorType !== 'USER' && event.actorType !== 'SYSTEM' }">
-          <MessageSquare v-if="event.eventType.includes('COMMENT')" :size="13" />
-          <Link2 v-else-if="event.eventType.includes('RESOURCE')" :size="13" />
-          <Bot v-else-if="event.actorType !== 'USER' && event.actorType !== 'SYSTEM'" :size="13" />
-          <UserRound v-else-if="event.actorType === 'USER'" :size="13" />
-          <Activity v-else :size="13" />
+          <MessageSquare v-if="event.eventType.includes('COMMENT')" :size="14" />
+          <Link2 v-else-if="event.eventType.includes('RESOURCE')" :size="14" />
+          <Bot v-else-if="event.actorType !== 'USER' && event.actorType !== 'SYSTEM'" :size="14" />
+          <UserRound v-else-if="event.actorType === 'USER'" :size="14" />
+          <Activity v-else :size="14" />
         </i>
-        <div><header><strong>{{ eventLabel(event) }}</strong><time>{{ displayDate(event.occurredAt) }}</time></header><p><span>{{ actorName(event) }}</span><span v-if="event.aggregateVersion !== null" class="mono">v{{ event.aggregateVersion }}</span><CircleCheck v-if="event.outcome === 'SUCCEEDED'" :size="11" aria-label="成功" /></p></div>
+        <div><header><strong>{{ eventLabel(event) }}</strong><time>{{ displayDate(event.occurredAt) }}</time></header><p><span>{{ actorName(event) }}</span><span v-if="event.aggregateVersion !== null" class="mono">v{{ event.aggregateVersion }}</span><CircleCheck v-if="event.outcome === 'SUCCEEDED'" :size="12" aria-label="成功" /></p></div>
       </li>
     </ol>
     <p v-if="errorMessage && events.length" class="timeline-more-error" role="alert">{{ errorMessage }}</p>

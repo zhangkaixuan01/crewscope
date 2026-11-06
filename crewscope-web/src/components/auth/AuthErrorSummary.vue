@@ -33,8 +33,8 @@ watch(() => props.focusKey, focusSummary)
     role="alert"
     tabindex="-1"
   >
-    <AlertCircle v-if="tone === 'error'" :size="17" aria-hidden="true" />
-    <Clock3 v-else :size="17" aria-hidden="true" />
+    <AlertCircle v-if="tone === 'error'" :size="16" aria-hidden="true" />
+    <Clock3 v-else :size="16" aria-hidden="true" />
     <div>
       <strong>{{ title }}</strong>
       <ul v-if="messages.length > 1">

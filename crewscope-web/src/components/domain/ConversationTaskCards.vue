@@ -116,7 +116,7 @@ function displayDate(value: string): string {
             <span><CircleUserRound :size="12" aria-hidden="true" />{{ ownerName(association, currentPrincipalId, principalNames) }}</span>
             <span><Clock3 :size="12" aria-hidden="true" />{{ executionLabel(association) }}</span>
             <span v-if="liveTasks[association.task.id]" class="live-fact" :class="liveTasks[association.task.id]?.phase">
-              <Radio :size="11" aria-hidden="true" />{{ liveLabel(liveTasks[association.task.id]) }}
+              <Radio :size="12" aria-hidden="true" />{{ liveLabel(liveTasks[association.task.id]) }}
             </span>
           </div>
           <p v-if="association.task.currentWaitingReason" class="conversation-task-card__waiting">
@@ -131,7 +131,7 @@ function displayDate(value: string): string {
       </article>
       <p v-if="errorMessage" class="conversation-tasks__error" role="alert">
         {{ errorMessage }}
-        <button type="button" @click="$emit('retry')"><RefreshCw :size="11" />重新同步</button>
+        <button type="button" @click="$emit('retry')"><RefreshCw :size="12" />重新同步</button>
       </p>
     </div>
   </section>

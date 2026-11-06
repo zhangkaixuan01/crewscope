@@ -60,11 +60,11 @@ function submit(): void {
         <legend>可见范围</legend>
         <label :class="{ active: visibility === 'PRIVATE' }">
           <input v-model="visibility" type="radio" value="PRIVATE" :disabled="pending" />
-          <LockKeyhole :size="17" /><span><strong>私有对话</strong><small>仅 Owner、Personal Agent 与显式参与者可见</small></span>
+          <LockKeyhole :size="16" /><span><strong>私有对话</strong><small>仅 Owner、Personal Agent 与显式参与者可见</small></span>
         </label>
         <label :class="{ active: visibility === 'TEAM' }">
           <input v-model="visibility" type="radio" value="TEAM" :disabled="pending" />
-          <UsersRound :size="17" /><span><strong>团队对话</strong><small>当前 Team 成员可发现，写入仍需 Participant 资格</small></span>
+          <UsersRound :size="16" /><span><strong>团队对话</strong><small>当前 Team 成员可发现，写入仍需 Participant 资格</small></span>
         </label>
       </fieldset>
       <p v-if="props.error" class="form-error" role="alert">{{ props.error }}</p>

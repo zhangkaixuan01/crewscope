@@ -30,7 +30,7 @@ const emit = defineEmits<{ close: [] }>()
     <ul v-if="selected">
       <li v-for="participant in participants" :key="participant.id">
         <span :class="{ agent: participant.role === 'AGENT' }">
-          <Bot v-if="participant.role === 'AGENT'" :size="15" />
+          <Bot v-if="participant.role === 'AGENT'" :size="14" />
           <template v-else>{{ participantName(participant).slice(0, 1) }}</template>
         </span>
         <div>

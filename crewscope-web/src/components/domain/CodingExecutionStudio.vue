@@ -208,21 +208,21 @@ function progress(value: { used: number, maximum: number }): number {
 
       <div class="studio-grid">
         <article class="studio-card studio-card--baseline">
-          <div class="studio-card__title"><GitBranch :size="15" aria-hidden="true" /><span>不可变基线</span></div>
+          <div class="studio-card__title"><GitBranch :size="14" aria-hidden="true" /><span>不可变基线</span></div>
           <strong>{{ workspace?.repositoryKey }}</strong>
           <code :title="workspace?.baselineCommit">{{ shortHash(workspace?.baselineCommit ?? '') }}</code>
           <small>{{ workspace?.managedBranch }}</small>
         </article>
 
         <article class="studio-card studio-card--workspace">
-          <div class="studio-card__title"><Box :size="15" aria-hidden="true" /><span>Workspace / Sandbox</span></div>
+          <div class="studio-card__title"><Box :size="14" aria-hidden="true" /><span>Workspace / Sandbox</span></div>
           <div class="studio-status"><StatusBadge :tone="statusTone(workspace?.status ?? '')" dot>{{ label(workspace?.status, executionWorkspaceStatusLabels) }}</StatusBadge><span>恢复代次 {{ workspace?.recoveryGeneration }}</span></div>
           <strong class="mono">{{ shortId(workspace?.id ?? '') }}</strong>
           <small>更新于 {{ displayDate(workspace?.updatedAt ?? '') }}</small>
         </article>
 
         <article class="studio-card studio-card--agent">
-          <div class="studio-card__title"><Bot :size="15" aria-hidden="true" /><span>Coding Agent</span></div>
+          <div class="studio-card__title"><Bot :size="14" aria-hidden="true" /><span>Coding Agent</span></div>
           <template v-if="latestRun">
             <div class="studio-status"><StatusBadge :tone="statusTone(latestRun.status)" dot>{{ label(latestRun.status, agentRunStatusLabels) }}</StatusBadge><span>Run {{ latestRun.runSequence }}</span></div>
             <strong>Profile v{{ latestRun.agentProfileVersion }}</strong>
@@ -233,7 +233,7 @@ function progress(value: { used: number, maximum: number }): number {
         </article>
 
         <article class="studio-card studio-card--plan">
-          <div class="studio-card__title"><History :size="15" aria-hidden="true" /><span>计划与当前步骤</span></div>
+          <div class="studio-card__title"><History :size="14" aria-hidden="true" /><span>计划与当前步骤</span></div>
           <template v-if="currentPlan">
             <div class="studio-status"><StatusBadge tone="info">Revision {{ currentPlan.revision }}</StatusBadge><span>{{ currentPlan.steps.length }} steps</span></div>
             <strong>{{ currentStepTitle ?? '计划已发布' }}</strong>
@@ -245,7 +245,7 @@ function progress(value: { used: number, maximum: number }): number {
         </article>
 
         <article class="studio-card studio-card--command">
-          <div class="studio-card__title"><SquareTerminal :size="15" aria-hidden="true" /><span>当前命令</span></div>
+          <div class="studio-card__title"><SquareTerminal :size="14" aria-hidden="true" /><span>当前命令</span></div>
           <template v-if="latestCommand">
             <div class="studio-status"><StatusBadge :tone="statusTone(latestCommand.termination)">{{ enumLabel(latestCommand.commandKind, commandKindLabels) }}</StatusBadge><span>#{{ latestCommand.sequence }}</span></div>
             <strong>{{ latestCommand.toolKey }}</strong>
@@ -257,7 +257,7 @@ function progress(value: { used: number, maximum: number }): number {
         </article>
 
         <article class="studio-card studio-card--sandbox">
-          <div class="studio-card__title"><ShieldCheck :size="15" aria-hidden="true" /><span>Sandbox 边界</span></div>
+          <div class="studio-card__title"><ShieldCheck :size="14" aria-hidden="true" /><span>Sandbox 边界</span></div>
           <template v-if="sandbox">
             <div class="sandbox-facts">
               <span><Network :size="12" />网络 {{ enumLabel(sandbox.networkMode, sandboxNetworkModeLabels) }}</span>
@@ -270,7 +270,7 @@ function progress(value: { used: number, maximum: number }): number {
         </article>
 
         <article class="studio-card studio-card--budget">
-          <div class="studio-card__title"><CircleGauge :size="15" aria-hidden="true" /><span>资源预算</span></div>
+          <div class="studio-card__title"><CircleGauge :size="14" aria-hidden="true" /><span>资源预算</span></div>
           <template v-if="sandbox">
             <div class="budget-grid">
               <div><span>耐久命令</span><strong>{{ commandUsage.used }} / {{ commandUsage.maximum }}</strong><i><b :style="{ width: `${progress(commandUsage)}%` }" /></i></div>
@@ -302,10 +302,10 @@ function progress(value: { used: number, maximum: number }): number {
         :on-clear-command="onClearCommand"
       />
 
-      <p class="studio-security"><ShieldCheck :size="13" aria-hidden="true" />页面只持有公开坐标与摘要，不保存宿主路径、容器标识、命令参数、环境变量、Token 或 Agent 内部状态。</p>
+      <p class="studio-security"><ShieldCheck :size="14" aria-hidden="true" />页面只持有公开坐标与摘要，不保存宿主路径、容器标识、命令参数、环境变量、Token 或 Agent 内部状态。</p>
       <p v-if="errorMessage || commandsErrorMessage || runtimeErrorMessage" class="studio-warning" role="status" aria-live="polite" aria-atomic="true">
         部分事实刷新失败，已加载的耐久事实继续可见。
-        <button type="button" @click="onRetry"><RefreshCw :size="11" />重新读取</button>
+        <button type="button" @click="onRetry"><RefreshCw :size="12" />重新读取</button>
       </p>
     </template>
   </section>

@@ -116,10 +116,10 @@ function todoTone(todo: PlanTodo): 'success' | 'warning' | 'danger' | 'info' | '
 
     <ol class="stage-rail" aria-label="Coding 阶段">
       <li v-for="stage in stages" :key="stage.key" :class="`stage-${stage.state}`" :aria-current="stage.state === 'active' ? 'step' : undefined">
-        <CheckCircle2 v-if="stage.state === 'completed'" :size="15" aria-hidden="true" />
-        <TriangleAlert v-else-if="stage.state === 'interrupted'" :size="15" aria-hidden="true" />
-        <CircleDot v-else-if="stage.state === 'active'" :size="15" aria-hidden="true" />
-        <Circle v-else :size="15" aria-hidden="true" />
+        <CheckCircle2 v-if="stage.state === 'completed'" :size="14" aria-hidden="true" />
+        <TriangleAlert v-else-if="stage.state === 'interrupted'" :size="14" aria-hidden="true" />
+        <CircleDot v-else-if="stage.state === 'active'" :size="14" aria-hidden="true" />
+        <Circle v-else :size="14" aria-hidden="true" />
         <span><strong>{{ stage.label }}</strong><small>{{ stage.detail }}</small></span>
       </li>
     </ol>

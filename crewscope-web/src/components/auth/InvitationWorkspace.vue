@@ -82,7 +82,7 @@ function formatDate(value: string | null): string {
     :busy="phase === 'accepting'"
     focus-on-mount
   >
-    <template #before><p class="invitation-workspace__mark"><UsersRound :size="17" />团队邀请</p></template>
+    <template #before><p class="invitation-workspace__mark"><UsersRound :size="16" />团队邀请</p></template>
     <AuthErrorSummary
       v-if="problem"
       :title="problem.title"
@@ -93,7 +93,7 @@ function formatDate(value: string | null): string {
     <dl class="invitation-workspace__facts">
       <div><dt>团队</dt><dd>{{ preview?.teamName }}</dd></div>
       <div><dt>加入角色</dt><dd>{{ roleLabel(preview?.targetRole ?? null) }}</dd></div>
-      <div><dt>有效至</dt><dd><Clock3 :size="13" />{{ formatDate(preview?.expiresAt ?? null) }}</dd></div>
+      <div><dt>有效至</dt><dd><Clock3 :size="14" />{{ formatDate(preview?.expiresAt ?? null) }}</dd></div>
     </dl>
     <p v-if="preview?.targetRestricted" class="invitation-workspace__restricted"><ShieldCheck :size="14" />这是定向邀请，登录账号的邮箱需要与邀请目标匹配。</p>
     <div v-if="authenticated" class="invitation-workspace__account">
@@ -126,7 +126,7 @@ function formatDate(value: string | null): string {
       :tone="problem.tone"
       :focus-key="problemFocusKey"
     />
-    <BaseButton class="invitation-workspace__full" :disabled="!online" @click="$emit('retry')"><RefreshCw :size="15" />重新检查</BaseButton>
+    <BaseButton class="invitation-workspace__full" :disabled="!online" @click="$emit('retry')"><RefreshCw :size="14" />重新检查</BaseButton>
   </AuthCard>
 
   <AuthCard

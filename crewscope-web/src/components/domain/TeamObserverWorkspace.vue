@@ -118,14 +118,14 @@ function dateTime(value: string): string {
       <span><Sparkles :size="14" aria-hidden="true" />{{ statusText }}</span>
       <span v-if="store.state.invocationId" class="mono">Invocation {{ store.state.invocationId.slice(0, 8) }}</span>
       <BaseButton v-if="busy && store.state.invocationId" size="small" variant="ghost" :disabled="!online || store.state.phase === 'cancelling'" @click="store.cancel()">取消</BaseButton>
-      <BaseButton v-else-if="store.state.phase === 'error' && store.state.retryable" size="small" variant="secondary" :disabled="!online" @click="store.retry()"><RefreshCw :size="13" />恢复调用</BaseButton>
+      <BaseButton v-else-if="store.state.phase === 'error' && store.state.retryable" size="small" variant="secondary" :disabled="!online" @click="store.retry()"><RefreshCw :size="14" />恢复调用</BaseButton>
       <!-- First failure carries no invocation id, so nothing can be resumed: regeneration plus
            the configuration entry are the only honest next steps (R38). -->
       <template v-else-if="store.state.phase === 'error' && !store.state.invocationId">
-        <BaseButton size="small" variant="secondary" :disabled="!online" @click="regenerate"><RefreshCw :size="13" />重新生成摘要</BaseButton>
+        <BaseButton size="small" variant="secondary" :disabled="!online" @click="regenerate"><RefreshCw :size="14" />重新生成摘要</BaseButton>
         <RouterLink class="observer-setup-link" :to="{ name: 'setup', query: setupQuery }">检查配置</RouterLink>
       </template>
-      <BaseButton v-else-if="store.state.phase === 'error'" size="small" variant="secondary" :disabled="!online" @click="regenerate"><RefreshCw :size="13" />按最新重新生成</BaseButton>
+      <BaseButton v-else-if="store.state.phase === 'error'" size="small" variant="secondary" :disabled="!online" @click="regenerate"><RefreshCw :size="14" />按最新重新生成</BaseButton>
     </div>
 
     <form v-if="variant === 'conversation'" class="observer-composer panel" @submit.prevent="submit">
@@ -142,14 +142,14 @@ function dateTime(value: string): string {
         <div><h3>团队态势</h3></div>
         <div>
           <span>生成于 {{ dateTime(store.state.summary.generatedAt) }}</span>
-          <BaseButton size="small" variant="ghost" :disabled="!online || busy" @click="store.refreshSummary()"><RefreshCw :size="13" />重读本次结果</BaseButton>
-          <BaseButton size="small" variant="secondary" :disabled="!online || busy" @click="regenerate"><RefreshCw :size="13" />按最新重新生成</BaseButton>
+          <BaseButton size="small" variant="ghost" :disabled="!online || busy" @click="store.refreshSummary()"><RefreshCw :size="14" />重读本次结果</BaseButton>
+          <BaseButton size="small" variant="secondary" :disabled="!online || busy" @click="regenerate"><RefreshCw :size="14" />按最新重新生成</BaseButton>
           <p class="regeneration-note">重读仅回读本次结果；重新生成会发起一次新调用，消耗新的模型时间与用量。</p>
         </div>
       </header>
       <div class="observer-section-grid">
         <section v-for="section in sections" :key="section.key" class="observer-section panel" :aria-labelledby="`observer-${section.key}`">
-          <header><span><component :is="section.icon" :size="15" aria-hidden="true" /></span><div><h4 :id="`observer-${section.key}`">{{ section.label }}</h4><p v-if="section.description">{{ section.description }}</p></div><strong>{{ store.state.summary[section.key].length }}</strong></header>
+          <header><span><component :is="section.icon" :size="14" aria-hidden="true" /></span><div><h4 :id="`observer-${section.key}`">{{ section.label }}</h4><p v-if="section.description">{{ section.description }}</p></div><strong>{{ store.state.summary[section.key].length }}</strong></header>
           <p v-if="store.state.summary[section.key].length === 0" class="observer-empty">当前没有可披露的{{ section.label }}事实</p>
           <ol v-else>
             <li v-for="entry in store.state.summary[section.key]" :key="entry.evidenceIndex">
