@@ -178,7 +178,9 @@ jobs:
     # Visual baselines are authored on macOS; keep one stable rasterization environment in CI.
     # Split from the unit/build job so the two run in parallel instead of serially on one
     # low-core macOS runner — the wall clock becomes max(unit+build, e2e) instead of a sum.
-    runs-on: macos-14
+    # macos-14 arm64 pool retired by GitHub (2026-11-06: "The configuration
+    # 'macos-14-arm64-us-default' is not supported") — bump to the current pool.
+    runs-on: macos-15
     defaults:
       run:
         working-directory: crewscope-web
