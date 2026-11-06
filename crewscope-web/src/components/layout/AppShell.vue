@@ -425,13 +425,25 @@ async function signOut(): Promise<void> {
 .rail-navigation button:disabled { cursor: not-allowed; opacity: .48; }
 .rail-profile { z-index: 1; flex: 0 0 auto; margin-top: var(--cs-space-8); background: var(--cs-surface); }
 .app-shell__body { min-height: 100vh; margin-left: var(--cs-rail-width); }
+/* 窄轨 76px 有两个互斥触发面：宽屏手动折叠（.app-shell--collapsed）与 ≤1100 断点。
+ * 两份规则必须等价——2026-11 B2 审计曾因漂移出现折叠态 scope-switcher 溢出、断点态
+ * rail-head 挤爆双侧（e2e/b2 探针：scrollW=135>76、rail-head left=-4 right=79）。
+ * 修改任一份时同步另一份，b2 折叠态探针是长期门禁。 */
 .app-shell--collapsed { --cs-rail-width: 76px; }
 .app-shell--collapsed .app-shell__rail { align-items: center; }
-.app-shell--collapsed .brand > span, .app-shell--collapsed .rail-navigation p, .app-shell--collapsed .rail-navigation a span { display: none; }
+.app-shell--collapsed .brand > span, .app-shell--collapsed .rail-navigation p, .app-shell--collapsed .rail-navigation a span, .app-shell--collapsed .rail-navigation button span { display: none; }
 /* 折叠态 76px 容不下「logo+按钮」一行：rail-head 转纵向，钮居中回到 logo 下方。 */
 .app-shell--collapsed .rail-head { flex-direction: column; gap: var(--cs-space-8); }
 .app-shell--collapsed .rail-collapse { align-self: center; }
-.app-shell--collapsed .rail-navigation a { grid-template-columns: 19px; justify-content: center; width: 42px; }
+.app-shell--collapsed .rail-navigation a, .app-shell--collapsed .rail-navigation button { grid-template-columns: 19px; justify-content: center; width: 42px; }
+/* scope-switcher 只在组件自身 ≤1100 断点收窄；宽屏手动折叠时断点不触发，须从 shell 侧
+ * 收成单头像列（否则 trigger 连 copy+chevron 撑到 78px，越出 76px 轨道）。 */
+.app-shell--collapsed .app-shell__rail > :deep(.scope-switcher-root) { width: 42px; }
+.app-shell--collapsed .app-shell__rail :deep(.scope-switcher) { width: 42px; grid-template-columns: 30px; justify-content: center; padding: var(--cs-space-8) 0; }
+.app-shell--collapsed .app-shell__rail :deep(.scope-switcher__copy), .app-shell--collapsed .app-shell__rail :deep(.scope-switcher > svg) { display: none; }
+.app-shell--collapsed .rail-profile { width: 34px; }
+.app-shell--collapsed .rail-profile :deep(.user-menu__trigger) { min-height: 40px; grid-template-columns: 32px; padding: var(--cs-space-4) 0; border: 0; }
+.app-shell--collapsed .rail-profile :deep(.user-menu__identity), .app-shell--collapsed .rail-profile :deep(.user-menu__trigger > svg) { display: none; }
 /* flex-shrink:0：fill 模式的列布局里，固定高度的 chrome 不参与内容溢出的分摊（L03 合同
    「chrome 保持自然高度，workspace 接收剩余视口」）。实测去掉顶栏按钮后内容基线变化，
    58px 的 topbar 一度被压到 42px，整页纵向链全部位移。 */
@@ -477,6 +489,10 @@ async function signOut(): Promise<void> {
   .app-shell { --cs-rail-width: 76px; }
   .app-shell__rail { align-items: center; }
   .brand > span, .rail-navigation p, .rail-navigation a span, .rail-navigation button span { display: none; }
+  /* 与 .app-shell--collapsed 同步：76px 下 rail-head 也转纵向（断点曾漏抄此两条，
+   * rail-head 横排 79px 挤爆 76px 轨道、越出视口左缘 4px）。 */
+  .rail-head { flex-direction: column; gap: var(--cs-space-8); }
+  .rail-collapse { align-self: center; }
   .rail-navigation a, .rail-navigation button { grid-template-columns: 19px; justify-content: center; width: 42px; }
   .rail-profile { width: 34px; }
   .rail-profile :deep(.user-menu__trigger) { min-height: 40px; grid-template-columns: 32px; padding: var(--cs-space-4) 0; border: 0; }
