@@ -415,11 +415,11 @@ async function signOut(): Promise<void> {
 .brand { display: flex; min-height: var(--cs-density-control-height); flex: 1 1 auto; min-width: 0; align-items: center; gap: var(--cs-space-12); padding: 0 var(--cs-space-4); font-family: var(--cs-font-display); font-size: var(--cs-text-lg); }
 .brand img { border: 1px solid var(--cs-border); border-radius: 11px; }
 .brand span, .brand small { display: block; }
-.brand small { color: var(--cs-text-muted); font-family: var(--cs-font-sans); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .07em; text-transform: uppercase; }
+.brand small { color: var(--cs-text-muted); font-family: var(--cs-font-sans); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .app-shell__rail > :deep(.scope-switcher-root) { flex: 0 0 auto; }
 .rail-navigation { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--cs-border-strong) transparent; scrollbar-width: thin; }
 .rail-navigation::-webkit-scrollbar { width: 6px; }.rail-navigation::-webkit-scrollbar-track { background: transparent; }.rail-navigation::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--cs-border-strong); }
-.rail-navigation p { margin: var(--cs-space-16) var(--cs-space-12) var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .1em; text-transform: uppercase; }
+.rail-navigation p { margin: var(--cs-space-16) var(--cs-space-12) var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .rail-navigation a, .rail-navigation button { display: grid; grid-template-columns: 19px 1fr auto; align-items: center; gap: var(--cs-space-8); width: 100%; min-height: 37px; padding: 0 var(--cs-space-12); border-radius: var(--cs-radius-sm); background: transparent; color: var(--cs-text-secondary); font-size: var(--cs-text-base); text-align: left; cursor: pointer; }
 .rail-navigation a:hover, .rail-navigation a.active { background: var(--cs-surface-selected); color: var(--cs-nav-active-text); }.rail-navigation a.active { font-weight: var(--cs-weight-semibold); }
 .rail-navigation button:disabled { cursor: not-allowed; opacity: .48; }
@@ -475,7 +475,7 @@ async function signOut(): Promise<void> {
 /* M13b-F09（L15）：面包屑退出一级页面后，eyebrow+h1 两行 51px 就是全部内容——垂直 padding
  * 收到 4px，min-height 82→64，全站每页首屏多出 18px 给真实内容（契约 §7 首条数据 ≤200px）。 */
 .context-header { display: flex; min-height: 64px; flex-shrink: 0; align-items: center; justify-content: space-between; gap: var(--cs-space-20); padding: var(--cs-space-4) var(--cs-space-32); background: var(--cs-surface); }
-.context-header p { margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }
+.context-header p { margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .context-header h1 { margin-bottom: 0; font-size: var(--cs-text-lg); font-weight: var(--cs-weight-semibold); letter-spacing: -.02em; }
 .context-header__actions { display: flex; align-items: center; gap: var(--cs-space-8); }
 .app-shell__workspace { padding: var(--cs-density-workspace-padding); }

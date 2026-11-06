@@ -128,7 +128,7 @@ function clearMemory(): void {
 <style scoped>
 .memory-section { display: flex; min-width: 0; flex-direction: column; gap: var(--cs-space-12); margin-top: var(--cs-space-12); padding: var(--cs-space-16); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface-subtle); }
 .memory-section p, .memory-section h3, .memory-section span { display: block; }
-.memory-section .eyebrow { margin: 0 0 var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }
+.memory-section .eyebrow { margin: 0 0 var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .memory-section h3 { margin: 0; font-size: var(--cs-text-base); }
 .memory-section > div:first-child span { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
 .memory-section__note { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }

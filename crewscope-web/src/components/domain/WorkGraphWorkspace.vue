@@ -196,7 +196,7 @@ watch(() => props.focusId, id => {
 <style scoped>
 .graph-workspace { display: grid; gap: var(--cs-space-12); padding: var(--cs-space-16) var(--cs-space-20); }
 .graph-workspace__header { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--cs-space-12); }
-.graph-workspace__headline p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }
+.graph-workspace__headline p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .graph-workspace__headline h2 { margin: var(--cs-space-2) 0; font-size: var(--cs-text-lg); }
 .graph-workspace__headline > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .view-switcher { display: flex; gap: var(--cs-space-4); padding: var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-subtle); }

@@ -85,7 +85,7 @@ function tone(status: TaskExecution['status']): 'success' | 'warning' | 'danger'
 
 <style scoped>
 .execution-selector { display: grid; gap: var(--cs-space-8); }
-.execution-selector__heading { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }
+.execution-selector__heading { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .execution-selector__list { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); padding: 0; margin: 0; list-style: none; }
 .execution-selector__list button { display: inline-flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-4) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 999px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }
 .execution-selector__list button:hover { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); }

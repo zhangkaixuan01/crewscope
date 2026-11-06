@@ -169,7 +169,7 @@ watch(
 .detail-panel { display: flex; min-width: 0; flex-direction: column; gap: var(--cs-space-12); }
 .detail-panel__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-8); }
 .detail-panel__head > div { display: flex; flex-direction: column; gap: var(--cs-space-2); }
-.detail-panel__eyebrow { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-transform: uppercase; letter-spacing: 0.04em; }
+.detail-panel__eyebrow { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .detail-panel__head h2 { margin: 0; font-size: var(--cs-text-lg); }
 .detail-panel__head button { display: flex; padding: var(--cs-space-4); border: none; border-radius: var(--cs-radius-sm, 4px); background: none; color: var(--cs-text-muted); cursor: pointer; }
 .detail-panel__head button:focus-visible { outline: none; box-shadow: var(--cs-focus-ring); }

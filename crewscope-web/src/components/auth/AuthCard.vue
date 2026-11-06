@@ -58,8 +58,8 @@ onMounted(() => {
   color: var(--cs-text-brand);
   font-size: var(--cs-text-sm);
   font-weight: var(--cs-weight-semibold);
-  letter-spacing: .1em;
-  text-transform: uppercase;
+
+
 }
 .auth-card__heading h2 {
   margin-bottom: var(--cs-space-8);

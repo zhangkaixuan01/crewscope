@@ -74,7 +74,7 @@ async function release(member: ResponsibilityAssignment): Promise<void> {
 .responsibility-chain__avatar { z-index: 1; display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid var(--cs-border-strong); border-radius: 50%; background: var(--cs-surface-accent); color: var(--cs-text-brand); }
 .responsibility-chain__avatar.agent { border-color: var(--cs-agent-border); background: var(--cs-agent-soft); color: var(--cs-agent); }
 .responsibility-chain__copy { display: grid; align-content: start; }
-.responsibility-chain__copy small { color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); letter-spacing: .06em; text-transform: uppercase; }
+.responsibility-chain__copy small { color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .responsibility-chain__copy strong { color: var(--cs-text); font-size: var(--cs-text-base); }
 .responsibility-chain__copy span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .responsibility-chain__release { align-self: start; display: inline-flex; min-height: 26px; align-items: center; gap: var(--cs-space-4); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); cursor: pointer; }

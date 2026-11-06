@@ -113,8 +113,7 @@
   color: var(--cs-text-brand);
   font-size: var(--cs-text-sm);
   font-weight: var(--cs-weight-semibold);
-  letter-spacing: .08em;
-  text-transform: uppercase;
+
 }
 
 .demo-note {

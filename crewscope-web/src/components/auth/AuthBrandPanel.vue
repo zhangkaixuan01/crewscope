@@ -91,8 +91,8 @@ import crewScopeMark from '../../design/crewscope-mark.svg'
   font-family: var(--cs-font-sans);
   font-size: var(--cs-text-xs);
   font-weight: var(--cs-weight-semibold);
-  letter-spacing: .1em;
-  text-transform: uppercase;
+
+
 }
 .auth-brand-panel__story { position: relative; z-index: 1; margin-block: auto; }
 .auth-brand-panel__kicker {
@@ -100,8 +100,8 @@ import crewScopeMark from '../../design/crewscope-mark.svg'
   color: var(--cs-auth-story-kicker, var(--cs-text-brand));
   font-size: var(--cs-text-sm);
   font-weight: var(--cs-weight-semibold);
-  letter-spacing: .1em;
-  text-transform: uppercase;
+
+
 }
 .auth-brand-panel__story h1 {
   max-width: 540px;

@@ -292,7 +292,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
 
 <style scoped>
 .operations-workspace { display: grid; gap: var(--cs-space-16); max-width: 1420px; margin: 0 auto; color: var(--cs-text); }
-.eyebrow { margin: 0 0 var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); letter-spacing: .08em; text-transform: uppercase; }
+.eyebrow { margin: 0 0 var(--cs-space-4); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .health-hero, .evidence-panel, .admin-panel { border: 1px solid var(--cs-border); border-radius: 14px; background: var(--cs-surface); box-shadow: var(--cs-shadow-raised); }
 .health-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-20); background: linear-gradient(120deg, var(--cs-surface-accent), var(--cs-surface)); }
 .health-hero h2, .evidence-panel h2, .admin-panel h2 { display: flex; align-items: center; gap: var(--cs-space-8); margin: 0; font-size: var(--cs-text-md); }
@@ -304,7 +304,7 @@ function receiptId(): string | null { return props.command.receipt && 'commandId
 .health-card strong { font-size: var(--cs-text-sm); }
 .health-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cs-space-8); margin: var(--cs-space-16) 0; }
 .health-card dl div, .projection-metrics div { display: grid; gap: var(--cs-space-2); }
-.health-card dt, .projection-metrics dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-transform: uppercase; }
+.health-card dt, .projection-metrics dt { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .health-card dd, .projection-metrics dd { margin: 0; font: var(--cs-weight-semibold) var(--cs-text-md) var(--cs-font-display); }
 .health-card footer { display: flex; justify-content: space-between; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.stale { color: var(--cs-danger); font-weight: var(--cs-weight-semibold); }
 .inline-warning { display: flex; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-warning-border); border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-sm); }

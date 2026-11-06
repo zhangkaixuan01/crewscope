@@ -172,10 +172,10 @@ function referenceLabel(type: string): string {
 .activity-list time { display: inline-flex; flex: none; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font: var(--cs-text-xs) var(--cs-font-mono); }
 .activity-list dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cs-space-8); margin: var(--cs-space-12) 0 0; }
 .activity-list dl > div { min-width: 0; padding: var(--cs-space-8) var(--cs-space-8); border-radius: 7px; background: var(--cs-surface-subtle); }
-.activity-list dt { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }
+.activity-list dt { display: flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .activity-list dd { overflow: hidden; margin: var(--cs-space-4) 0 0; font: var(--cs-text-xs) var(--cs-font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .activity-evidence { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-12); }
-.activity-evidence > span { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); text-transform: uppercase; }
+.activity-evidence > span { display: inline-flex; align-items: center; gap: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .activity-evidence a, .activity-evidence button { min-height: 27px; padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-accent); color: var(--cs-text-brand); font: var(--cs-text-xs) var(--cs-font-mono); cursor: pointer; }
 .activity-evidence a:hover, .activity-evidence a:focus-visible, .activity-evidence button:hover, .activity-evidence button:focus-visible { border-color: var(--cs-border-accent-strong); outline: 2px solid var(--cs-ring-brand); outline-offset: 1px; }
 .activity-stream__footer { display: flex; justify-content: center; padding: var(--cs-space-12) var(--cs-space-20) var(--cs-space-20); border-top: 1px solid var(--cs-border); }

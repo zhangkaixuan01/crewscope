@@ -30,7 +30,7 @@ const ordered = [...props.lines].sort((left, right) =>
 <style scoped>
 .responsibility-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cs-space-8); margin: 0; color: var(--cs-text-secondary); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
 .responsibility-strip__entry { display: inline-flex; align-items: baseline; gap: var(--cs-space-4); min-width: 0; }
-.responsibility-strip__entry em { padding: var(--cs-space-2) var(--cs-space-4); border-radius: 5px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-style: normal; font-weight: var(--cs-weight-semibold); letter-spacing: .04em; }
+.responsibility-strip__entry em { padding: var(--cs-space-2) var(--cs-space-4); border-radius: 5px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-style: normal; font-weight: var(--cs-weight-semibold); }
 .responsibility-strip__sep { color: var(--cs-text-muted); }
 .responsibility-strip--empty { color: var(--cs-text-muted); }
 </style>
