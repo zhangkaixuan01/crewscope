@@ -1377,13 +1377,14 @@ async function redirectIfForbidden(): Promise<void> {
 .pane-resizer:hover::after, .pane-resizer:focus-visible::after { opacity: 1; }
 .pane-resizer:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: -2px; }
 .detail-header-actions { display: flex; align-items: center; gap: var(--cs-space-8); }
-/* M14 B1：参与者头像栈入口——前 3 个主体 20px 圆 + 溢出计数，机构台账式的安静名单摘要。 */
-.participants-trigger { display: inline-flex; align-items: center; padding: 2px var(--cs-space-4) 2px 2px; border: 1px solid var(--cs-border); border-radius: 999px; background: var(--cs-surface); cursor: pointer; }
+/* M14 B1：参与者头像栈入口——前 3 个主体 24px 圆 + 溢出计数，机构台账式的安静名单摘要。
+   重叠量走 space-8 档的负 calc（design-tokens 门禁：负偏移也必须命名档位）。 */
+.participants-trigger { display: inline-flex; align-items: center; padding: var(--cs-space-2) var(--cs-space-8) var(--cs-space-2) var(--cs-space-2); border: 1px solid var(--cs-border); border-radius: 999px; background: var(--cs-surface); cursor: pointer; }
 .participants-trigger:hover { border-color: var(--cs-border-accent); }
-.participants-trigger > span { display: grid; width: 20px; height: 20px; place-items: center; margin-left: -6px; border: 2px solid var(--cs-surface); border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); }
+.participants-trigger > span { display: grid; width: 24px; height: 24px; place-items: center; margin-left: calc(var(--cs-space-8) * -1); border: 2px solid var(--cs-surface); border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); }
 .participants-trigger > span.agent { background: var(--cs-agent-soft); color: var(--cs-agent); }
 .participants-trigger > span:first-child { margin-left: 0; }
-.participants-trigger__more { background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: 11px; }
+.participants-trigger__more { background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .pane-collapse { display: grid; width: 28px; height: 28px; place-items: center; padding: 0; border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); cursor: pointer; }
 .pane-collapse:hover { background: var(--cs-surface-accent); color: var(--cs-text-brand); }
 /* Overlays the stage (not the scroll content) so its appearance never shifts the reading rows. It
