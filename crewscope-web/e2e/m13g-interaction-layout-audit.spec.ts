@@ -9,7 +9,7 @@ import { ids, mockAuditApi, probeLayout } from './layout-audit-support'
  * 位置是否合理、是否展示完整、是否变形。
  *
  * 覆盖面（选择器全部来自组件的可访问名/既有类名，与 M13f 数据策略一致）：
- * - conversation 四种面板形态：左折叠 / 右折叠 / 双折叠 / 专注模式（消息列独占）
+ * - conversation 形态：左折叠窄轨 / 参与者浮层 / 左折叠+浮层并开 / 专注模式（消息列独占）
  * - work 工作项详情抽屉（BaseDrawer，teleport 到 body）
  * - 账号菜单弹层（BaseMenu，留在子树内）
  * - 命令面板（⌘K 全局快捷键）
@@ -49,31 +49,30 @@ const interactions: InteractionCase[] = [
     },
   },
   {
-    // 右栏在 1440 视口默认自动折叠（竖排展开轨）；「展开」后的三栏并存才是挤压风险态。
-    name: 'conversation-right-pane-expanded',
+    // M14 B1：参与者是浮层（默认关闭、不在 DOM）——头像栈入口打开，覆盖消息区右缘但不占轨道。
+    name: 'conversation-participants-overlay-open',
     path: conversationPath,
     scope: 'desktop',
     act: async page => {
-      await expect(page.locator('.participant-panel.collapsed')).toHaveCount(1)
-      await page.getByRole('complementary', { name: '对话参与者' })
-        .getByRole('button', { name: '折叠参与者面板' })
-        .click()
+      await expect(page.getByLabel('对话参与者')).toHaveCount(0)
+      await page.getByRole('button', { name: /查看参与者/ }).click()
     },
     verify: async page => {
-      await expect(page.locator('.participant-panel.collapsed')).toHaveCount(0)
+      await expect(page.getByRole('complementary', { name: '对话参与者' })).toBeVisible()
     },
   },
   {
-    name: 'conversation-both-panes-collapsed',
+    // 左折叠窄轨 + 参与者浮层并开：chrome 最挤的组合形态。
+    name: 'conversation-collapsed-list-with-participants-overlay',
     path: conversationPath,
     scope: 'desktop',
     act: async page => {
       await page.getByRole('button', { name: '折叠对话列表' }).click()
-      await expect(page.locator('.participant-panel.collapsed')).toHaveCount(1)
+      await page.getByRole('button', { name: /查看参与者/ }).click()
     },
     verify: async page => {
       await expect(page.locator('.conversation-list-panel.collapsed')).toHaveCount(1)
-      await expect(page.locator('.participant-panel.collapsed')).toHaveCount(1)
+      await expect(page.getByRole('complementary', { name: '对话参与者' })).toBeVisible()
     },
   },
   {

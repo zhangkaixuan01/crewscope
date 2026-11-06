@@ -17,7 +17,12 @@ interface PanePreference {
   collapsed: boolean
 }
 
-/** Provides an accessible pointer/keyboard resizer whose ratio survives reloads. */
+/**
+ * Provides an accessible pointer/keyboard resizer whose pane width survives reloads.
+ * M14 B1: `ratio` is a pixel width, not a container percentage — fixed gutters read truer in a
+ * docked two-pane layout, and a stored preference stays stable across viewport widths. The sole
+ * caller bumped its preference key (v2→v3) so legacy percent values fall back to the default.
+ */
 export function useResizablePane(
   key: string,
   fallback: number,
@@ -26,12 +31,12 @@ export function useResizablePane(
   ratio: Ref<number>
   collapsed: Ref<boolean>
   toggle: () => void
-  startResize: (event: PointerEvent, container: HTMLElement) => void
+  startResize: (event: PointerEvent) => void
   handleKeydown: (event: KeyboardEvent) => void
 } {
-  const min = options.min ?? 18
-  const max = options.max ?? 48
-  const step = options.step ?? 2
+  const min = options.min ?? 240
+  const max = options.max ?? 420
+  const step = options.step ?? 16
   const direction = (options.side ?? 'left') === 'right' ? -1 : 1
   const defaultPreference: PanePreference = { ratio: clamp(fallback, min, max), collapsed: false }
   const preference = usePreference(key, defaultPreference, {
@@ -56,15 +61,13 @@ export function useResizablePane(
 
   function toggle(): void { collapsed.value = !collapsed.value }
 
-  function startResize(event: PointerEvent, container: HTMLElement): void {
+  function startResize(event: PointerEvent): void {
     if (collapsed.value) return
     event.preventDefault()
     const startX = event.clientX
     const startRatio = ratio.value
-    const width = container.getBoundingClientRect().width
     const move = (moveEvent: PointerEvent) => {
-      if (width <= 0) return
-      ratio.value = startRatio + direction * ((moveEvent.clientX - startX) / width) * 100
+      ratio.value = startRatio + direction * (moveEvent.clientX - startX)
     }
     const stop = () => {
       window.removeEventListener('pointermove', move)

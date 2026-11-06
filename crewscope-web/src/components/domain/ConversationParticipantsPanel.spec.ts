@@ -9,15 +9,15 @@ const participant: ConversationParticipant = {
 }
 
 describe('ConversationParticipantsPanel', () => {
-  it('renders participant identity and delegates pane toggling', async () => {
+  it('renders participant identity and delegates overlay closing', async () => {
     const wrapper = mount(ConversationParticipantsPanel, {
       props: {
-        selected: true, collapsed: false, participants: [participant],
+        selected: true, participants: [participant],
         participantName: item => item.displayName, participantRole: item => item.role, participantKind: () => 'Personal Agent',
       },
     })
     expect(wrapper.text()).toContain('Personal Agent')
-    await wrapper.get('.pane-collapse').trigger('click')
-    expect(wrapper.emitted('toggle')).toHaveLength(1)
+    await wrapper.get('.panel-close').trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 })

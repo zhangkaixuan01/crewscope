@@ -1392,7 +1392,7 @@ test('Setup Center exposes capability readiness, safe actions and accessible res
   await expect(page).toHaveURL(/\/today\?/)
 })
 
-test('Conversation restores its Team deep link and shares the selected scope with Today', async ({ page }, testInfo) => {
+test('Conversation restores its Team deep link and shares the selected scope with Today', async ({ page }) => {
   await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
   await expect(page.getByText('请保留团队协作与最小权限原则。', { exact: true })).toBeVisible()
@@ -1401,22 +1401,14 @@ test('Conversation restores its Team deep link and shares the selected scope wit
   const personalAgentName = participants.getByText('张凯旋 · Personal Agent', { exact: true })
   const personalAgentOwnership = participants.getByText('张凯旋的 Personal Agent · AGENT', { exact: true })
   const personalAgentKind = participants.getByText('个人 Agent', { exact: true })
+  // M14 B1：参与者是浮层——默认关闭不在 DOM，header 头像栈打开后身份可见；两视口语义一致
+  // （浮层覆盖消息区右缘，不占布局轨道）。
+  await expect(participants).toHaveCount(0)
+  await page.getByRole('button', { name: /查看参与者/ }).click()
+  await expect(participants).toBeVisible()
   await expect(personalAgentName).toHaveCount(1)
   await expect(personalAgentOwnership).toHaveCount(1)
   await expect(personalAgentKind).toHaveCount(1)
-  // M13b-F09（R51）：≤1440 视口的参与者面板默认让位给消息列。desktop 项目恰是 1440×960，
-  // 让位形态是 44px 标签条（容器在、名单内容让位），「展开参与者」把面板钉回本会话；
-  // ≤900 的窄视口面板整体 display:none，身份事实留在 DOM（上方 count 断言）。
-  if (testInfo.project.name === 'desktop-chromium') {
-    await expect(participants).toBeVisible()
-    expect((await participants.boundingBox())!.width).toBeLessThanOrEqual(48)
-    await page.getByRole('region', { name: '对话详情' }).getByLabel('折叠参与者面板').click()
-    await expect(personalAgentName).toBeVisible()
-    await expect(personalAgentOwnership).toBeVisible()
-    await expect(personalAgentKind).toBeVisible()
-  } else {
-    await expect(participants).toBeHidden()
-  }
 
   await page.reload()
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()

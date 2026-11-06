@@ -6,10 +6,11 @@ import {
   ArrowLeft,
   ArrowRight,
   Bot,
-  ChevronRight,
   LockKeyhole,
   Maximize2,
   MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   UsersRound,
 } from '@lucide/vue'
@@ -90,72 +91,21 @@ const composer = ref<InstanceType<typeof ConversationComposer> | null>(null)
 let createdConversationFocusId: string | null = null
 const agentActionRegion = ref<HTMLElement | null>(null)
 const messageHistory = ref<HTMLElement | null>(null)
-const workspace = ref<HTMLElement | null>(null)
 const drafts = reactive(new Map<string, string>())
 // A sealed epoch (sign-out or account switch in any tab) empties the in-memory drafts too.
 const unsubscribeEpoch = subscribeF05Epoch(epoch => { if (epoch === null) drafts.clear() })
 onUnmounted(unsubscribeEpoch)
 /*
- * M13b-F09（R51）：偏好版本 v1→v2——侧栏默认从 24%/22% 收窄到 20%/18%，把宽度还给消息列。
- * 旧 v1 的个人比例随版本升级一并作废（usePreference 版本不匹配即回退 fallback），用户重新
- * 拖动过的比例会以 v2 存回。
+ * M14 B1（贴合双栏重设计）：侧栏偏好 v2→v3——ratio 语义从容器百分比改为像素宽度
+ * （useResizablePane M14 契约，默认 280px、240–420 可调），旧 v2 百分比值随版本升级作废
+ * （usePreference 版本不匹配即回退 fallback）。右栏参与者已退出布局网格改为浮层，无宽度偏好。
  */
-// M13f：初始 20% 在 1440 视口只有 ~213px，会话标题被时间列挤到不可读（与 1280 断点的
-// 220px 下限倒挂）；23% 让标题列回到可读宽度。M13g rail 244→264px 后 23% 的消息列只剩
-// 8.7px 余量（f09 实测 708.7px，R51 预算 ≥700px），降到 22% 恢复 ~19px 缓冲；1440 下
-// 左栏 ~228px 仍高于 220px 断点下限（26% 会把消息列压到 689px）。
-const leftPane = useResizablePane('cs.pref.conversation.left-pane.v2', 22, { min: 16, max: 36, side: 'left' })
-const rightPane = useResizablePane('cs.pref.conversation.right-pane.v2', 18, { min: 16, max: 34, side: 'right' })
+const leftPane = useResizablePane('cs.pref.conversation.left-pane.v3', 280, { min: 240, max: 420, side: 'left' })
 const leftPaneRatio = leftPane.ratio
 const leftPaneCollapsed = leftPane.collapsed
-const rightPaneRatio = rightPane.ratio
-/*
- * ≤1440 视口下参与者面板默认让位（R51）：它是静态名单，挤占消息列不值得。用户点过一次
- * 「展开参与者」后本会话内不再自动折叠（pinned），偏好里显式保存的展开态同样优先。
- */
-const narrowViewport = ref(false)
-const rightPanePinnedOpen = ref(false)
-const rightPaneCollapsed = computed(() => {
-  if (rightPane.collapsed.value) return true // 用户显式折叠（偏好持久）
-  if (rightPanePinnedOpen.value) return false // 本会话点过「展开参与者」
-  return narrowViewport.value // ≤1440 默认让位给消息列
-})
-onMounted(() => {
-  // 测试 DOM 没有 matchMedia（useConversationReadingPosition 同款防御）。
-  if (typeof window.matchMedia !== 'function') return
-  const media = window.matchMedia('(max-width: 1440px)')
-  narrowViewport.value = media.matches
-  const listener = (event: MediaQueryListEvent) => { narrowViewport.value = event.matches }
-  media.addEventListener('change', listener)
-  onUnmounted(() => media.removeEventListener('change', listener))
-})
-function pinRightPaneOpen(): void { rightPanePinnedOpen.value = true }
-/*
- * 参与者面板的「展开/折叠」语义随自动折叠态分叉：自动折叠态下的「展开」只钉住本会话
- * （不写偏好）；显式折叠后的窄视口展开顺手 pin，避免偏好翻转后被自动态再压回去。
- */
-function handleRightPaneToggle(): void {
-  if (narrowViewport.value) {
-    if (!rightPane.collapsed.value && !rightPanePinnedOpen.value) {
-      pinRightPaneOpen()
-      return
-    }
-    pinRightPaneOpen()
-  }
-  rightPane.toggle()
-}
-/* 右栏 resizer 的 Enter/Space 与面板按钮同一分叉语义；方向键与 Home 仍走原逻辑。 */
-function handleRightResizerKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault()
-    handleRightPaneToggle()
-    return
-  }
-  rightPane.handleKeydown(event)
-}
 /*
  * 专注模式（R51）：⌘⇧F / Ctrl⇧F 进入或退出，Esc 只负责退出——Esc 在对话框与抽屉内
- * 仍归它们自己（先判 closest），专注模式不抢那类关闭。aria-pressed 的切换钮在消息区头部。
+ * 仍归它们自己（先判 closest），专注模式与参与者浮层不抢那类关闭。aria-pressed 的切换钮在消息区头部。
  */
 const focusMode = ref(false)
 function handleFocusModeKeys(event: KeyboardEvent): void {
@@ -164,11 +114,12 @@ function handleFocusModeKeys(event: KeyboardEvent): void {
     focusMode.value = !focusMode.value
     return
   }
-  if (event.key === 'Escape' && focusMode.value) {
+  if (event.key === 'Escape' && (focusMode.value || participantsOpen.value)) {
     const target = event.target
     if (target instanceof Element && target.closest('dialog, [role="dialog"], [role="drawer"]')) return
     event.preventDefault()
-    focusMode.value = false
+    if (participantsOpen.value) participantsOpen.value = false
+    else focusMode.value = false
   }
 }
 onMounted(() => document.addEventListener('keydown', handleFocusModeKeys))
@@ -203,6 +154,20 @@ const selected = computed(() => conversationStore.state.details?.conversation ??
 const activeParticipants = computed(
   () => conversationStore.state.details?.participants.filter(participant => participant.status === 'ACTIVE') ?? [],
 )
+/*
+ * 参与者浮层（M14 B1）：默认关闭，消息区 header 的头像栈为入口；切换对话即收起。
+ * Esc 关闭并入 focusMode 的 document keydown 族；点外关闭走 document pointerdown。
+ */
+const participantsOpen = ref(false)
+watch(selected, () => { participantsOpen.value = false })
+function handleParticipantsDismiss(event: PointerEvent): void {
+  if (!participantsOpen.value) return
+  const target = event.target
+  if (target instanceof Element && target.closest('.participant-panel, .participants-trigger')) return
+  participantsOpen.value = false
+}
+onMounted(() => document.addEventListener('pointerdown', handleParticipantsDismiss))
+onUnmounted(() => document.removeEventListener('pointerdown', handleParticipantsDismiss))
 // M11-F01: presence and typing ride the collaboration signal channel for the selected
 // conversation. Acquire follows the selection; the last release drops the subscription.
 const conversationCollabScope = computed<CollaborationScope | null>(() => {
@@ -236,8 +201,7 @@ const workspaceClass = computed(() => ({
   'conversation-workspace--focus': focusMode.value,
 }))
 const workspaceStyle = computed(() => ({
-  '--conversation-left-pane': leftPane.collapsed.value ? '44px' : `${leftPane.ratio.value}%`,
-  '--conversation-right-pane': rightPaneCollapsed.value ? '44px' : `${rightPane.ratio.value}%`,
+  '--conversation-left-pane': leftPane.collapsed.value ? '48px' : `${Math.round(leftPane.ratio.value)}px`,
 }))
 const currentDraft = computed({
   get: () => {
@@ -936,7 +900,7 @@ async function redirectIfForbidden(): Promise<void> {
     </template>
 
     <TeamObserverWorkspace v-if="observerMode && observerScope" :scope="observerScope" :team-name="teamName" :online="isOnline" variant="conversation" />
-    <div v-else ref="workspace" class="conversation-workspace" :class="workspaceClass" :style="workspaceStyle">
+    <div v-else class="conversation-workspace" :class="workspaceClass" :style="workspaceStyle">
       <section class="panel conversation-list-panel" :class="{ collapsed: leftPaneCollapsed }" aria-label="对话列表">
         <header class="conversation-list-header">
           <div>
@@ -944,8 +908,16 @@ async function redirectIfForbidden(): Promise<void> {
             <h2>{{ teamName }}</h2>
           </div>
           <div class="conversation-list-header__actions">
-            <button type="button" aria-label="新建对话" @click="openCreate"><MessageSquarePlus :size="18" /></button>
-            <button class="pane-collapse touch-target" type="button" aria-label="折叠对话列表" @click="leftPane.toggle">{{ leftPaneCollapsed ? '展开' : '折叠' }}</button>
+            <button type="button" aria-label="新建对话" @click="openCreate"><MessageSquarePlus :size="16" aria-hidden="true" /></button>
+            <button
+              class="pane-collapse touch-target"
+              type="button"
+              :aria-label="leftPaneCollapsed ? '展开对话列表' : '折叠对话列表'"
+              @click="leftPane.toggle"
+            >
+              <PanelLeftOpen v-if="leftPaneCollapsed" :size="16" aria-hidden="true" />
+              <PanelLeftClose v-else :size="16" aria-hidden="true" />
+            </button>
           </div>
         </header>
 
@@ -1001,23 +973,15 @@ async function redirectIfForbidden(): Promise<void> {
               :aria-label="`打开对话 ${conversation.title}${conversation.unreadCount > 0 ? `，${conversation.unreadCount} 条未读` : ''}`"
               @click="selectConversation(conversation.id)"
             >
-              <span class="conversation-list__icon" :class="{ team: conversation.visibility === 'TEAM' }">
-                <UsersRound v-if="conversation.visibility === 'TEAM'" :size="15" aria-hidden="true" />
-                <LockKeyhole v-else :size="15" aria-hidden="true" />
-              </span>
-              <span class="conversation-list__copy">
-                <span class="conversation-list__title-row">
-                  <strong>{{ conversation.title }}</strong>
-                  <!-- M13b-F06（R12）：查看者视角未读徽标；计数并入按钮 aria-label，徽标本体对读屏隐藏。 -->
-                  <span v-if="conversation.unreadCount > 0" class="conversation-unread" aria-hidden="true">{{ conversation.unreadCount > 99 ? '99+' : conversation.unreadCount }}</span>
-                </span>
-                <small>
-                  {{ conversation.visibility === 'TEAM' ? '团队可见' : '私有对话' }}
-                  <template v-if="conversation.lastMessageSequence !== null"> · {{ conversation.lastMessageSequence }} 条消息</template>
-                </small>
+              <!-- M14 B1：单行条目——16px 行内图标编码 TEAM/PRIVATE 可见性，副题与行尾 chevron 已删（M13c 判例）。 -->
+              <UsersRound v-if="conversation.visibility === 'TEAM'" :size="16" aria-hidden="true" />
+              <LockKeyhole v-else :size="16" aria-hidden="true" />
+              <span class="conversation-list__title-row">
+                <strong>{{ conversation.title }}</strong>
+                <!-- M13b-F06（R12）：查看者视角未读徽标；计数并入按钮 aria-label，徽标本体对读屏隐藏。 -->
+                <span v-if="conversation.unreadCount > 0" class="conversation-unread" aria-hidden="true">{{ conversation.unreadCount > 99 ? '99+' : conversation.unreadCount }}</span>
               </span>
               <RelativeTime :value="conversation.updatedAt" />
-              <ChevronRight :size="15" aria-hidden="true" />
             </button>
           </li>
           <li v-if="conversationStore.state.nextCursor" class="load-more-item">
@@ -1038,9 +1002,9 @@ async function redirectIfForbidden(): Promise<void> {
         role="separator"
         aria-label="调整对话列表宽度，方向键调整，回车折叠，Home 恢复默认"
         :aria-valuenow="leftPaneRatio"
-        aria-valuemin="16"
-        aria-valuemax="36"
-        @pointerdown="workspace && leftPane.startResize($event, workspace)"
+        aria-valuemin="240"
+        aria-valuemax="420"
+        @pointerdown="leftPane.startResize"
         @keydown="leftPane.handleKeydown"
       />
 
@@ -1073,6 +1037,20 @@ async function redirectIfForbidden(): Promise<void> {
             </div>
             <div class="detail-header-actions">
               <StatusBadge tone="success">活跃</StatusBadge>
+              <!-- M14 B1：参与者入口=头像栈（前 3 个主体 + 溢出计数），点击打开右缘浮层。 -->
+              <button
+                class="participants-trigger touch-target"
+                type="button"
+                :aria-label="`查看参与者，${activeParticipants.length} 个主体`"
+                :aria-expanded="participantsOpen"
+                @click="participantsOpen = !participantsOpen"
+              >
+                <span v-for="participant in activeParticipants.slice(0, 3)" :key="participant.id" :class="{ agent: participant.role === 'AGENT' }">
+                  <Bot v-if="participant.role === 'AGENT'" :size="12" aria-hidden="true" />
+                  <template v-else>{{ participantName(participant).slice(0, 1) }}</template>
+                </span>
+                <span v-if="activeParticipants.length > 3" class="participants-trigger__more" aria-hidden="true">+{{ activeParticipants.length - 3 }}</span>
+              </button>
               <button
                 class="focus-mode-toggle touch-target"
                 type="button"
@@ -1080,7 +1058,6 @@ async function redirectIfForbidden(): Promise<void> {
                 :aria-label="focusMode ? '退出专注模式（Esc）' : '进入专注模式（⌘⇧F）'"
                 @click="focusMode = !focusMode"
               ><Maximize2 :size="14" aria-hidden="true" /></button>
-              <button class="pane-collapse touch-target" type="button" aria-label="折叠参与者面板" @click="handleRightPaneToggle">{{ rightPaneCollapsed ? '展开参与者' : '折叠参与者' }}</button>
             </div>
           </header>
           <div
@@ -1315,30 +1292,17 @@ async function redirectIfForbidden(): Promise<void> {
             新建对话
           </BaseButton>
         </div>
+        <ConversationParticipantsPanel
+          v-if="participantsOpen"
+          :selected="Boolean(selected)"
+          :participants="activeParticipants"
+          :present-principal-ids="presentParticipantIds"
+          :participant-name="participantName"
+          :participant-role="participantRole"
+          :participant-kind="participantKind"
+          @close="participantsOpen = false"
+        />
       </section>
-
-      <button
-        class="pane-resizer pane-resizer--right"
-        type="button"
-        role="separator"
-        aria-label="调整参与者面板宽度，方向键调整，回车折叠，Home 恢复默认"
-        :aria-valuenow="rightPaneRatio"
-        aria-valuemin="16"
-        aria-valuemax="34"
-        @pointerdown="workspace && rightPane.startResize($event, workspace)"
-        @keydown="handleRightResizerKeydown"
-      />
-
-      <ConversationParticipantsPanel
-        :selected="Boolean(selected)"
-        :collapsed="rightPaneCollapsed"
-        :participants="activeParticipants"
-        :present-principal-ids="presentParticipantIds"
-        :participant-name="participantName"
-        :participant-role="participantRole"
-        :participant-kind="participantKind"
-        @toggle="handleRightPaneToggle"
-      />
     </div>
 
     <ConversationCreateDialog
@@ -1359,17 +1323,22 @@ async function redirectIfForbidden(): Promise<void> {
  * and the browser's own scroll anchoring re-anchors onto whatever survives — jumping the reading
  * position to unexamined offsets (once straight into the follow zone, flipping isFollowing). The
  * composable's message anchors own that compensation exclusively (§4.4). */
-.conversation-workspace { display: grid; flex: 1 1 auto; min-height: min(640px, 100%); grid-template-columns: 310px minmax(440px, 1fr) 280px; gap: var(--cs-space-16); }
-.conversation-list-panel, .conversation-detail, .participant-panel { min-height: 0; overflow: hidden; }.conversation-list-panel { display: flex; flex-direction: column; }
+/* M14 B1（贴合双栏）：列表与消息区贴合，缝隙归零，分隔交给列表右缘的 1px hairline；
+   面板去卡片化（覆盖全局 .panel 的边框圆角），台账语言替代分离卡片语言。
+   列宽 = 偏好值，但以容器 32% 封顶、240px 托底——护住窄视口的消息列可读宽
+   （1024 视口 detail ≥500 是 m9b-f03 F04 的几何合同）。 */
+.conversation-workspace { display: grid; flex: 1 1 auto; min-height: min(640px, 100%); grid-template-columns: minmax(240px, min(var(--conversation-left-pane, 280px), 32%)) 8px minmax(0, 1fr); gap: 0; }
+.conversation-list-panel, .conversation-detail, .participant-panel { min-height: 0; overflow: hidden; }
+.conversation-list-panel { display: flex; flex-direction: column; border: 0; border-right: 1px solid var(--cs-border); border-radius: 0; }
+.conversation-detail { position: relative; border: 0; border-radius: 0; }
 .conversation-list-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-20); }
 .conversation-list-header h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-md); }.conversation-list-header span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .conversation-list-header__actions { display: flex; align-items: center; gap: var(--cs-space-8); }
 .conversation-list-header button { display: grid; width: var(--cs-density-control-height); height: var(--cs-density-control-height); place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand); cursor: pointer; }
 .conversation-list { display: grid; overflow-y: auto; align-content: start; padding: var(--cs-space-8); margin: 0; list-style: none; }
-.conversation-item { display: grid; width: 100%; min-height: 67px; grid-template-columns: 34px 1fr auto 15px; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid transparent; border-radius: var(--cs-radius-md); background: transparent; color: var(--cs-text); text-align: left; cursor: pointer; }
+.conversation-item { display: grid; width: 100%; min-height: 36px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid transparent; border-radius: var(--cs-radius-md); background: transparent; color: var(--cs-text); text-align: left; cursor: pointer; }
 .conversation-item:hover { background: var(--cs-surface-subtle); }.conversation-item.active { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); }
-.conversation-list__icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: var(--cs-surface-subtle); color: var(--cs-text-muted); }.conversation-list__icon.team { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
-.conversation-list__copy { min-width: 0; }.conversation-list__copy strong, .conversation-list__copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.conversation-list__copy strong { font-size: var(--cs-text-base); }.conversation-list__copy small { margin-top: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.conversation-list__title-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--cs-text-sm); }
 /* M13b-F06（R12）：未读徽标与标题同行，标题保留收缩省略；徽标不收缩。 */
 .conversation-list__title-row { display: flex; min-width: 0; align-items: center; gap: var(--cs-space-8); }
 .conversation-list__title-row strong { flex: 1 1 auto; min-width: 0; }
@@ -1387,33 +1356,36 @@ async function redirectIfForbidden(): Promise<void> {
 .mobile-back { display: none; }
 @media (max-width: 767px) { .conversation-workspace { display: block; min-height: 0; }.conversation-list-panel, .conversation-detail { min-height: 0; height: 100%; }.conversation-list-panel { display: flex; }.conversation-detail { display: none; }.conversation-workspace.has-selection .conversation-list-panel { display: none; }.conversation-workspace.has-selection .conversation-detail { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }.mobile-back { display: flex; align-items: center; gap: var(--cs-space-8); width: 100%; min-height: 42px; padding: 0 var(--cs-space-16); background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); cursor: pointer; }.conversation-detail__header { padding: var(--cs-space-16) var(--cs-space-16); }.message-history { padding: var(--cs-space-12) var(--cs-space-12) var(--cs-space-20); }.message-row { max-width: 90%; } }
 
-/* Conversation mode keeps the center timeline fluid while side panes can be adjusted or folded.
- * M13b-F09（R51）：CSS fallback 与 v2 偏好默认同步为 20%/18%。 */
-.conversation-workspace { grid-template-columns: var(--conversation-left-pane, 22%) 8px minmax(0, 1fr) 8px var(--conversation-right-pane, 18%); }
-/* 专注模式（R51）：左右栏与两个 resizer 整体退场，消息列独占全宽；限定 ≥768 是因为
- * ≤767 的移动互斥布局本来就没有双栏，focus 规则在那里只会误伤列表面板。 */
+/* 专注模式（R51）：列表栏与拖拽线整体退场，消息列独占全宽；参与者浮层在 detail 内部，
+ * 不占轨道，专注模式下仍可打开。限定 ≥768 是因为 ≤767 的移动互斥布局本来就没有双栏。 */
 @media (min-width: 768px) {
   .conversation-workspace--focus { grid-template-columns: minmax(0, 1fr); }
   .conversation-workspace--focus .conversation-list-panel,
-  .conversation-workspace--focus .participant-panel,
   .conversation-workspace--focus .pane-resizer { display: none; }
 }
 .focus-mode-toggle { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); cursor: pointer; }
 .focus-mode-toggle[aria-pressed='true'] { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); color: var(--cs-text-brand); }
 .focus-mode-toggle:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: 2px; }
 .conversation-list-panel.collapsed > :not(header) { display: none; }
-.conversation-list-panel.collapsed .conversation-list-header { padding-inline: var(--cs-space-4); }
+.conversation-list-panel.collapsed .conversation-list-header { flex-direction: column; align-items: center; padding: var(--cs-space-8) var(--cs-space-4); }
 .conversation-list-panel.collapsed .conversation-list-header > div:first-child { display: none; }
-/* M13g：折叠竖条 44px 内，两个动作钮横向放不下会把折叠钮挤出面板（压到拖拽条与内容区）；
-   改为纵向堆叠并撑满竖条宽度（宽度即触达面积），内边距收窄到 4px 让「展开」文案完整可读。 */
-.conversation-list-panel.collapsed .conversation-list-header__actions { flex-direction: column; align-items: stretch; width: 100%; gap: var(--cs-space-4); }
-.conversation-list-panel.collapsed .pane-collapse { width: 100%; min-width: 0; padding-inline: var(--cs-space-4); }
+/* M14 B1：折叠轨 48px 图标窄轨——新建与展开两个图标钮纵向居中，与侧栏窄轨同一语言。 */
+.conversation-list-panel.collapsed .conversation-list-header__actions { flex-direction: column; align-items: center; width: auto; gap: var(--cs-space-8); }
 .pane-resizer { position: relative; z-index: 2; width: 8px; min-height: 100%; padding: 0; border: 0; background: transparent; cursor: col-resize; }
-.pane-resizer::after { position: absolute; inset: 0 3px; content: ''; background: var(--cs-border); opacity: .65; transition: opacity var(--cs-motion-fast) var(--cs-ease-out); }
-.pane-resizer:hover::after, .pane-resizer:focus-visible::after { background: var(--cs-brand-400); opacity: 1; }
+/* M14 B1：拖拽线默认隐形——贴合双栏的分隔由列表右缘 hairline 承担，悬停/聚焦才显现抓取线。 */
+.pane-resizer::after { position: absolute; inset: 0 3px; content: ''; background: var(--cs-brand-400); opacity: 0; transition: opacity var(--cs-motion-fast) var(--cs-ease-out); }
+.pane-resizer:hover::after, .pane-resizer:focus-visible::after { opacity: 1; }
 .pane-resizer:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: -2px; }
 .detail-header-actions { display: flex; align-items: center; gap: var(--cs-space-8); }
-.pane-collapse { min-height: 28px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); cursor: pointer; }
+/* M14 B1：参与者头像栈入口——前 3 个主体 20px 圆 + 溢出计数，机构台账式的安静名单摘要。 */
+.participants-trigger { display: inline-flex; align-items: center; padding: 2px var(--cs-space-4) 2px 2px; border: 1px solid var(--cs-border); border-radius: 999px; background: var(--cs-surface); cursor: pointer; }
+.participants-trigger:hover { border-color: var(--cs-border-accent); }
+.participants-trigger > span { display: grid; width: 20px; height: 20px; place-items: center; margin-left: -6px; border: 2px solid var(--cs-surface); border-radius: 50%; background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); font-size: var(--cs-text-xs); }
+.participants-trigger > span.agent { background: var(--cs-agent-soft); color: var(--cs-agent); }
+.participants-trigger > span:first-child { margin-left: 0; }
+.participants-trigger__more { background: var(--cs-surface-subtle); color: var(--cs-text-muted); font-size: 11px; }
+.pane-collapse { display: grid; width: 28px; height: 28px; place-items: center; padding: 0; border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); cursor: pointer; }
+.pane-collapse:hover { background: var(--cs-surface-accent); color: var(--cs-text-brand); }
 /* Overlays the stage (not the scroll content) so its appearance never shifts the reading rows. It
  * sits at the stage's bottom, above the composer: "jump to latest" points down toward the new
  * messages, and the top center — where the "load older" button lives — must stay clickable. */
@@ -1431,25 +1403,17 @@ async function redirectIfForbidden(): Promise<void> {
 .conversation-structure summary { display: flex; align-items: center; justify-content: space-between; padding: var(--cs-space-8) var(--cs-space-12); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }
 .conversation-structure summary span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-medium); }
 .conversation-structure > :deep(*) { margin-inline: var(--cs-space-8); }
-/* ≤1280: the five-column grid starves the message stage (a 908px container still owes 290+8+280
-   plus gaps), and hiding the right resizer strands the participant panel in the dead 0-width
-   column. Drop to three columns and move participants to a capped, scrollable bottom row: the
-   row gets what one header plus one roster row needs, never the panel's full content height. */
+/* ≤1280: the docked two-pane grid keeps its geometry at every width (the column cap in the base
+   rule already narrows the list); only the header caps change — single-line title, hidden meta line. */
 @media (max-width: 1280px) {
-  .conversation-workspace { grid-template-columns: minmax(220px, 290px) 8px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .conversation-detail__header h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .conversation-detail__header p { display: none; }
-  .participant-panel { grid-column: 1 / -1; min-height: 0; max-height: 112px; overflow-y: auto; }
-  .participant-panel > :deep(header) { padding-block: var(--cs-space-8); }
-  .participant-panel > :deep(header) > :deep(.eyebrow) { display: none; }
-  .pane-resizer--right { display: none; }
 }
-@media (max-width: 900px) { .conversation-workspace { grid-template-columns: minmax(220px, 290px) 8px minmax(0, 1fr); }.participant-panel, .pane-resizer--right { display: none; } }
-@media (max-width: 767px) { .conversation-workspace { display: block; }.pane-resizer { display: none; }.conversation-list-panel.collapsed, .participant-panel.collapsed { display: none; }
-  /* A stacked document, not the desktop-with-bottom-roster grid: the header caps the ≤1280 rules
+@media (max-width: 767px) { .conversation-workspace { display: block; }.pane-resizer { display: none; }.conversation-list-panel.collapsed { display: none; }
+  /* A stacked document, not the docked two-pane grid: the header caps the ≤1280 rules
    * added (single-line title, hidden version line) are re-opened here — this block sits after the
-   * ≤1280 one, so it wins at phone widths. The participant panel itself stays display:none via
-   * the ≤900 rule above; only its collapsed class keeps pairing with the list panel's. */
+   * ≤1280 one, so it wins at phone widths. The participants overlay lives inside the detail pane
+   * and covers it rather than occupying a grid track, so it stays available on mobile too. */
   .conversation-detail__header h2 { overflow: visible; text-overflow: clip; white-space: normal; }.conversation-detail__header p { display: block; } }
 @media (prefers-reduced-motion: reduce) { .message-row.streaming article, .pane-resizer::after { transition: none; } }
 .empty-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--cs-space-12); }

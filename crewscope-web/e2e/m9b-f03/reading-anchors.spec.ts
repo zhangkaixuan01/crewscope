@@ -335,39 +335,32 @@ test.describe('F04 cross-breakpoint conversation layout', () => {
     })
   }
 
-  test('1024 keeps a readable message stage: three columns, participants capped below', async ({ page }) => {
+  test('1024 keeps a readable message stage: docked two panes, participants overlay', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 768 })
     await openReading(page)
 
     const g = await geometry(page)
-    // Three tracks: the dead 0-width column is gone and the stage owns the fluid one.
+    // M14 B1: three tracks = list | invisible resizer | stage. The participants overlay holds
+    // no grid track and is closed (absent from the DOM) until its header trigger opens it,
+    // so the stage keeps both the width the old right column owed and its full height.
     expect(g.tracks).toBe(3)
     expect(g.detail!.width).toBeGreaterThanOrEqual(500)
-    // The defect measured 127px; the bottom roster row must give the stage its height back.
-    // 160 re-baselines against the honest shell: since M9b-Q01 S3 the fill-mode context-header
-    // keeps its natural 112px (breadcrumb + eyebrow + title) instead of being flexed down to
-    // its 82px floor, so the stage honestly owes it ~30px (measured 162; F04 calibrated 180
-    // while the header was still being squeezed).
     expect(g.stage!.height).toBeGreaterThanOrEqual(160)
-    // Participants span the whole workspace as a capped, scrollable bottom row.
-    expect(Math.abs(g.participant!.width - g.workspace!.width)).toBeLessThanOrEqual(2)
-    expect(g.participant!.height).toBeLessThanOrEqual(120)
+    expect(g.participant).toBeNull()
   })
 
-  test('1281 keeps the five-column layout with the participant sidebar restored', async ({ page }) => {
+  test('1281 keeps the docked two-pane layout; the participants overlay stays out of the grid', async ({ page }) => {
     await page.setViewportSize({ width: 1281, height: 700 })
     await openReading(page)
 
     const g = await geometry(page)
-    expect(g.tracks).toBe(5)
-    // The participant panel is a right sidebar again, not a bottom row.
-    expect(g.participant!.top).toBe(g.workspace!.top)
-    expect(g.participant!.width).toBeLessThanOrEqual(320)
+    // M14 B1: the five-column grid retired — the same three tracks as 1024 with a wider stage.
+    expect(g.tracks).toBe(3)
+    expect(g.participant).toBeNull()
     expect(g.detail!.width).toBeGreaterThanOrEqual(340)
-    // A 700px-tall viewport owes ~160 to the shell, then header/composer inside the detail —
-    // plus the ~30px the context-header reclaimed when fill mode stopped squeezing it to its
-    // 82px floor (M9b-Q01 S3 flex-shrink fix). 190 is what the honest five-column layout
-    // leaves the stage at this height (measured 204; F04's 220 assumed the squeezed header).
+    // A 700px-tall viewport owes ~160 to the shell, then header/composer inside the detail
+    // (M9b-Q01 S3 reclaimed ~30px for the honest context-header). 190 held for the old
+    // five-column layout and still holds with the docked panes.
     expect(g.stage!.height).toBeGreaterThanOrEqual(190)
   })
 })
