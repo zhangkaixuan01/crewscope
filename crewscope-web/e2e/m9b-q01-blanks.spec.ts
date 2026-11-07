@@ -141,8 +141,9 @@ test('创建对话后的第一次列表读取返回旧投影时不产生幽灵�
   await mockConversationApi(page, world)
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}`)
   // M13i：仅有一个对话的 Team 进入即自动选中（首跑手感），窄屏互斥布局随之切到详情视图——
-  // 断言「对话已打开」而不是「列表按钮可见」。
-  await expect(page.getByRole('region', { name: '对话详情' }).getByRole('heading', { name: '已有对话' })).toBeVisible()
+  // 断言「对话已打开」而不是「列表按钮可见」。详情标题行随 dsh 精简退役，打开身份由 URL
+  // 承载。
+  await expect.poll(() => new URL(page.url()).searchParams.get('conversation')).toBe('00000000-0000-0000-0000-000000000301')
 
   await page.getByRole('button', { name: '新建对话', exact: true }).first().click()
   const dialog = page.getByRole('dialog', { name: '新建对话' })
@@ -157,12 +158,12 @@ test('创建对话后的第一次列表读取返回旧投影时不产生幽灵�
   await expect.poll(async () =>
     await page.getByRole('button', { name: '打开对话 已有对话' }).count(),
   ).toBeLessThanOrEqual(1)
-  const createdHeading = page.getByRole('heading', { name: '投影延迟下的新对话', exact: true, level: 2 })
-  await expect(createdHeading).toBeVisible()
+  // The detail title row retired with the dsh restyle; 「新对话成为打开的那个」 rides on the
+  // URL identity instead of a detail heading.
+  await expect.poll(() => new URL(page.url()).searchParams.get('conversation')).toBe(world.created)
   await expect.poll(async () =>
     await page.getByRole('button', { name: '打开对话 投影延迟下的新对话' }).count(),
   ).toBeLessThanOrEqual(1)
-  expect(new URL(page.url()).searchParams.get('conversation')).toBeTruthy()
   expect(world.staleReads).toBeGreaterThanOrEqual(1)
 
   function summary(id: string, title: string, lastMessageSequence: number | null) {

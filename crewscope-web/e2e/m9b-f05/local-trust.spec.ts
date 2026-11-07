@@ -163,9 +163,12 @@ test.describe('M9b-F05 local content trust', () => {
     await page.goto(`${origin}/conversation?team=${ids.teamA}&project=${ids.projectA}&conversation=${ids.conversation}`)
     const composer = page.locator('.conversation-composer')
     await expect(composer).toBeVisible()
-    // The only controls are local features: the Markdown preview toggle (M9b-F03/S1) and 发送.
-    // Still no attachment stub, no slash button, no icon-only fake entries.
-    expect((await composer.locator('button').allTextContents()).map(text => text.trim())).toEqual(['预览', '发送'])
+    // The card composer keeps one icon-only send control (accessible name 发送 via aria-label);
+    // the Markdown preview toggle retired with the dsh restyle. No attachment stub, no slash
+    // button, no icon-only fake entries — the only textual button is the suggestion chip.
+    const labels = (await composer.locator('button').allTextContents()).map(text => text.trim()).filter(Boolean)
+    expect(labels.every(label => label.startsWith('试试：'))).toBe(true)
+    await expect(composer.getByRole('button', { name: '发送', exact: true })).toHaveCount(1)
   })
 
   test('a full draft budget never claims a save that did not happen', async ({ page }) => {

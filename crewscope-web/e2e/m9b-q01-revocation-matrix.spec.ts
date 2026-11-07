@@ -185,6 +185,9 @@ test.describe('M9b-Q01 revocation matrix', () => {
     await expect(card.locator('.live-fact')).toHaveText('实时连接不可用')
 
     // The member's next command on the revoked Team bounces to the explicit denial page.
+    // The association overlay opened above for the card facts still covers the composer —
+    // close it, or the send button stays click-blocked for the rest of the scenario.
+    await memberPage.getByRole('button', { name: '关闭关联面板' }).click()
     await memberPage.getByLabel('消息内容').fill('撤权后的消息')
     await memberPage.getByRole('button', { name: '发送', exact: true }).click()
     await expect(memberPage).toHaveURL(/\/access-denied\?from=/)

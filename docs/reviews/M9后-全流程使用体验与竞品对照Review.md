@@ -498,7 +498,7 @@ README 可以说明 M9 功能已实现，但应同时明确“真实首用/外�
 
 ### R28：工作区布局应可预测，偏好坏了也能恢复
 
-[ConversationPage.vue](../../crewscope-web/src/pages/ConversationPage.vue) 第 1090–1098 行的右侧分隔条复用 [useResizablePane.ts](../../crewscope-web/src/composables/useResizablePane.ts) 第 34–53 行左侧算法。受控模拟：1000px 容器向右拖 100px，右栏比例从 22% 增为 32%，对应边界反而向左移动。
+[ConversationPage.vue](../../crewscope-web/src/pages/ConversationPage.vue) 第 1090–1098 行的右侧分隔条复用 `useResizablePane.ts`（已随分隔条退役删除）第 34–53 行左侧算法。受控模拟：1000px 容器向右拖 100px，右栏比例从 22% 增为 32%，对应边界反而向左移动。
 
 [usePreference.ts](../../crewscope-web/src/composables/usePreference.ts) 默认接受任意 value，面板读取 `.ratio` 未做结构校验；存储 `{version:1,value:null}` 的模拟触发 TypeError。用户不应因为一次旧偏好/损坏存储被挡在整个工作区外。
 
