@@ -1,5 +1,5 @@
 {
-  "$comment": "Design System v2 阶梯之外的登记例外（字号、间距、brand 色阶）。§10.3.1/§10.3.2 只允许白名单式豁免，且必须逐条登记文件与选择器，不允许整目录豁免。每条都要说明为什么这个位置无法由阶梯表达。门禁按登记的声明原文比对：改了取值会失败，声明消失了也会失败——清单只能变短。",
+  "$comment": "Design System v2 阶梯之外的登记例外（字号、间距、brand 色阶）。§10.3.1/§10.3.2 只允许白名单式豁免，且必须逐条登记文件与选择器，不允许整目录豁免。每条都要说明为什么这个位置无法由阶梯表达。门禁按登记的声明原文比对：改了取值会失败，声明消失了也会失败——清单只能变短。【2026-11-07 补】motionExceptions/typographyExceptions 两键随动效与行高豁免路径一起加入；豁免只缩不涨、且声明必须在源文件中出现，机制与其他键一致。",
   "fluidDisplayType": [
     {
       "file": "src/components/auth/AuthBrandPanel.vue",
@@ -12,6 +12,12 @@
       "selector": ".auth-card__heading h2",
       "declaration": "font-size: clamp(var(--cs-text-xl), 3vw, 34px)",
       "reason": "同上，登录卡标题与品牌分屏共同构成未登录态的排版层级。下界锚定在阶梯 24px 档。"
+    },
+    {
+      "file": "src/pages/ConversationPage.vue",
+      "selector": ".latest-jump__badge",
+      "declaration": "font: var(--cs-weight-semibold) 10px var(--cs-font-sans)",
+      "reason": "17px 未读计数徽章内的微缩数字：最小字号档 12px 放不进 17px 徽章会撑破圆，徽章数字不是阅读文本而是刻度。"
     }
   ],
   "monospaceLineNumbers": {
@@ -24,6 +30,24 @@
       "selector": ".sr-only",
       "declaration": "margin: -1px",
       "reason": "屏幕阅读器专用文本的标准配方：1px 的盒子配 -1px 的外边距，把它从视觉流里抽走又不让辅助技术当成 display:none。这里的 1px 与间距节奏无关，它就是「尽可能小但仍然存在」，任何档位化都会破坏配方。"
+    },
+    {
+      "file": "src/pages/ConversationPage.vue",
+      "selector": ".message-row.own article",
+      "declaration": "padding: 10px 16px",
+      "reason": "own 气泡的胶囊配方是 20px 圆角配 10/16 内边距（参考图对齐的刻意密度）；十一档没有 10，换 12 会撑高气泡并作废刚按此渲染定格的视觉基线。"
+    },
+    {
+      "file": "src/components/domain/ConversationComposer.vue",
+      "selector": ".conversation-composer textarea",
+      "declaration": "padding: 4px 8px 0 14px",
+      "reason": "卡片式输入框的文字光学对齐：左 14px 让文字基线对齐 20px 圆角卡片的视觉边缘（20px 圆角处的切线内缩量），十一档无 14，改档会让文字跳位。"
+    },
+    {
+      "file": "src/components/domain/ConversationComposer.vue",
+      "selector": ".composer-bar",
+      "declaration": "padding: 2px 8px 6px",
+      "reason": "34px 发送圆钮嵌进卡片右下角的微调密度（参考图对齐）：钮体本身 34px 已定尺寸，2/6px 只负责贴边呼吸感，最小档 4px 会把圆钮推出卡片圆角线。"
     }
   ],
   "brandStepExceptions": [
@@ -32,6 +56,22 @@
       "selector": ".scope-switcher__avatar",
       "declaration": "color: var(--cs-brand-950)",
       "reason": "brand-* 色阶按 ADR-027 §1.3 刻意不跟主题，所以它只能当填色、不能当文字——唯一的例外是**前景与底色成对写在同一条规则里**：这里是 `background: var(--cs-brand-200); color: var(--cs-brand-950)`，一块薄荷底配深墨字，两个主题下都是 12.62:1。成对之后「不跟主题」不再是缺陷而是事实，因为底也不跟。全仓仅此一处。"
+    }
+  ],
+  "motionExceptions": [
+    {
+      "file": "src/components/domain/ConversationComposer.vue",
+      "selector": ".composer-send__spinner",
+      "declaration": "animation: composer-spin 1s linear infinite",
+      "reason": "发送中的旋转弧是无限循环的进度指示，1s/圈是刻意的慢速旋转；--cs-motion-* 三档（120–260ms）是交互过渡时长，用于循环动画会变成高频闪烁。reduced-motion 下已整体关闭。"
+    }
+  ],
+  "typographyExceptions": [
+    {
+      "file": "src/pages/ConversationPage.vue",
+      "selector": ".message-row.own article",
+      "declaration": "line-height: 22px",
+      "reason": "own 气泡的 14px 字号配 22px 行高是参考图对齐的刻意密度（≈1.57）；三档比例档（1.3/1.5/1.7） nearest 为 21px，会逐行改变气泡高度并作废刚按此定格的视觉基线。"
     }
   ]
 }

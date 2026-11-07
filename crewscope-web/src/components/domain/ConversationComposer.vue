@@ -121,11 +121,11 @@ watch(() => props.modelValue, () => void nextTick(resize), { immediate: true })
 .composer-suggestion:hover { border-style: solid; border-color: var(--cs-border-accent-strong); }
 .composer-suggestion:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: 2px; }
 /* 卡片（dsh InputBar 对齐）：浮起输入面 + 发丝描边 + 双层柔和影；聚焦只换描边色不加环。 */
-.composer-card { display: grid; gap: 12px; padding-top: 8px; border: 1px solid var(--cs-border-strong); border-radius: 20px; background: var(--cs-surface-raised); box-shadow: var(--cs-shadow-hairline); transition: border-color var(--cs-motion-fast) var(--cs-ease-out); }
+.composer-card { display: grid; gap: var(--cs-space-12); padding-top: var(--cs-space-8); border: 1px solid var(--cs-border-strong); border-radius: 20px; background: var(--cs-surface-raised); box-shadow: var(--cs-shadow-hairline); transition: border-color var(--cs-motion-fast) var(--cs-ease-out); }
 .composer-card:focus-within { border-color: var(--cs-border-accent-strong); }
 .composer-card--disabled { opacity: .66; }
 .conversation-composer label { display: block; }
-.conversation-composer textarea { display: block; width: 100%; min-height: 36px; max-height: 220px; resize: vertical; padding: 4px 8px 0 14px; border: 0; background: transparent; color: var(--cs-text); font: var(--cs-text-base)/24px var(--cs-font-sans); }
+.conversation-composer textarea { display: block; width: 100%; min-height: 36px; max-height: 220px; resize: vertical; padding: 4px 8px 0 14px; border: 0; background: transparent; color: var(--cs-text); font: var(--cs-text-base)/var(--cs-leading-normal) var(--cs-font-sans); }
 .conversation-composer textarea:focus { outline: none; }
 .conversation-composer textarea:disabled { cursor: not-allowed; }
 .composer-bar { display: flex; align-items: center; justify-content: flex-end; gap: var(--cs-space-8); padding: 2px 8px 6px; }

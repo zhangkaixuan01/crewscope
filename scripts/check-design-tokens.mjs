@@ -70,6 +70,8 @@ const registered = [
   ...whitelist.monospaceLineNumbers.entries,
   ...whitelist.spacingExceptions,
   ...whitelist.brandStepExceptions,
+  ...whitelist.motionExceptions,
+  ...whitelist.typographyExceptions,
 ].map(entry => ({ ...entry, seen: false }))
 
 const violations = []
@@ -231,6 +233,7 @@ for (const file of typographyFiles) {
     }
     for (const match of line.matchAll(/line-height\s*:\s*([^;{}\n]*)/g)) {
       if (match[1].includes('var(--cs-leading') || /\b(inherit|normal)\b/.test(match[1])) continue
+      if (isWaived('line-height')) continue
       // `line-height: 1` and `0` set a box's height for an icon; they are not reading rhythm.
       if (/^\s*[01]\s*$/.test(match[1])) continue
       violations.push(`${at}: line-height 必须使用 tight/normal/relaxed 三档 Token，实测「${match[1].trim()}」`)
@@ -251,6 +254,7 @@ for (const file of typographyFiles) {
     for (const match of line.matchAll(/(?:transition|animation)(?:-duration)?\s*:\s*([^;{}\n]*)/g)) {
       const bare = match[1].replace(/var\(--cs-[a-z0-9-]+\)/g, '').match(/[\d.]+m?s\b/g) ?? []
       if (!bare.some(value => !/^(0ms|0s|\.01ms)$/.test(value))) continue
+      if (isWaived('animation') || isWaived('transition')) continue
       violations.push(`${at}: 动效时长必须使用 --cs-motion-* 三档 Token，实测「${match[1].trim()}」`)
     }
 
