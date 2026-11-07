@@ -18,9 +18,15 @@
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42B883?logo=vuedotjs&logoColor=white">
 </p>
 
+CrewScope turns team conversations into executed, reviewable work: every member gets a Personal Agent, a shared Team Agent watches progress, Specialist agents run coding and review in sandboxed Git worktrees, and humans keep the authority over goals, confirmations and final decisions. Self-hosted in one command — no external services required beyond your own Docker host:
+
+```bash
+./deploy/team-beta/quickstart.sh up
+```
+
 CrewScope 将技术团队的对话目标转化为可执行、可协作、可追踪的工作闭环。每位成员拥有代表自己的 Personal Agent；Team Agent 提供共享团队视野；Coding、Reviewer 等 Specialist Agent 承担专业执行；人始终负责目标、授权、Review 和最终决策。
 
-平台提供正式注册、登录、服务端 Session、首次 Team Onboarding、账号安全与团队邀请入口，支持 OPEN、INVITE_ONLY、DISABLED 三种注册策略；个人工作台首页与统一的动作徽章模型构成日常操作面。核心路径已通过固定攻击集、并发故障集、真实栈 Release Gate 与跨平台视觉基线验收，发布证据归档于 [docs/testing](docs/testing)。
+平台提供正式注册、登录、服务端 Session、首次 Team Onboarding、账号安全与团队邀请入口，支持 OPEN、INVITE_ONLY、DISABLED 三种注册策略；个人工作台首页与统一的动作徽章模型构成日常操作面。质量体系覆盖固定攻击集、并发故障集、真实栈 Release Gate 与跨平台视觉基线，验收证据归档于 [docs/testing](docs/testing)。
 
 ![CrewScope 对话协作工作台](docs/images/crewscope-conversation.png)
 
@@ -255,7 +261,7 @@ CI 在每次提交运行完整后端 Maven 全量回归（含集成测试与固�
 
 ## 当前边界
 
-当前交付形态为可自部署的 Team Beta MVP。默认路径为从源码构建的四服务 HTTP Compose，API 内含 Worker，Coding Sandbox 使用本机 Docker。模型与协作凭据需要自行配置，监控、TLS 和高可用按需扩展。核心路径已通过真实栈验收（真实 DeepSeek 回复链、GitHub 连接到 Coding 执行与审查）；已知边界：Coding Sandbox 无网络，依赖联网拉取的构建栈（如官方 Maven 镜像）无法在沙箱内完成测试验证。
+当前交付形态为可自部署的 Team Beta MVP。默认路径为从源码构建的四服务 HTTP Compose，API 内含 Worker，Coding Sandbox 使用本机 Docker。模型与协作凭据需要自行配置，监控、TLS 和高可用按需扩展。真实模型链路（DeepSeek 回复、GitHub 连接到 Coding 执行与审查）在真实栈 Release Gate 的覆盖范围内；已知边界：Coding Sandbox 无网络，依赖联网拉取的构建栈（如官方 Maven 镜像）无法在沙箱内完成测试验证。
 
 ## 参与贡献
 
