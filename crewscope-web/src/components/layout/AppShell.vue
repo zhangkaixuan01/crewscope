@@ -465,7 +465,7 @@ async function signOut(): Promise<void> {
 .icon-button { display: grid; width: var(--cs-density-control-height); height: var(--cs-density-control-height); flex: 0 0 var(--cs-density-control-height); place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
 /* M13b-F06（R24）：铃铛未读徽标——右上角悬浮计数，纯装饰不参与点击。 */
 .topbar-bell { position: relative; }
-.topbar-bell__badge { position: absolute; top: -7px; right: -7px; display: grid; min-width: 19px; height: 19px; place-items: center; padding: 0 var(--cs-space-4); border-radius: 999px; background: var(--cs-danger); color: var(--cs-text-on-semantic); font: var(--cs-weight-semibold) var(--cs-text-xs) var(--cs-font-sans); pointer-events: none; box-shadow: 0 0 0 2px var(--cs-surface); }
+.topbar-bell__badge { position: absolute; top: -7px; right: -7px; display: grid; min-width: 19px; height: 19px; place-items: center; padding: 0 var(--cs-space-4); border-radius: 999px; background: var(--cs-danger); color: var(--cs-text-on-semantic); font: var(--cs-weight-semibold) var(--cs-text-xs) var(--cs-font-sans); font-variant-numeric: tabular-nums; pointer-events: none; box-shadow: 0 0 0 2px var(--cs-surface); }
 .topbar-scope { display: none; }
 .mobile-profile { display: none; }
 /* fill 模式下 app-shell__body 是 flex column，header 是文档头而不是弹性区：没有这行

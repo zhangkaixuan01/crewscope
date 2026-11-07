@@ -30,7 +30,7 @@ import AppShell from '../components/layout/AppShell.vue'
 .not-found {
   display: grid; min-height: calc(100dvh - 140px); place-content: center; justify-items: center;
   padding: var(--cs-space-24); gap: 0;
-  background: radial-gradient(circle at center, var(--cs-surface-accent), var(--cs-canvas) 56%); text-align: center;
+  background: var(--cs-canvas); text-align: center;
 }
 .not-found p { margin-bottom: var(--cs-space-8); color: var(--cs-text-brand); font-size: var(--cs-text-base); font-weight: var(--cs-weight-semibold); }
 .not-found h2 { margin-bottom: var(--cs-space-8); font: var(--cs-text-2xl) var(--cs-font-display); }

@@ -64,7 +64,7 @@ const toneByState: Record<WorkspaceAction['state'], 'neutral' | 'warning' | 'dan
 </template>
 
 <style scoped>
-.workspace-action { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: 9px; background: linear-gradient(145deg, var(--cs-surface-accent), var(--cs-surface) 72%); }
+.workspace-action { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border-accent); border-radius: 9px; background: var(--cs-surface-accent); }
 .workspace-action__facts { min-width: 0; }
 .workspace-action__facts strong { display: block; color: var(--cs-text-brand); font-size: var(--cs-text-sm); }
 .workspace-action__facts span { display: block; margin-top: var(--cs-space-2); color: var(--cs-text-muted); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
