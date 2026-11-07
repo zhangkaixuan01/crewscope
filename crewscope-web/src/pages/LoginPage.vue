@@ -253,7 +253,7 @@ async function timedRequest<T>(
 
     <AuthCard
       v-else
-      kicker="欢迎回来"
+      kicker="登录"
       title="继续你的团队工作"
       :description="ssoOnly ? (policyMessage ?? '使用企业身份进入 CrewScope。') : '使用用户名或邮箱进入 CrewScope。'"
       :busy="submitting"

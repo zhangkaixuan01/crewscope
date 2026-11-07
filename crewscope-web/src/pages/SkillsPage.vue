@@ -344,7 +344,7 @@ function openDistilledSkill(skillId: string): void {
       :variant="actionIntent.kind === 'disable' ? 'danger' : 'primary'"
       reason-label="禁用原因（可选）"
       :reason-maxlength="SKILL_DISABLE_REASON_MAX"
-      reason-placeholder="会展示给 Team 全体成员。"
+      reason-placeholder="对 Team 全体成员可见"
       :confirm-label="actionConfirmLabel"
       close-label="取消操作"
       :submitting="actionPending"

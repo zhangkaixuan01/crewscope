@@ -85,7 +85,7 @@ defineExpose({
           :disabled="!canManage || saving"
           :invalid="validateSkillDocument(snapshot.content, skill.skillKey) !== null || snapshot.content.length > SKILL_CONTENT_MAX || undefined"
           :aria-describedby="[readonlyReason, validateSkillDocument(snapshot.content, skill.skillKey) ? `${skill.id}-doc-error` : ''].filter(Boolean).join(' ') || undefined"
-          placeholder="--- 开头的 frontmatter（name 与 skillKey 一致），随后是注入给任务的正文。"
+          placeholder="--- 开头的 frontmatter（name 与 skillKey 一致），随后是注入给任务的正文"
         />
         <small class="draft-editor__hint">{{ skillFrontmatterContractHint }}</small>
         <small v-if="validateSkillDocument(snapshot.content, skill.skillKey)" :id="`${skill.id}-doc-error`" class="draft-editor__error">{{ validateSkillDocument(snapshot.content, skill.skillKey) }}</small>
