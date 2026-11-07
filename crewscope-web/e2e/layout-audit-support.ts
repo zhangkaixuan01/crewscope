@@ -1,5 +1,6 @@
 import type { Page, Route } from '@playwright/test'
 import { authenticatedSession } from './auth-session'
+import { workItemStateMachine } from '../src/api/generated/state-machines'
 
 /**
  * 布局几何审查共享层（M13f 建立、M13g 扩展）：mock 数据面 + 盒探针。探针只做几何判定，
@@ -19,10 +20,11 @@ import { authenticatedSession } from './auth-session'
  * - ellipsis 是设计截断手段（scope-switcher 团队名、列表标题），不属于本探针的
  *   「无意截断」——除非宿主已声明 clip/hidden 却没有 ellipsis 语义。
  *
- * 数据策略：inbox/work/activity/conversation 带最小数据集（结构抄 m13b-f09），其余端点
- * 404 兜底——页面渲染空态。空态也是交付面；内容态暴露的拥挤问题由第二层补数据复核。
- * identity 三页（login/register/invite）由 m7-identity-experience-spike 的视觉基线背书，
- * 不在审计范围。
+ * 数据策略：inbox/work/activity/conversation 带最小数据集（结构抄 m13b-f09）。M14 逐页评审
+ * 扩到内容态：work-desk / settings 三页 / observability / account 等 13 端点补齐（fixture 结构
+ * 抄 app-shell.spec.ts 同名替身），让 9 核心页以真实数据渲染；未覆盖端点仍 404 兜底，
+ * AUDIT_TRACE=1 时在控制台打印漏网路径。identity 三页（login/register/invite）由
+ * m7-identity-experience-spike 的视觉基线背书，不在审计范围。
  */
 
 export const ids = {
@@ -37,6 +39,8 @@ export const ids = {
   conversation: '00000000-0000-0000-0000-000000001101',
   ownership: '00000000-4000-4000-8000-000000000901',
   source: '00000000-4000-4000-8000-000000000951',
+  task: '00000000-4000-4000-8000-000000000701',
+  taskExecution: '00000000-4000-4000-8000-000000000801',
 }
 
 function conversation(id: string, title: string) {
@@ -55,8 +59,8 @@ function participant(principalId: string, role: string) {
   }
 }
 
-function conversationMessage(id: string, sequence: number, type: string, authorPrincipalId: string | null, content: string) {
-  return { id, conversationId: ids.conversation, sequence, participantId: type === 'SYSTEM_NOTICE' ? null : crypto.randomUUID(), authorPrincipalId, content, createdAt: `2026-08-08T01:1${sequence}:00Z` }
+function conversationMessage(id: string, sequence: number, type: string, authorPrincipalId: string | null, content: string, createdAt: string) {
+  return { id, conversationId: ids.conversation, sequence, participantId: type === 'SYSTEM_NOTICE' ? null : crypto.randomUUID(), authorPrincipalId, content, createdAt }
 }
 
 function inbox(inboxItemId: string, itemType: string, priority: string, sourceType: string, sourceRevision: number, deadline: string | null) {
@@ -82,10 +86,10 @@ function fulfillSse(route: Route, events: unknown[]) {
 
 const conversations = [conversation(ids.conversation, '规划 GitHub Provider 接入')]
 const messages = [
-  conversationMessage('00000000-0000-0000-0000-000000001301', 1, 'USER_MESSAGE', ids.principal, '**目标**：规划 GitHub Provider 接入。'),
-  conversationMessage('00000000-0000-0000-0000-000000001302', 2, 'AGENT_MESSAGE', ids.personalAgent, '已收到。我会先梳理 `Connection`、权限和审计边界。'),
-  conversationMessage('00000000-0000-0000-0000-000000001303', 3, 'SYSTEM_NOTICE', null, 'Conversation 已切换为真实消息模式。'),
-  conversationMessage('00000000-0000-0000-0000-000000001304', 4, 'USER_MESSAGE', ids.principal, '请保留团队协作与最小权限原则。'),
+  conversationMessage('00000000-0000-0000-0000-000000001301', 1, 'USER_MESSAGE', ids.principal, '**目标**：规划 GitHub Provider 接入。', '2026-08-26T01:10:00Z'),
+  conversationMessage('00000000-0000-0000-0000-000000001302', 2, 'AGENT_MESSAGE', ids.personalAgent, '已收到。我会先梳理 `Connection`、权限和审计边界。', '2026-08-26T23:05:00Z'),
+  conversationMessage('00000000-0000-0000-0000-000000001303', 3, 'SYSTEM_NOTICE', null, 'Conversation 已切换为真实消息模式。', '2026-08-27T07:40:00Z'),
+  conversationMessage('00000000-0000-0000-0000-000000001304', 4, 'USER_MESSAGE', ids.principal, '请保留团队协作与最小权限原则。', '2026-08-27T08:10:00Z'),
 ]
 const inboxItems = [
   inbox(ids.ownership, 'OWNERSHIP', 'URGENT', 'RESPONSIBILITY_ASSIGNMENT', 3, '2026-08-27T09:00:00Z'),
@@ -93,7 +97,7 @@ const inboxItems = [
 ]
 const workItems = [
   { id: ids.workItem, organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace, projectId: ids.project, key: 'CRW-01', type: 'TASK', title: '结算看板主链路', description: '结算看板主链路的协作说明', status: 'IN_PROGRESS', priority: 'HIGH', labels: ['team-work'], dueAt: null, source: 'CREWSCOPE', sourceReference: null, version: 0, createdAt: '2026-09-01T01:00:00Z', createdByPrincipalId: ids.principal, updatedAt: '2026-09-02T01:00:00Z', updatedByPrincipalId: ids.principal, availableActions: [] },
-  { id: '00000000-4000-4000-8000-000000000602', organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace, projectId: ids.project, key: 'CRW-02', type: 'FEATURE', title: '执行看板迁移', description: '执行看板迁移的协作说明', status: 'OPEN', priority: 'MEDIUM', labels: [], dueAt: null, source: 'CREWSCOPE', sourceReference: null, version: 0, createdAt: '2026-09-01T01:00:00Z', updatedAt: '2026-09-02T01:00:00Z', updatedByPrincipalId: ids.principal, availableActions: [] },
+  { id: '00000000-4000-4000-8000-000000000602', organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace, projectId: ids.project, key: 'CRW-02', type: 'FEATURE', title: '执行看板迁移', description: '执行看板迁移的协作说明', status: 'READY', priority: 'MEDIUM', labels: [], dueAt: null, source: 'CREWSCOPE', sourceReference: null, version: 0, createdAt: '2026-09-01T01:00:00Z', updatedAt: '2026-09-02T01:00:00Z', updatedByPrincipalId: ids.principal, availableActions: [] },
 ]
 const activityEvents = [
   {
@@ -103,6 +107,280 @@ const activityEvents = [
     occurredAt: '2026-08-27T08:04:00Z', payload: { schemaName: 'activity-summary', schemaVersion: 1, values: { outcome: 'APPROVED' } },
   },
 ]
+
+// M14 逐页评审：内容态数据面。形状逐条对齐网关严格校验（work-desk 六段顺序/orgId 回显/
+// ETag=version），fixture 结构抄 app-shell.spec.ts 同名替身——真值只有一份，替身不发明形状。
+
+const WORK_DESK_CATALOG: Record<string, Record<string, { actionId: string, label: string, strength: string, reversible: boolean }>> = {
+  READY: {
+    IN_PROGRESS: { actionId: 'start', label: '开始执行', strength: 'PRIMARY', reversible: true },
+    CANCELLED: { actionId: 'cancel', label: '取消工作项', strength: 'DANGER', reversible: false },
+  },
+  IN_PROGRESS: {
+    IN_REVIEW: { actionId: 'submit-review', label: '提交评审', strength: 'PRIMARY', reversible: true },
+    BLOCKED: { actionId: 'block', label: '标记阻塞', strength: 'SECONDARY', reversible: true },
+    CANCELLED: { actionId: 'cancel', label: '取消工作项', strength: 'DANGER', reversible: false },
+  },
+  BLOCKED: {
+    READY: { actionId: 'return-ready', label: '退回待开始', strength: 'SECONDARY', reversible: true },
+    IN_PROGRESS: { actionId: 'resume-work', label: '继续执行', strength: 'PRIMARY', reversible: true },
+    IN_REVIEW: { actionId: 'submit-review', label: '提交评审', strength: 'PRIMARY', reversible: true },
+    CANCELLED: { actionId: 'cancel', label: '取消工作项', strength: 'DANGER', reversible: false },
+  },
+}
+
+function workDeskTransitions(status: string) {
+  const edges = workItemStateMachine.transitions as Record<string, readonly string[]>
+  return [...(edges[status] ?? [])].sort().flatMap(target => {
+    const metadata = WORK_DESK_CATALOG[status]?.[target]
+    if (!metadata) return []
+    return [{
+      ...metadata, targetStatus: target,
+      reversible: metadata.reversible && (edges[target] ?? []).includes(status),
+      enabled: true, reason: null, reasonMessage: null, remedyLabel: null, remedyRoute: null,
+    }]
+  })
+}
+
+function workDesk() {
+  const workItemRow = (objectId: string, title: string, status: string, role: string | null, needsAction: boolean, progress: number | null) => ({
+    objectType: 'WORK_ITEM', objectId, projectId: ids.project, title, status, updatedAt: '2026-08-27T07:30:00Z',
+    responsibilityRole: role, needsAction, urgency: needsAction ? 'HIGH' : 'NORMAL', progress,
+    availableActions: workDeskTransitions(status),
+    route: `/work?team=${ids.team}&project=${ids.project}&workItem=${objectId}`,
+  })
+  return {
+    organizationId: ids.organization, teamId: ids.team, projectId: null, generatedAt: '2026-08-27T08:20:00Z',
+    sections: [
+      {
+        key: 'HUMAN_GATE', title: '等我决策', priority: 1, total: 1, truncated: false,
+        items: [{
+          objectType: 'HUMAN_GATE', objectId: ids.taskExecution, projectId: ids.project, title: '确认分支推送范围',
+          status: 'OPEN', updatedAt: '2026-08-27T07:40:00Z', responsibilityRole: 'REVIEWER', needsAction: true,
+          urgency: 'URGENT', progress: null, availableActions: [],
+          route: `/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`,
+        }],
+      },
+      {
+        key: 'REVIEW', title: '待我 Review', priority: 2, total: 1, truncated: false,
+        items: [{
+          objectType: 'REVIEW_REQUEST', objectId: ids.workItem, projectId: ids.project, title: 'Provider 回调实现评审',
+          status: 'IN_PROGRESS', updatedAt: '2026-08-27T07:20:00Z', responsibilityRole: 'REVIEWER', needsAction: true,
+          urgency: 'NORMAL', progress: null, availableActions: [],
+          route: `/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`,
+        }],
+      },
+      {
+        key: 'BLOCKED', title: '被我阻塞', priority: 3, total: 1, truncated: false,
+        items: [workItemRow('00000000-4000-4000-8000-000000000602', '执行看板迁移', 'BLOCKED', 'OWNER', true, 40)],
+      },
+      {
+        key: 'WORK_ITEM', title: '我的工作项', priority: 4, total: 2, truncated: false,
+        items: [
+          workItemRow(ids.workItem, '结算看板主链路', 'IN_PROGRESS', 'EXECUTOR', false, 65),
+          workItemRow('00000000-4000-4000-8000-000000000602', '执行看板迁移', 'BLOCKED', 'OWNER', true, 40),
+        ],
+      },
+      {
+        key: 'TASK_EXECUTION', title: '进行中的执行', priority: 5, total: 1, truncated: false,
+        items: [{
+          objectType: 'TASK_EXECUTION', objectId: ids.taskExecution, projectId: ids.project, title: '接入 Provider 回调',
+          status: 'RUNNING', updatedAt: '2026-08-27T07:50:00Z', responsibilityRole: null, needsAction: false,
+          urgency: 'NORMAL', progress: null, availableActions: [],
+          route: `/work?team=${ids.team}&project=${ids.project}&task=${ids.task}&execution=${ids.taskExecution}`,
+        }],
+      },
+      {
+        key: 'INBOX', title: '未读 Inbox', priority: 6, total: 2, truncated: false,
+        items: [{
+          objectType: 'INBOX', objectId: ids.task, projectId: ids.project, title: '2 条未读 Inbox 消息',
+          status: 'OPEN', updatedAt: '2026-08-27T07:55:00Z', responsibilityRole: null, needsAction: false,
+          urgency: 'LOW', progress: null, availableActions: [],
+          route: `/inbox?team=${ids.team}&project=${ids.project}`,
+        }],
+      },
+    ],
+  }
+}
+
+function agentTemplateRows(ownershipType: 'USER' | 'TEAM') {
+  const definition = (key: string, version: number, runtimeRole: string, scopes: string[], approvedSkillKeys: string[] = [], platformManaged = false) => ({
+    publisherType: 'ORGANIZATION', publisherId: ids.organization, key, version, runtimeRole,
+    allowedOwnershipTypes: [ownershipType], allowedExecutionScopes: scopes,
+    declaredCapabilities: runtimeRole === 'CODING' ? ['coding', 'repository'] : ['collaboration'],
+    requiredModelCapabilities: ['TOOLS'], approvedSkillKeys,
+    memberConfigurableSlots: ['MODEL_BINDING', 'SUPPLEMENTAL_INSTRUCTIONS', 'APPROVED_SKILLS', 'OUTPUT_PREFERENCE'],
+    administratorConfigurableSlots: ['BUDGET'], creatable: !platformManaged, platformManaged,
+    contentHash: 'd'.repeat(64), status: 'ACTIVE', lifecycleVersion: 1,
+  })
+  if (ownershipType === 'TEAM') return [
+    definition('team-orchestrator', 1, 'ORCHESTRATOR', ['TEAM']),
+    definition('team-observer', 1, 'TEAM_COORDINATOR', ['TEAM'], [], true),
+  ]
+  return [
+    definition('coding', 3, 'CODING', ['PERSONAL', 'TEAM'], ['coding-baseline']),
+    definition('reviewer-specialist', 2, 'REVIEWER', ['PERSONAL'], ['review-baseline']),
+    definition('personal-assistant', 1, 'PERSONAL_ASSISTANT', ['PERSONAL', 'TEAM'], [], true),
+  ]
+}
+
+function agentProfileRow(id: string, displayName: string, ownershipType: string, runtimeRole: string, templateKey: string, defaultProfile: boolean, status: string, templateVersion = 1, currentRevision: number | null = 2) {
+  return {
+    id, principalId: crypto.randomUUID(), displayName, principalStatus: status,
+    organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace,
+    ownershipType, ownerMemberId: ownershipType === 'USER' ? ids.member : null,
+    runtimeRole, templateKey, templateVersion, defaultProfile, status,
+    currentConfigurationRevision: currentRevision, currentConfigurationHash: currentRevision ? 'a'.repeat(64) : null,
+    createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-26T04:00:00Z', version: 2,
+  }
+}
+
+const agentProfiles = [
+  agentProfileRow('00000000-4000-4000-8000-000000000a01', '张凯旋的 Personal Agent', 'USER', 'PERSONAL_ASSISTANT', 'personal-assistant', true, 'ACTIVE'),
+  agentProfileRow('00000000-4000-4000-8000-000000000a02', 'CrewScope Coding Agent', 'USER', 'CODING', 'coding', false, 'ACTIVE', 3),
+  agentProfileRow('00000000-4000-4000-8000-000000000a03', 'Architecture Reviewer', 'USER', 'REVIEWER', 'reviewer-specialist', false, 'DISABLED', 2),
+  agentProfileRow('00000000-4000-4000-8000-000000000a04', 'Team Delivery Agent', 'TEAM', 'ORCHESTRATOR', 'team-orchestrator', false, 'ARCHIVED'),
+]
+
+function modelConnectionRow(id: string, ownerType: string, ownerId: string, healthStatus: string) {
+  return {
+    id, organizationId: ids.organization, providerKey: 'deepseek', ownerType, ownerId, region: 'cn',
+    billingSubjectType: ownerType === 'USER' ? 'PRINCIPAL' : ownerType, billingSubjectId: ownerId, credentialVersion: 2, status: 'ACTIVE',
+    healthStatus, healthFailureCode: healthStatus === 'UNHEALTHY' ? 'AUTHENTICATION_FAILED' : null,
+    checkedAt: '2026-08-27T07:30:00Z', lastHealthyAt: healthStatus === 'HEALTHY' ? '2026-08-27T07:30:00Z' : null,
+    consecutiveFailures: healthStatus === 'UNHEALTHY' ? 2 : 0, revocationReason: null,
+    createdAt: '2026-08-07T01:00:00Z', updatedAt: '2026-08-27T07:30:00Z', version: 4,
+  }
+}
+
+const modelConnections = [
+  modelConnectionRow('00000000-4000-4000-8000-000000000b01', 'USER', ids.principal, 'HEALTHY'),
+  modelConnectionRow('00000000-4000-4000-8000-000000000b02', 'TEAM', ids.team, 'UNHEALTHY'),
+]
+
+const modelProviderRow = {
+  key: 'deepseek', displayName: 'DeepSeek', availableRegions: ['cn', 'sg'], retentionMode: 'NONE',
+  maximumRetentionSeconds: null, trainingUsagePolicy: 'PROHIBITED', status: 'ACTIVE', version: 2,
+}
+
+const modelCatalogRows = [{
+  id: '00000000-4000-4000-8000-000000000c01', providerKey: 'deepseek', modelId: 'deepseek-v4-flash',
+  catalogRevision: 4, modelRevision: 'DeepSeek-V4-Flash-0801', displayName: 'DeepSeek V4 Flash',
+  contextWindowTokens: 128000, maximumOutputTokens: 120000, capabilities: ['TOOLS', 'STRUCTURED_OUTPUT'],
+  availableRegions: ['cn', 'sg'], status: 'ACTIVE', version: 2,
+  effectivePrice: {
+    revision: 2, effectiveFrom: '2026-08-01T00:00:00Z', inputPerMillionTokens: '0.1',
+    outputPerMillionTokens: '0.2', cachedInputPerMillionTokens: '0.02', currencyCode: 'CNY',
+  },
+}]
+
+const setupReadiness = {
+  organizationId: ids.organization, teamId: ids.team, snapshotVersion: 'setup-12', observedAt: '2026-08-27T08:20:00Z', requiredReady: false,
+  capabilities: [
+    { capability: 'PERSONAL_CONVERSATION', required: true, status: 'READY', reasonCode: 'READY', canConfigure: false, responsibleParty: 'Current member', actionKey: null },
+    { capability: 'TEAM_TASK', required: true, status: 'ACTION_REQUIRED', reasonCode: 'TEAM_AGENT_CONFIGURATION_REQUIRED', canConfigure: true, responsibleParty: 'Team Owner', actionKey: 'OPEN_AGENT_SETTINGS' },
+    { capability: 'CODING_REVIEW', required: true, status: 'ACTION_REQUIRED', reasonCode: 'WORKPROJECT_REQUIRED', canConfigure: true, responsibleParty: 'Team Owner', actionKey: 'OPEN_WORKPROJECT_SETTINGS' },
+    { capability: 'GITHUB_DRAFT_PR', required: false, status: 'ACTION_REQUIRED', reasonCode: 'GITHUB_REPOSITORY_IMPORT_REQUIRED', canConfigure: true, responsibleParty: 'Team Owner', actionKey: 'START_GITHUB_IMPORT' },
+    { capability: 'LARK_NOTIFICATIONS', required: false, status: 'BLOCKED', reasonCode: 'LARK_CONNECTION_REQUIRED', canConfigure: false, responsibleParty: 'Team Owner', actionKey: null },
+    { capability: 'TEAM_OBSERVER', required: false, status: 'UNAVAILABLE', reasonCode: 'RUNTIME_UNAVAILABLE', canConfigure: false, responsibleParty: 'Platform Operator', actionKey: null },
+  ],
+}
+
+const blockedWorkItems = [{
+  workItemId: '00000000-4000-4000-8000-000000000602', itemKey: 'CRW-02', title: '执行看板迁移',
+  status: 'BLOCKED', projectId: ids.project, blockedSince: '2026-08-26T03:00:00Z', blockerCount: 1, crossesProject: false,
+  blockers: [{ workItemId: ids.workItem, title: '结算看板主链路', status: 'IN_PROGRESS', projectId: ids.project }],
+}]
+
+const taskRows = [{
+  id: ids.task, workspaceId: ids.workspace, projectId: ids.project, workItemId: ids.workItem,
+  objective: '完成结算看板主链路的端到端验证', acceptanceCriteria: ['主链路可走通', '关键操作进入审计'],
+  status: 'WAITING', currentExecutionId: ids.taskExecution, currentAttempt: 2, currentExecutionStatus: 'RUNNING',
+  currentWaitingReason: 'REVIEW', ownerPrincipalId: ids.principal, version: 2,
+  createdAt: '2026-08-25T02:00:00Z', updatedAt: '2026-08-27T07:50:00Z',
+}]
+
+function costMonthRow(month: string, unpricedTokens: number) {
+  return {
+    month,
+    roles: {
+      EXECUTION: { inputTokens: 1_200_000, outputTokens: 60_000, cachedTokens: 40_000, factCount: 40 },
+      EMBEDDING: { inputTokens: 100_000, outputTokens: 0, cachedTokens: 0, factCount: 2 },
+    },
+    currencies: [
+      { currency: 'CNY', inputCost: '0.050000000000', outputCost: '0', cachedInputCost: '0' },
+      { currency: 'USD', inputCost: '0.528000000000', outputCost: '0.105600000000', cachedInputCost: '0' },
+    ],
+    unpricedTokens, totalFactCount: 42,
+  }
+}
+
+const observabilityMonths = { months: [costMonthRow('2026-08', 300_000), costMonthRow('2026-07', 0)], nextAfter: null }
+
+const observabilityBudget = {
+  usageMonth: '2026-08',
+  config: { alertsEnabled: true, monthlyTokenBudget: 2_000_000, tokenWarningThreshold: 1_700_000, warningRatio: 0.85, monthlyAmountBudgets: { CNY: '1000.00' } },
+  usage: { totalTokens: 1_800_000, costsByCurrency: { CNY: '0.050000000000', USD: '0.528000000000' } },
+}
+
+const auditSessions = { sessions: [
+  { sessionId: 'session-current', createdAt: '2026-08-25T08:00:00Z', lastAccessedAt: '2026-08-27T08:00:00Z', device: 'Chrome · macOS', current: true },
+  { sessionId: 'session-other', createdAt: '2026-08-24T08:00:00Z', lastAccessedAt: '2026-08-26T20:00:00Z', current: false },
+] }
+
+const costMonthDetail = (month: string) => ({
+  month,
+  rows: [
+    {
+      role: 'CHAT_PRIMARY', providerKey: 'deepseek', modelId: 'deepseek-v4-flash', currencyCode: 'CNY',
+      catalogRevision: 4, priceRevision: 2, attempt: 1,
+      inputTokens: 1_000_000, outputTokens: 50_000, cachedTokens: 10_000,
+      inputCost: '0.050000000000', outputCost: '0.010000000000', cachedInputCost: '0',
+      factCount: 30, unreportedFactCount: 2, costStatus: 'PRICED',
+    },
+    {
+      role: 'EMBEDDING', providerKey: 'deepseek', modelId: 'text-embedding-v4', currencyCode: 'XXX',
+      catalogRevision: null, priceRevision: null, attempt: 2,
+      inputTokens: 300_000, outputTokens: 0, cachedTokens: 0,
+      inputCost: null, outputCost: null, cachedInputCost: null,
+      factCount: 4, unreportedFactCount: 0, costStatus: 'UNPRICED',
+    },
+  ],
+})
+
+const qualityMonth = (month: string) => ({
+  month,
+  executionAttempts: { total: 20, completed: 15, failed: 4, cancelled: 1, successRate: 0.75 },
+  reviewFirstPass: { enteredReview: 8, firstPassApproved: 6, firstPassRate: 0.75 },
+})
+
+const selfNotificationPreference = { memberId: ids.member, enabled: true, enabledItemTypes: ['OWNERSHIP', 'EXECUTION', 'REVIEW', 'CONFIRMATION', 'EXCEPTION'], mutedUntil: null, version: 3 }
+
+function agentConfigurationBody(profileId: string, revision: number) {
+  const profile = agentProfiles.find(agent => agent.id === profileId)
+  const binding = (executionScope: string) => ({
+    executionScope, kind: 'EXPLICIT',
+    primary: { connectionId: crypto.randomUUID(), providerKey: 'deepseek', catalogEntryId: crypto.randomUUID(), modelId: 'deepseek-v4-flash', catalogRevision: 4 },
+    fallback: { connectionId: crypto.randomUUID(), providerKey: 'deepseek', catalogEntryId: crypto.randomUUID(), modelId: 'deepseek-chat', catalogRevision: 3 },
+  })
+  const teamOwned = profile?.ownershipType === 'TEAM'
+  return {
+    revision, previousRevision: revision > 1 ? revision - 1 : null,
+    templateKey: profile?.templateKey ?? 'coding', templateVersion: profile?.templateVersion ?? 1,
+    templateContentHash: 'b'.repeat(64),
+    personalBinding: teamOwned ? null : binding('PERSONAL'),
+    teamBinding: binding('TEAM'),
+    supplementalInstructions: null, approvedSkillKeys: [], memoryPolicy: null, budgetPolicy: null,
+    generateOptions: { temperature: null, topP: null, maximumOutputTokens: 120000, reasoningMode: 'DEFAULT', cacheEnabled: true, parallelToolCalls: true, seed: null, maximumAttempts: 2 },
+    policyPackId: 'default', policyPackVersion: 1, configurationHash: 'c'.repeat(64), createdAt: '2026-08-26T04:00:00Z',
+  }
+}
+
+const accountProfile = {
+  accountId: 'account-1', username: 'zhangkaixuan', email: 'zhangkaixuan@example.com', displayName: 'Zhang Kaixuan',
+  status: 'ACTIVE', platformRole: 'USER', securityVersion: 3, version: 4,
+  createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-26T00:00:00Z',
+}
 
 export async function mockAuditApi(page: Page): Promise<void> {
   // 单一 /api/v1/ 路由承担全部请求分发：显式 SSE 分支（activity/conversation）回放有限
@@ -131,6 +409,10 @@ export async function mockAuditApi(page: Page): Promise<void> {
     // 分支顺序：对话关联请求（…/conversations/{id}/work-items）必须先于工作项列表
     // （endsWith '/work-items'）匹配，否则列表会吞掉关联请求并返回 WorkItem 形状的数据，
     // 组件按 association.workItem 解析即抛错并弹出全局错误横幅（判例：m13g 移动导航被拦）。
+    // work-graph/blocked-work-items 同样以 'work-items' 结尾，也必须在这里之前。
+    if (request.method() === 'GET' && path.endsWith('/work-graph/blocked-work-items')) {
+      return fulfillJson(route, { items: blockedWorkItems, nextCursor: null })
+    }
     const conversationWorkItems = path.match(/\/conversations\/([^/]+)\/work-items$/)
     if (request.method() === 'GET' && conversationWorkItems) return fulfillJson(route, [])
     if (request.method() === 'GET' && path.endsWith('/work-items')) {
@@ -159,11 +441,48 @@ export async function mockAuditApi(page: Page): Promise<void> {
     if (request.method() === 'GET' && conversationTasks) return fulfillJson(route, { items: [], nextCursor: null })
     const conversationEvents = path.match(/\/conversations\/([^/]+)\/events$/)
     if (request.method() === 'GET' && conversationEvents) return fulfillSse(route, [])
+    // M14 内容态分支（account 的 ETag=version 是网关强契约，走独立 fulfill）。
+    if (request.method() === 'GET' && path === '/api/v1/auth/sessions') return fulfillJson(route, auditSessions)
+    if (request.method() === 'GET' && path === '/api/v1/account') {
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${accountProfile.version}"` }, body: JSON.stringify(accountProfile) })
+    }
+    const organizationProfileMatch = path.match(/\/organizations\/([^/]+)$/)
+    if (request.method() === 'GET' && organizationProfileMatch) return fulfillJson(route, { organizationId: organizationProfileMatch[1], name: 'CrewScope Organization', status: 'ACTIVE', version: 1 })
+    const organizationSettingsMatch = path.match(/\/organizations\/([^/]+)\/settings$/)
+    if (request.method() === 'GET' && organizationSettingsMatch) return fulfillJson(route, { auditEventRetentionDays: 365, version: 0 })
+    if (request.method() === 'GET' && path.endsWith('/work-desk')) return fulfillJson(route, workDesk())
+    if (request.method() === 'GET' && path.endsWith('/agent-templates')) {
+      const ownershipType = new URL(request.url()).searchParams.get('ownershipType')
+      return fulfillJson(route, { items: agentTemplateRows(ownershipType === 'TEAM' ? 'TEAM' : 'USER') })
+    }
+    if (request.method() === 'GET' && path.endsWith('/model-providers')) return fulfillJson(route, { items: [modelProviderRow] })
+    if (request.method() === 'GET' && path.endsWith('/model-providers/deepseek/catalog')) return fulfillJson(route, { items: modelCatalogRows })
+    if (request.method() === 'GET' && path.endsWith('/model-connections')) {
+      const ownerType = new URL(request.url()).searchParams.get('ownerType')
+      return fulfillJson(route, { items: modelConnections.filter(connection => connection.ownerType === ownerType) })
+    }
+    if (request.method() === 'GET' && path.endsWith('/agent-profiles')) return fulfillJson(route, { items: agentProfiles })
+    if (request.method() === 'GET' && path.endsWith('/setup-readiness')) return fulfillJson(route, setupReadiness)
+    if (request.method() === 'GET' && path.endsWith('/observability/cost/months')) return fulfillJson(route, observabilityMonths)
+    const costDetailMatch = path.match(/\/observability\/cost\/months\/(\d{4}-\d{2})$/)
+    if (request.method() === 'GET' && costDetailMatch) return fulfillJson(route, costMonthDetail(costDetailMatch[1]!))
+    const qualityDetailMatch = path.match(/\/observability\/quality\/months\/(\d{4}-\d{2})$/)
+    if (request.method() === 'GET' && qualityDetailMatch) return fulfillJson(route, qualityMonth(qualityDetailMatch[1]!))
+    if (request.method() === 'GET' && path.endsWith('/observability/budget')) return fulfillJson(route, observabilityBudget)
+    if (request.method() === 'GET' && path.endsWith('/tasks')) return fulfillJson(route, { items: taskRows, nextCursor: null })
+    if (request.method() === 'GET' && path.endsWith('/members/me/notification-preference')) {
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: `"${selfNotificationPreference.version}"` }, body: JSON.stringify(selfNotificationPreference) })
+    }
+    const agentConfigurationMatch = path.match(/\/agent-profiles\/([^/]+)\/configurations\/current$/)
+    if (request.method() === 'GET' && agentConfigurationMatch && agentProfiles.some(agent => agent.id === agentConfigurationMatch[1])) {
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: '"2"' }, body: JSON.stringify(agentConfigurationBody(agentConfigurationMatch[1]!, 2)) })
+    }
     // 其余 event-stream 请求（未覆盖的实时通道）挂起保活：立即 404/关闭会触发页面级
     // 错误横幅盖住交互面，有限空流则会退避重连波及布局稳定性。
     if (request.headers().accept?.includes('text/event-stream')) {
       return new Promise<void>(() => {})
     }
+    if (process.env.AUDIT_TRACE) console.log(`[audit-404] ${request.method()} ${path}`)
     return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ code: 'not_found', message: 'not_found', correlationId: crypto.randomUUID(), retryable: false, details: {} }) })
   })
 }
