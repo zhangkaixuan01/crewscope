@@ -100,6 +100,6 @@ function tone(status: TaskExecution['status']): 'success' | 'warning' | 'danger'
 .execution-conflict strong { font-size: var(--cs-text-sm); }
 .execution-conflict span { display: block; margin-top: var(--cs-space-4); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
 .execution-conflict__actions { display: flex; flex-wrap: wrap; gap: var(--cs-space-8); }
-.execution-conflict__actions button { padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-danger-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }
+.execution-conflict__actions button { padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-danger-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }
 .execution-conflict__actions button:hover { background: var(--cs-danger-soft); }
 </style>

@@ -324,7 +324,7 @@ function closeBuild(): void {
 .auto-refresh input { accent-color: var(--cs-focus); }
 .last-refreshed { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 /* L16 的 overflow 触发钮与 header 里的 BaseButton 同档外观。 */
-.index-more-toggle { display: inline-flex; min-height: 30px; align-items: center; gap: var(--cs-space-4); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }
+.index-more-toggle { display: inline-flex; min-height: 30px; align-items: center; gap: var(--cs-space-4); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }
 .index-more { display: grid; gap: var(--cs-space-8); min-width: 220px; padding: var(--cs-space-12); }
 .index-more .last-refreshed { margin: 0; }
 .index-more__rebuild { justify-self: start; }

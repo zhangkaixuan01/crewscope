@@ -138,6 +138,6 @@ function close(): void {
 .handover-dialog__items li > span { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .handover-dialog__items li > strong { font-size: var(--cs-text-sm); }
 .handover-dialog__items li > small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.handover-dialog__note { margin: 0; padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }
+.handover-dialog__note { margin: 0; padding: var(--cs-space-8) var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); }
 .handover-dialog__problem { margin: 0; padding: var(--cs-space-12); border: 1px solid var(--cs-warning-border); border-radius: 9px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-sm); }
 </style>

@@ -196,7 +196,7 @@ async function save(): Promise<void> {
 .team-preference__team label { color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .team-preference__team :deep(select) { min-height: 36px; padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); font-size: var(--cs-text-base); }
 .team-preference__status { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
-.team-preference__problem { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); margin: 0; padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-sm); }
+.team-preference__problem { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-12); margin: 0; padding: var(--cs-space-8) var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-sm); }
 .team-preference__switch { display: flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .team-preference__types { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--cs-space-8); margin: 0; padding: var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 10px; }
 .team-preference__types:disabled { opacity: .55; }

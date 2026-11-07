@@ -199,7 +199,7 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
 .onboarding__creation {
   padding: var(--cs-space-16);
   border: 1px solid var(--cs-border);
-  border-radius: 12px;
+  border-radius: var(--cs-radius-md);
   background: var(--cs-surface-subtle);
 }
 .onboarding__creation h3 { margin: 0 0 var(--cs-space-12); font-size: var(--cs-text-sm); }
@@ -208,7 +208,7 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
 .onboarding__creation span { display: inline-flex; align-items: center; gap: var(--cs-space-8); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .onboarding__creation small { color: var(--cs-text-muted); font-size: var(--cs-text-xs); text-align: right; }
 .onboarding__primary { width: 100%; }
-.onboarding__notice { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin: 0 0 var(--cs-space-16); padding: var(--cs-space-8) var(--cs-space-12); border-radius: 8px; background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
+.onboarding__notice { display: flex; align-items: flex-start; gap: var(--cs-space-8); margin: 0 0 var(--cs-space-16); padding: var(--cs-space-8) var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-warning-soft); color: var(--cs-warning); font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
 .onboarding__notice svg { flex: 0 0 auto; }
 .onboarding__entry { display: grid; gap: var(--cs-space-8); }
 .onboarding__progress { display: grid; gap: var(--cs-space-16); }
@@ -227,7 +227,7 @@ function current(step: 'team' | 'workspace'): 'step' | undefined {
   padding: var(--cs-space-16);
   margin-bottom: var(--cs-space-16);
   border: 1px solid var(--cs-border-accent);
-  border-radius: 12px;
+  border-radius: var(--cs-radius-md);
   background: var(--cs-success-soft);
 }
 .onboarding__ready-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: var(--cs-surface); color: var(--cs-text-brand-strong); }

@@ -51,7 +51,7 @@ const emit = defineEmits<{ focus: [nodeId: string] }>()
 .graph-hierarchy__group { border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }
 .graph-hierarchy__group > h4 { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: var(--cs-space-8); margin: 0; padding: 0 var(--cs-space-12); border-bottom: 1px solid var(--cs-border); color: var(--cs-text-secondary); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); }
 .graph-hierarchy ul { display: grid; margin: 0; padding: var(--cs-space-8); list-style: none; gap: var(--cs-space-4); }
-.graph-hierarchy button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid transparent; border-radius: 8px; background: var(--cs-surface-subtle); color: var(--cs-text); font-size: var(--cs-text-sm); text-align: left; cursor: pointer; }
+.graph-hierarchy button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid transparent; border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); color: var(--cs-text); font-size: var(--cs-text-sm); text-align: left; cursor: pointer; }
 .graph-hierarchy button:hover { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); }
 .graph-hierarchy__row--selected { border-color: var(--cs-focus); background: var(--cs-surface-accent); }
 .graph-hierarchy__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -127,11 +127,11 @@ watch(() => props.member.id, () => { open.value = false })
 
 <style scoped>
 .member-menu { justify-self: end; }
-.member-menu :deep(.member-menu__trigger) { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
+.member-menu :deep(.member-menu__trigger) { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
 .member-menu :deep(.member-menu__trigger:hover), .member-menu :deep(.member-menu__trigger:focus-visible), .member-menu :deep(.member-menu__trigger[aria-expanded="true"]) { border-color: var(--cs-border-accent-strong); color: var(--cs-text-brand); }
 .member-menu :deep(.member-menu__trigger:disabled) { opacity: .5; cursor: default; }
 .member-menu :deep(.member-menu__list) { min-width: 250px; max-height: 340px; overflow-y: auto; border-radius: 11px; background: var(--cs-surface); box-shadow: var(--cs-shadow-modal); }
-.member-menu__item { display: grid; grid-template-columns: 28px 1fr; align-items: start; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
+.member-menu__item { display: grid; grid-template-columns: 28px 1fr; align-items: start; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: var(--cs-radius-sm); background: transparent; text-align: left; cursor: pointer; }
 .member-menu__item:hover, .member-menu__item:focus-visible { background: var(--cs-surface-accent); }
 .member-menu__item > i { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); font-style: normal; }
 .member-menu__item--danger > i { background: var(--cs-danger-soft, var(--cs-surface-subtle)); color: var(--cs-danger); }

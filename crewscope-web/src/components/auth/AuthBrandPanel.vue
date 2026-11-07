@@ -83,7 +83,7 @@ import crewScopeMark from '../../design/crewscope-mark.svg'
   font-family: var(--cs-font-display);
   font-size: var(--cs-text-xl);
 }
-.auth-brand-panel__brand img { border-radius: 12px; box-shadow: var(--cs-shadow-raised); }
+.auth-brand-panel__brand img { border-radius: var(--cs-radius-md); box-shadow: var(--cs-shadow-raised); }
 .auth-brand-panel__brand span,
 .auth-brand-panel__brand small { display: block; }
 .auth-brand-panel__brand small {
@@ -125,7 +125,7 @@ import crewScopeMark from '../../design/crewscope-mark.svg'
   gap: var(--cs-space-8);
   padding: var(--cs-space-12) var(--cs-space-12);
   border: 1px solid var(--cs-auth-story-node-border, var(--cs-border));
-  border-radius: 12px;
+  border-radius: var(--cs-radius-md);
   background: var(--cs-auth-story-node-surface);
   font-size: var(--cs-text-sm);
   font-weight: var(--cs-weight-semibold);

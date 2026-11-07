@@ -293,7 +293,7 @@ function retentionText(days: number | null): string {
 <style scoped>
 .org-settings { display: grid; gap: var(--cs-space-16); }
 .org-tabs { display: inline-flex; gap: var(--cs-space-4); padding: var(--cs-space-4); border: 1px solid var(--cs-border); border-radius: 11px; background: var(--cs-surface); width: fit-content; }
-.org-tabs__tab { display: inline-flex; align-items: center; min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-16); border-radius: 8px; color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-decoration: none; }
+.org-tabs__tab { display: inline-flex; align-items: center; min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-16); border-radius: var(--cs-radius-sm); color: var(--cs-text-muted); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-decoration: none; }
 .org-tabs__tab:hover, .org-tabs__tab:focus-visible { color: var(--cs-text-brand); }
 .org-tabs__tab--active { background: var(--cs-surface-accent-strong); color: var(--cs-text-brand); }
 .org-card { display: grid; gap: var(--cs-space-12); padding: var(--cs-space-20); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-md); background: var(--cs-surface); }

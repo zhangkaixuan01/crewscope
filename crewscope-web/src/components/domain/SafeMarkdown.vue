@@ -86,7 +86,7 @@ function copyCode(event: MouseEvent): void {
 .safe-markdown :deep(ul), .safe-markdown :deep(ol) { padding-left: var(--cs-space-20); }
 .safe-markdown :deep(blockquote) { padding-left: var(--cs-space-12); border-left: 3px solid currentcolor; opacity: .78; }
 .safe-markdown :deep(code) { padding: var(--cs-space-2) var(--cs-space-4); border-radius: 4px; background: var(--cs-code-inline-bg); font-family: var(--cs-font-mono); }
-.safe-markdown :deep(pre) { position: relative; overflow-x: auto; padding: var(--cs-space-12); border-radius: 8px; background: var(--cs-code-surface); color: var(--cs-code-text); }
+.safe-markdown :deep(pre) { position: relative; overflow-x: auto; padding: var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-code-surface); color: var(--cs-code-text); }
 .safe-markdown :deep(pre code) { display: block; padding: 0; background: transparent; color: inherit; }
 .safe-markdown :deep(a) { color: var(--cs-text-brand); text-decoration: underline; text-underline-offset: 2px; }
 /* R40: tables keep their header/row semantics and scroll inside their own box, never the page. */

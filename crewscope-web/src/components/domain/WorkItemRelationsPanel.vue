@@ -170,7 +170,7 @@ async function removeRelation(edge: WorkItemRelationEdge): Promise<void> {
 
 <style scoped>
 .relations-list { display: grid; gap: var(--cs-space-4); margin: 0; padding: 0; list-style: none; }
-.relations-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface-subtle); }
+.relations-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--cs-space-8); padding: var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); }
 .relations-list span { display: inline-flex; min-width: 0; align-items: center; gap: var(--cs-space-4); overflow: hidden; color: var(--cs-text-secondary); font-size: var(--cs-text-sm); text-overflow: ellipsis; }
 .relations-list em { flex: 0 0 auto; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-style: normal; }
 .relations-list__cross { color: var(--cs-text); font-weight: var(--cs-weight-semibold); }

@@ -27,7 +27,7 @@ const slots = useSlots()
 /* label 横排是 ≤56px 的前提：竖排 label+select 是两层高度，一行装不下。
  * label 经 #filters 槽传入，作用域属于调用方——必须 :deep 才能命中（契约 §7 的 56px 靠它）。 */
 .scan-toolbar__filters :deep(label) { display: inline-flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); white-space: nowrap; }
-.scan-toolbar__filters :deep(select) { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
+.scan-toolbar__filters :deep(select) { min-height: var(--cs-density-control-height); padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface); color: var(--cs-text); font-size: var(--cs-text-base); }
 .scan-toolbar__side { display: flex; flex: 0 0 auto; align-items: center; gap: var(--cs-space-8); margin-left: auto; }
 @media (max-width: 767px) {
   .scan-toolbar { flex-wrap: wrap; min-height: 0; padding: var(--cs-space-8) var(--cs-space-16); }
