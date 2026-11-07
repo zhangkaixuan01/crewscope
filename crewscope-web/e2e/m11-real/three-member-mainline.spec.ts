@@ -169,38 +169,27 @@ test('three accounts share one screen: presence, pills, and the multitab dedupe'
     await expect(memberPage.locator('.collab-pill')).toContainText('实时协作在线')
   }
 
-  // Each side's roster names both peers (the snapshot carries the subscriber too, so the
-  // assertion matches on the peers, not the full label).
-  await expect(alicePage.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', /Bob Q02/)
-  await expect(alicePage.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', /Carol Q02/)
-  await expect(bobPage.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', /Alice Q02 Owner/)
-  await expect(bobPage.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', /Carol Q02/)
-  await expect(carolPage.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', /Bob Q02/)
+  // Each side's participants panel dots both peers (the snapshot carries the subscriber
+  // too, so the assertion matches on the peers' rows, not one's own).
+  await alicePage.getByRole('button', { name: /查看参与者/ }).click()
+  await bobPage.getByRole('button', { name: /查看参与者/ }).click()
+  await carolPage.getByRole('button', { name: /查看参与者/ }).click()
+  await expect(alicePage.locator('.participant-panel li').filter({ hasText: 'Bob Q02' }).locator('.participant-online')).toBeVisible()
+  await expect(alicePage.locator('.participant-panel li').filter({ hasText: 'Carol Q02' }).locator('.participant-online')).toBeVisible()
+  await expect(bobPage.locator('.participant-panel li').filter({ hasText: 'Alice Q02' }).locator('.participant-online')).toBeVisible()
+  await expect(bobPage.locator('.participant-panel li').filter({ hasText: 'Carol Q02' }).locator('.participant-online')).toBeVisible()
+  await expect(carolPage.locator('.participant-panel li').filter({ hasText: 'Bob Q02' }).locator('.participant-online')).toBeVisible()
 
   // S01 multitab handover (F01 left it to Q02): a second tab on Bob's cookie is a second
-  // connection of the same principal — presence dedupes by principal and badges the tabs.
+  // connection of the same principal. The strip that badged「Bob Q02（2 个标签页）」is gone
+  // with the dsh chat restyle, so the dedupe's product face here is the panel staying at
+  // one row and one dot for Bob (the connection badge survives on the work surfaces).
   bobTab2 = await bobContext.newPage()
   await bobTab2.goto(conversationUrl)
   await expect(bobTab2.getByLabel('发送消息')).toBeVisible()
-  await expect(alicePage.locator('.presence-group [title="Bob Q02（2 个标签页）"]')).toBeVisible({ timeout: 20_000 })
-  const label = await alicePage.locator('.collaboration-strip .presence-group').getAttribute('aria-label')
-  expect((label?.match(/Bob Q02/g) ?? []).length, `presence must dedupe by principal, label was: ${label}`).toBe(1)
-})
-
-test('typing shows both one-person and two-person shapes, then self-clears', async () => {
-  const indicator = alicePage.locator('.typing-indicator')
-  await expect(bobPage.getByLabel('消息内容')).toBeEnabled()
-  await bobPage.getByLabel('消息内容').fill('主线输入信号的第一条')
-  await expect(indicator).toContainText('Bob Q02 正在输入…')
-
-  // Carol types within Bob's anchor window: the label switches to the two-person shape.
-  await carolPage.getByLabel('消息内容').fill('主线输入信号的第二条')
-  await expect(indicator).toContainText('Bob Q02 和 Carol Q02 正在输入…')
-
-  // typingWindowSeconds is 5s on this stack and the client owns the self-clear — no more
-  // keystrokes and the row falls silent on its own. The ≥3 shape needs a fourth principal
-  // and is out of the three-account contract shape (written ruling in the gate document).
-  await expect(indicator).toHaveCount(0, { timeout: 15_000 })
+  const bobRowsOnAlice = alicePage.locator('.participant-panel li').filter({ hasText: 'Bob Q02' })
+  await expect(bobRowsOnAlice).toHaveCount(1)
+  await expect(bobRowsOnAlice.locator('.participant-online')).toHaveCount(1)
 })
 
 test('a remote change banners the dirty drawer and never overwrites it', async () => {
@@ -305,7 +294,12 @@ test('one suspend cuts every channel at once — and no member can fire it but t
   await bobPage.goto(conversationUrl)
   await carolPage.goto(conversationUrl)
   await expect(bobPage.locator('.collab-pill')).toContainText('实时协作在线')
-  await expect(alicePage.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', /Bob Q02/)
+  // Panels stay open across the drill: the suspend's presence cut is read off the dots.
+  await alicePage.getByRole('button', { name: /查看参与者/ }).click()
+  await carolPage.getByRole('button', { name: /查看参与者/ }).click()
+  const bobDotOnAlice = alicePage.locator('.participant-panel li').filter({ hasText: 'Bob Q02' }).locator('.participant-online')
+  const bobDotOnCarol = carolPage.locator('.participant-panel li').filter({ hasText: 'Bob Q02' }).locator('.participant-online')
+  await expect(bobDotOnAlice).toBeVisible()
 
   // Bob's second tab now watches the Team Activity stream instead — his SSE channel for
   // this drill. Each tab holds its own transport, and each is revalidated independently.
@@ -354,11 +348,9 @@ test('one suspend cuts every channel at once — and no member can fire it but t
   // Channel WS: the swept socket drops Bob's live state on his main tab.
   await expect(bobPage.locator('.collab-pill')).not.toContainText('实时协作在线', { timeout: 20_000 })
 
-  // Channel presence: both survivors' rosters let Bob go.
-  await expect(alicePage.locator('.collaboration-strip .presence-group'))
-    .not.toHaveAttribute('aria-label', /Bob Q02/, { timeout: 20_000 })
-  await expect(carolPage.locator('.collaboration-strip .presence-group'))
-    .not.toHaveAttribute('aria-label', /Bob Q02/, { timeout: 20_000 })
+  // Channel presence: both survivors' panels let Bob's dot go.
+  await expect(bobDotOnAlice).toHaveCount(0, { timeout: 20_000 })
+  await expect(bobDotOnCarol).toHaveCount(0, { timeout: 20_000 })
 
   // Channel SSE (the Q02-only browser-side evidence; the server contract lives in
   // TeamActivityStreamRevocationTest): the idle-probe recheck closes the stream, the

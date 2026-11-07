@@ -156,7 +156,8 @@ test.describe('M9b-Q01 revocation matrix', () => {
 
     await memberPage.goto(`/conversation?team=${ids.teamPlatform}&project=${ids.projectPlatform}&conversation=${q01.conversation}`)
     await expect(memberPage.getByRole('heading', { name: '在途任务的对话', exact: true }).first()).toBeVisible()
-    // 关联卡默认摘要收起（M9b-Q01）：断言卡内事实前先展开。
+    // 关联卡默认摘要收起（M9b-Q01）：先开 header 的关联浮层，再展开断言卡内事实。
+    await memberPage.getByRole('button', { name: /查看关联/ }).click()
     await memberPage.locator('summary', { hasText: '关联任务' }).click()
     const card = memberPage.getByTestId('conversation-task-cards').locator(`[data-task-id="${q01.task}"]`)
     await expect(card).toContainText('撤权时仍在执行的在途任务')

@@ -148,8 +148,6 @@ test('the UI names the degraded channel plainly while the conversation keeps wor
   // The pill names the state and carries the manual retry exit.
   const pill = page.locator('.collab-pill--degraded')
   await expect(pill).toContainText('实时协作不可用')
-  // The conversation strip says the same thing in place of the presence row.
-  await expect(page.locator('.collaboration-strip--degraded')).toHaveText('实时协作暂不可用')
 
   // The retry exit re-enters the cycle: connecting renders nothing (no flicker),
   // then three failures land back on degraded.

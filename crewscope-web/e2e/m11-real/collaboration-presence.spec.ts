@@ -4,10 +4,12 @@ import { baseURL, command, currentSession, getJson, onlyTeam, register, teamPath
 /**
  * M11-F01 real-stack presence acceptance: two browser sessions — the onboarding owner
  * and an invited MEMBER — in one Team and one conversation, observed only through the
- * product UI on the deployed Nginx entry point. Four rows of the F01 acceptance: mutual
- * presence through the snapshot/delta dance, typing with the welcome-window self-clear,
- * the remote-change banner that never overwrites a dirty editor (ADR-032's interruption
- * red line), and presence leaving when the peer's page closes.
+ * product UI on the deployed Nginx entry point. Three rows of the F01 acceptance: mutual
+ * presence through the snapshot/delta dance (the composer-adjacent presence strip and the
+ * typing broadcast were removed with the dsh chat restyle — the participants panel's
+ * online dots are the conversation's live surface), the remote-change banner that never
+ * overwrites a dirty editor (ADR-032's interruption red line), and presence leaving when
+ * the peer's page closes.
  */
 
 test.describe.configure({ mode: 'serial' })
@@ -95,26 +97,16 @@ test('two browsers on one conversation see each other through the open channel',
   await expect(pageA.getByLabel('发送消息')).toBeVisible()
   await expect(pageB.getByLabel('发送消息')).toBeVisible()
 
-  // Mutual presence: each side's roster names the other (the snapshot also carries
-  // the subscriber, so the assertion matches on the peer, not the full label).
-  await expect(pageA.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', /Bob F01/)
-  await expect(pageB.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', /Alice F01/)
+  // Mutual presence: each side's participants panel dots the other (the snapshot also
+  // carries the subscriber, so the assertion matches on the peer's row, not one's own).
+  await pageA.getByRole('button', { name: /查看参与者/ }).click()
+  await pageB.getByRole('button', { name: /查看参与者/ }).click()
+  await expect(pageA.locator('.participant-panel li').filter({ hasText: 'Bob F01' }).locator('.participant-online')).toBeVisible()
+  await expect(pageB.locator('.participant-panel li').filter({ hasText: 'Alice F01' }).locator('.participant-online')).toBeVisible()
 
   // The AppShell pill states the connection plainly (ADR-032 three-state acceptance).
   await expect(pageA.locator('.collab-pill')).toContainText('实时协作在线')
   await expect(pageB.locator('.collab-pill')).toContainText('实时协作在线')
-})
-
-test("one side's typing appears on the other and self-clears after the welcome window", async () => {
-  const indicator = pageA.locator('.typing-indicator')
-  await expect(pageB.getByLabel('消息内容')).toBeEnabled()
-  await pageB.getByLabel('消息内容').fill('远端输入信号的自证文本')
-  await expect(indicator).toContainText('Bob F01 正在输入…')
-
-  // typingWindowSeconds is 5s on this stack and the client owns the self-clear (§2.3
-  // — the server never re-sends stopped). No further keystroke: the row must fall
-  // silent on its own.
-  await expect(indicator).toHaveCount(0, { timeout: 15_000 })
 })
 
 test('a remote work-item change banners the dirty drawer and never overwrites it', async () => {
@@ -169,15 +161,16 @@ test('a remote work-item change banners the dirty drawer and never overwrites it
 })
 
 test("a peer's closed page announces the leave and drops them from presence", async () => {
-  // Back on the conversation: Alice re-subscribes and the snapshot names Bob again.
+  // Back on the conversation: Alice re-subscribes and the panel dots Bob again.
   await pageA.goto(`/conversation?team=${teamId}&conversation=${conversationId}`)
-  await expect(pageA.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', /Bob F01/)
+  await pageA.getByRole('button', { name: /查看参与者/ }).click()
+  const bobDot = pageA.locator('.participant-panel li').filter({ hasText: 'Bob F01' }).locator('.participant-online')
+  await expect(bobDot).toBeVisible()
 
   await pageB.close()
 
-  // The server announces the leave on the socket teardown; Alice's roster lets Bob go.
-  await expect(pageA.locator('.collaboration-strip .presence-group'))
-    .not.toHaveAttribute('aria-label', /Bob F01/, { timeout: 20_000 })
+  // The server announces the leave on the socket teardown; Alice's panel lets Bob's dot go.
+  await expect(bobDot).toHaveCount(0, { timeout: 20_000 })
 })
 
 async function waitForItem(page: Page, listPath: string, marker: string): Promise<string> {

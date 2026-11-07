@@ -210,7 +210,8 @@ describe('ConversationPage', () => {
 
   it('expands the work-item section and toasts the delegation path after confirming the intent (R02)', async () => {
     const { wrapper, taskIntentStore, linkGateway } = await harness()
-    // 确认产物：服务端为该会话建好 WorkItem 关联，关联区因此进入渲染面。
+    // 确认产物：服务端为该会话建好 WorkItem 关联——入口按钮（「活跃」那行的关联计数）
+    // 随之出现，关联卡住进 header 浮层（dsh 对齐后撤出问答流）。
     linkGateway.associations.push(fixtureConversationWorkItemAssociation)
     const toast = useToast()
     toast.toasts.value.forEach(item => toast.dismiss(item.id))
@@ -218,6 +219,8 @@ describe('ConversationPage', () => {
       { organizationId: bootstrapPrincipal.organizationId, teamId: fixtureIds.teamPlatform, conversationId: conversationIds.provider },
       taskIntentIds.release,
     )
+    await nextTick()
+    await wrapper.findAll('button').find(button => (button.attributes('aria-label') ?? '').startsWith('查看关联'))!.trigger('click')
     await nextTick()
 
     await wrapper.findAll('button').find(button => button.text() === '展开提案')!.trigger('click')
@@ -237,8 +240,10 @@ describe('ConversationPage', () => {
 
   it('links every associated task to its injection evidence anchor (R22)', async () => {
     const { wrapper, taskStore, router } = await harness()
-    // 会话关联的任务到达后，右栏出现知识注入入口卡——不拉新数据，直接链到任务详情锚点。
+    // 会话关联的任务到达后，header 关联浮层里出现知识注入入口卡——不拉新数据，直接链到任务详情锚点。
     await taskStore.loadByConversation(conversationIds.provider, false, true)
+    await nextTick()
+    await wrapper.findAll('button').find(button => (button.attributes('aria-label') ?? '').startsWith('查看关联'))!.trigger('click')
     await nextTick()
 
     const section = wrapper.findAll('details.conversation-structure')

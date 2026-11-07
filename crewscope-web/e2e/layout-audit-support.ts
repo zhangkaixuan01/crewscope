@@ -44,7 +44,7 @@ export const ids = {
 }
 
 function conversation(id: string, title: string) {
-  return { id, organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace, ownerMemberId: ids.member, ownerPrincipalId: ids.principal, personalAgentPrincipalId: ids.personalAgent, title, visibility: 'PRIVATE', status: 'ACTIVE', lastMessageSequence: 4, unreadCount: 0, version: 0, createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-08T03:00:00Z' }
+  return { id, organizationId: ids.organization, teamId: ids.team, workspaceId: ids.workspace, ownerMemberId: ids.member, ownerPrincipalId: ids.principal, personalAgentPrincipalId: ids.personalAgent, title, visibility: 'PRIVATE', status: 'ACTIVE', lastMessageSequence: 7, unreadCount: 0, version: 0, createdAt: '2026-08-08T01:00:00Z', updatedAt: '2026-08-08T03:00:00Z' }
 }
 
 function participant(principalId: string, role: string) {
@@ -86,10 +86,13 @@ function fulfillSse(route: Route, events: unknown[]) {
 
 const conversations = [conversation(ids.conversation, '规划 GitHub Provider 接入')]
 const messages = [
-  conversationMessage('00000000-0000-0000-0000-000000001301', 1, 'USER_MESSAGE', ids.principal, '**目标**：规划 GitHub Provider 接入。', '2026-08-26T01:10:00Z'),
-  conversationMessage('00000000-0000-0000-0000-000000001302', 2, 'AGENT_MESSAGE', ids.personalAgent, '已收到。我会先梳理 `Connection`、权限和审计边界。', '2026-08-26T23:05:00Z'),
-  conversationMessage('00000000-0000-0000-0000-000000001303', 3, 'SYSTEM_NOTICE', null, 'Conversation 已切换为真实消息模式。', '2026-08-27T07:40:00Z'),
-  conversationMessage('00000000-0000-0000-0000-000000001304', 4, 'USER_MESSAGE', ids.principal, '请保留团队协作与最小权限原则。', '2026-08-27T08:10:00Z'),
+  conversationMessage('00000000-0000-0000-0000-000000001301', 1, 'USER_MESSAGE', ids.principal, '**目标**：接入 GitHub Provider，让 Coding Agent 的产出直接以 Draft PR 交付到团队仓库。', '2026-08-26T01:10:00Z'),
+  conversationMessage('00000000-0000-0000-0000-000000001302', 2, 'AGENT_MESSAGE', ids.personalAgent, '收到。我会先梳理两个边界：连接凭据走团队级 Connection 还是个人连接？交付动作是否必须经过 Human Gate？', '2026-08-26T01:12:00Z'),
+  conversationMessage('00000000-0000-0000-0000-000000001303', 3, 'USER_MESSAGE', ids.principal, '团队级连接：推送前必须过 Human Gate，确认后直接开始。', '2026-08-26T01:15:00Z'),
+  conversationMessage('00000000-0000-0000-0000-000000001304', 4, 'AGENT_MESSAGE', ids.personalAgent, '已明确。TaskIntent 已生成：创建工作项「接入 GitHub Provider」，你任 Owner，Coding Agent 任 Executor。', '2026-08-26T01:16:00Z'),
+  conversationMessage('00000000-0000-0000-0000-000000001305', 5, 'AGENT_MESSAGE', ids.personalAgent, 'Coding 已在沙箱完成实现：Provider 注册、凭据注入、Draft PR 交付三处改动，等待 Review。', '2026-08-26T01:24:00Z'),
+  conversationMessage('00000000-0000-0000-0000-000000001306', 6, 'USER_MESSAGE', ids.principal, 'Review 通过，允许推送。', '2026-08-26T01:26:00Z'),
+  conversationMessage('00000000-0000-0000-0000-000000001307', 7, 'AGENT_MESSAGE', ids.personalAgent, 'Human Gate 已确认，Draft PR 已推送到 `feature/github-provider`。审计记录可在工作台查看。', '2026-08-26T01:27:00Z'),
 ]
 const inboxItems = [
   inbox(ids.ownership, 'OWNERSHIP', 'URGENT', 'RESPONSIBILITY_ASSIGNMENT', 3, '2026-08-27T09:00:00Z'),

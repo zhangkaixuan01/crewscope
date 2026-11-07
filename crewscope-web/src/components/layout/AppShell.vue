@@ -50,7 +50,8 @@ import { requestCommandPalette } from '../../app/shortcuts'
 import BaseDrawer from '../base/BaseDrawer.vue'
 
 defineProps<{
-  title: string
+  /** 省略时不渲染 h1（对话页这类标题自明的沉浸页面）。 */
+  title?: string
   eyebrow: string
   /**
    * App-height mode for chat-style pages (L03): the body stops growing with content and hands the
@@ -372,7 +373,7 @@ async function signOut(): Promise<void> {
         <div>
           <AppBreadcrumb />
           <p>{{ eyebrow }}</p>
-          <h1>{{ title }}</h1>
+          <h1 v-if="title">{{ title }}</h1>
         </div>
         <div class="context-header__actions"><slot name="actions" /></div>
       </header>
@@ -403,7 +404,7 @@ async function signOut(): Promise<void> {
  * 只写一次：收起态与 1100px 断点各自改写这个属性，主体区的 margin-left 自动跟随，
  * 不会再出现「改了栏宽忘了改偏移」的错位。
  */
-.app-shell { --cs-rail-width: 264px; min-height: 100vh; background: var(--cs-canvas); }
+.app-shell { --cs-rail-width: 232px; min-height: 100vh; background: var(--cs-canvas); }
 .skip-link { position: fixed; top: 8px; left: 8px; z-index: var(--cs-z-toast); padding: var(--cs-space-8) var(--cs-space-12); border-radius: var(--cs-radius-sm); background: var(--cs-action-primary); color: var(--cs-action-primary-text); font-size: var(--cs-text-sm); transform: translateY(-160%); }.skip-link:focus { transform: translateY(0); }
 .network-banner { position: relative; z-index: var(--cs-z-banner); display: flex; min-height: 36px; align-items: center; justify-content: center; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-16); background: var(--cs-danger-soft); color: var(--cs-danger); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); text-align: center; }.network-banner span { color: var(--cs-danger); }
 .app-shell__rail { position: fixed; inset: 0 auto 0 0; z-index: var(--cs-z-raised); display: flex; width: var(--cs-rail-width); height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; padding: var(--cs-space-20) var(--cs-space-16) var(--cs-space-16); border-right: 1px solid var(--cs-border); background: var(--cs-surface); color: var(--cs-text); }
@@ -482,7 +483,10 @@ async function signOut(): Promise<void> {
 /* Fill mode: the chrome (banner, topbar, context header) keeps its natural height and the workspace
  * receives the real remaining viewport height; the page then flexes inside it (L03, contract §4.4). */
 .app-shell__body--fill { display: flex; height: 100vh; height: 100dvh; min-height: 0; flex-direction: column; overflow: hidden; }
-.app-shell__workspace--fill { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
+/* Chat-style fill pages go near full-bleed: a 2px inset keeps a thin seam between the chat
+ * panels and the topbar/rail (the panels are square-cornered and separated by hairlines).
+ * Scoped to --fill, so no other page's rhythm moves. */
+.app-shell__workspace--fill { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; padding: var(--cs-space-2); }
 .mobile-mode { display: none; }
 .mobile-menu-toggle { display: none; }
 @media (max-width: 1100px) {

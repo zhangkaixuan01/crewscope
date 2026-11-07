@@ -3,9 +3,11 @@ import { useCreationEntry } from '../composables/useCreationEntry'
 import { useToast } from '../composables/useToast'
 import CopyButton from '../components/base/CopyButton.vue'
 import {
+  ArrowDown,
   ArrowLeft,
   ArrowRight,
   Bot,
+  Link2,
   LockKeyhole,
   Maximize2,
   MessageSquarePlus,
@@ -13,6 +15,7 @@ import {
   PanelLeftOpen,
   Plus,
   UsersRound,
+  X,
 } from '@lucide/vue'
 import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -24,7 +27,6 @@ import { STARTER_SUGGESTION } from '../domains/conversation/starterSuggestion'
 import { clearConversationMessageDraft, readConversationMessageDraft, writeConversationMessageDraft } from '../domains/conversation/messageDraft'
 import { useNetworkStatus } from '../app/network'
 import BaseButton from '../components/base/BaseButton.vue'
-import StatusBadge from '../components/base/StatusBadge.vue'
 import ConversationAgentActionRegion from '../components/domain/ConversationAgentActionRegion.vue'
 import ConversationComposer from '../components/domain/ConversationComposer.vue'
 import ConversationCreateDialog from '../components/domain/ConversationCreateDialog.vue'
@@ -34,13 +36,11 @@ import ConversationWorkItemLinks from '../components/domain/ConversationWorkItem
 import ConversationTaskCards from '../components/domain/ConversationTaskCards.vue'
 import TeamObserverWorkspace from '../components/domain/TeamObserverWorkspace.vue'
 import ConversationParticipantsPanel from '../components/domain/ConversationParticipantsPanel.vue'
-import PresenceAvatarGroup from '../components/domain/PresenceAvatarGroup.vue'
-import TypingIndicator from '../components/domain/TypingIndicator.vue'
 import RelativeTime from '../components/base/RelativeTime.vue'
 import { useCollaborationPresence } from '../composables/useCollaborationPresence'
 import { useConversationParticipants } from '../composables/useConversationParticipants'
 import { useConversationReadingPosition } from '../composables/useConversationReadingPosition'
-import { useResizablePane } from '../composables/useResizablePane'
+import { usePreference } from '../app/preference'
 import { useVirtualList } from '../composables/useVirtualList'
 import StatePanel from '../components/feedback/StatePanel.vue'
 import AppShell from '../components/layout/AppShell.vue'
@@ -59,9 +59,7 @@ import type {
   TaskIntentRevisionInput,
 } from '../domains/conversation/types'
 import { useScopeStore } from '../domains/scope/store'
-import { useCollaborationStore } from '../domains/collaboration/store'
 import { type CollaborationScope } from '../domains/collaboration/types'
-import { presenceLabels } from '../domains/collaboration/labels'
 import { useTaskStore } from '../domains/task/store'
 import type { TaskAssociationSummary } from '../domains/task/types'
 import type { TeamObserverScope } from '../domains/teamobserver/types'
@@ -81,7 +79,6 @@ const taskIntentStore = useTaskIntentStore()
 const linkStore = useConversationWorkItemLinkStore()
 const taskStore = useTaskStore()
 const isOnline = useNetworkStatus()
-const collaborationStore = useCollaborationStore()
 const createOpen = ref(false)
 useCreationEntry('conversation', () => scopeStore.state.phase === 'ready'
   ? scopeStore.state.selectedTeamId : null, openCreate)
@@ -96,13 +93,17 @@ const drafts = reactive(new Map<string, string>())
 const unsubscribeEpoch = subscribeF05Epoch(epoch => { if (epoch === null) drafts.clear() })
 onUnmounted(unsubscribeEpoch)
 /*
- * M14 B1（贴合双栏重设计）：侧栏偏好 v2→v3——ratio 语义从容器百分比改为像素宽度
- * （useResizablePane M14 契约，默认 280px、240–420 可调），旧 v2 百分比值随版本升级作废
- * （usePreference 版本不匹配即回退 fallback）。右栏参与者已退出布局网格改为浮层，无宽度偏好。
+ * 手动拖宽已删（用户裁定）：列表宽度固定 280px，只有折叠态走偏好存储——沿用 v3 键的
+ * collapsed 字段读侧迁移（旧记录结构不符即回退展开），拖出来的宽度偏好随之作废。
  */
-const leftPane = useResizablePane('cs.pref.conversation.left-pane.v3', 280, { min: 240, max: 420, side: 'left' })
-const leftPaneRatio = leftPane.ratio
-const leftPaneCollapsed = leftPane.collapsed
+const listCollapsed = usePreference('cs.pref.conversation.list-collapsed.v1', false, {
+  version: 1,
+  validate: (value): value is boolean => typeof value === 'boolean',
+})
+const leftPaneCollapsed = computed(() => listCollapsed.value.value)
+function toggleList(): void {
+  listCollapsed.value.value = !listCollapsed.value.value
+}
 /*
  * 专注模式（R51）：⌘⇧F / Ctrl⇧F 进入或退出，Esc 只负责退出——Esc 在对话框与抽屉内
  * 仍归它们自己（先判 closest），专注模式与参与者浮层不抢那类关闭。aria-pressed 的切换钮在消息区头部。
@@ -114,11 +115,12 @@ function handleFocusModeKeys(event: KeyboardEvent): void {
     focusMode.value = !focusMode.value
     return
   }
-  if (event.key === 'Escape' && (focusMode.value || participantsOpen.value)) {
+  if (event.key === 'Escape' && (focusMode.value || participantsOpen.value || associationsOpen.value)) {
     const target = event.target
     if (target instanceof Element && target.closest('dialog, [role="dialog"], [role="drawer"]')) return
     event.preventDefault()
     if (participantsOpen.value) participantsOpen.value = false
+    else if (associationsOpen.value) associationsOpen.value = false
     else focusMode.value = false
   }
 }
@@ -159,17 +161,24 @@ const activeParticipants = computed(
  * Esc 关闭并入 focusMode 的 document keydown 族；点外关闭走 document pointerdown。
  */
 const participantsOpen = ref(false)
-watch(selected, () => { participantsOpen.value = false })
+// 关联浮层（dsh 对齐后关联卡撤出问答流）：入口在「活跃」那一行，开/关与参与者浮层同款
+// ——点外关闭、Esc 关闭、切会话即收。
+const associationsOpen = ref(false)
+const associationCount = computed(() => linkStore.state.associations.length + taskAssociations.value.length)
+watch(selected, () => { participantsOpen.value = false; associationsOpen.value = false })
 function handleParticipantsDismiss(event: PointerEvent): void {
-  if (!participantsOpen.value) return
+  if (!participantsOpen.value && !associationsOpen.value) return
   const target = event.target
-  if (target instanceof Element && target.closest('.participant-panel, .participants-trigger')) return
+  if (target instanceof Element && target.closest('.participant-panel, .participants-trigger, .association-panel, .associations-trigger')) return
   participantsOpen.value = false
+  associationsOpen.value = false
 }
 onMounted(() => document.addEventListener('pointerdown', handleParticipantsDismiss))
 onUnmounted(() => document.removeEventListener('pointerdown', handleParticipantsDismiss))
-// M11-F01: presence and typing ride the collaboration signal channel for the selected
-// conversation. Acquire follows the selection; the last release drops the subscription.
+// M11-F01: presence rides the collaboration signal channel for the selected conversation
+// and feeds the participants panel's online dots (the composer-adjacent presence strip and
+// the typing broadcast were removed with the dsh chat restyle — the panel is the one live
+// surface left). Acquire follows the selection; the last release drops the subscription.
 const conversationCollabScope = computed<CollaborationScope | null>(() => {
   const conversation = selected.value
   const teamId = scopeStore.state.selectedTeamId
@@ -181,7 +190,7 @@ const conversationCollabScope = computed<CollaborationScope | null>(() => {
     resourceId: conversation.id,
   }
 })
-const { presence: conversationPresence, typers: conversationTypers, degraded: conversationDegraded } = useCollaborationPresence(conversationCollabScope)
+const { presence: conversationPresence } = useCollaborationPresence(conversationCollabScope)
 // REST participant ids are bare UUIDs while the signal channel prefixes `account:`.
 const presentParticipantIds = computed(
   () => new Set(conversationPresence.value.map(entry => entry.principalId.replace(/^account:/, ''))))
@@ -191,6 +200,7 @@ const principalScope = computed<PrincipalScope | null>(() => principal && scopeS
   ? { organizationId: principal.organizationId, teamId: scopeStore.state.selectedTeamId }
   : null)
 const focus = computed(() => queryValue(route.query.focus))
+// 视觉上不再渲染页面大标题（用户裁定），但读屏与 e2e 的就绪锚点仍需要一个 h1——sr-only 承担。
 const pageTitle = computed(() => {
   if (observerMode.value) return 'Team Observer'
   if (selected.value) return selected.value.title
@@ -199,9 +209,9 @@ const pageTitle = computed(() => {
 const workspaceClass = computed(() => ({
   'has-selection': Boolean(conversationStore.state.selectedConversationId),
   'conversation-workspace--focus': focusMode.value,
-}))
-const workspaceStyle = computed(() => ({
-  '--conversation-left-pane': leftPane.collapsed.value ? '48px' : `${Math.round(leftPane.ratio.value)}px`,
+  // 折叠态走类切换改写 grid 列——此前用 --conversation-left-pane 变量压 48px，被
+  // minmax(240px, …) 的下限钳平，折叠从未真正收窄（e2e 只断言类名，几何是假绿）。
+  'list-collapsed': leftPaneCollapsed.value,
 }))
 const currentDraft = computed({
   get: () => {
@@ -231,14 +241,6 @@ const canPostMessages = computed(() => Boolean(
   && activeParticipants.value.some(participant => participant.principalId === principal.id && participant.role !== 'AGENT'),
 ))
 const canInvokeAgent = computed(() => Boolean(canPostMessages.value && selected.value?.ownerPrincipalId === principal?.id))
-// The composer stays untouched: typing rides the draft value itself, so the anchor
-// window lives in the store and a restore-into-draft cannot double-fire.
-watch(currentDraft, (next, previous) => {
-  const scope = conversationCollabScope.value
-  if (!scope) return
-  if (next.trim() && next !== previous) collaborationStore.signalTyping(scope, true)
-  else if (!next.trim()) collaborationStore.signalTyping(scope, false)
-})
 const agentBusy = computed(() => ['connecting', 'running', 'reconnecting', 'cancelling'].includes(realtimeStore.state.invocationPhase))
 const agentNeedsRecovery = computed(() => realtimeStore.state.invocationPhase === 'error' && realtimeStore.state.retryable)
 const agentAwaitingClarification = computed(() => realtimeStore.state.invocationPhase === 'interrupted')
@@ -344,10 +346,10 @@ function setMessageListElement(element: unknown): void {
   virtualList.listElement.value = element instanceof HTMLElement ? element : null
 }
 
-/** M13b-F04（R22 跟随修复）：结构区（提案/关联/注入卡）异步挂载或用户展开只改
- * scrollHeight——容器盒不变（containerObserver 不触发）、行高不动（rowObserver 不涉及）、
- * 也没有 scroll 事件。跟随者合同「贴住最新」在此补偿：结构区高度变化即重贴底；非跟随
- * 不碰（阅读锚点补偿归 useVirtualList 的 anchor 路径管）。 */
+/** M13b-F04（R22 跟随修复）：结构区（提案卡，关联卡已迁往 header 浮层）异步挂载或用户
+ * 展开只改 scrollHeight——容器盒不变（containerObserver 不触发）、行高不动（rowObserver
+ * 不涉及）、也没有 scroll 事件。跟随者合同「贴住最新」在此补偿：结构区高度变化即重贴底；
+ * 非跟随不碰（阅读锚点补偿归 useVirtualList 的 anchor 路径管）。 */
 const structureBlock = ref<HTMLElement | null>(null)
 const structureObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
   if (isFollowing.value && messageHistory.value) messageHistory.value.scrollTop = messageHistory.value.scrollHeight
@@ -726,7 +728,7 @@ async function confirmTaskIntent(): Promise<void> {
     workItemSectionOpen.value = true
     toast.show('已确认任务提案并创建 WorkItem，可在「关联 WorkItem」中配置 Coding Task', {
       tone: 'success',
-      action: { label: '查看关联', onClick: () => { workItemSectionOpen.value = true } },
+      action: { label: '查看关联', onClick: () => { associationsOpen.value = true; workItemSectionOpen.value = true } },
     })
   }
   await redirectIfForbidden()
@@ -858,10 +860,6 @@ function currentMessageScope(): ConversationMessageScope | null {
   return scope && conversationId ? { ...scope, conversationId } : null
 }
 
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(new Date(value))
-}
-
 function isForbidden(): boolean {
   return conversationStore.state.errorStatus === 403
     || conversationStore.state.detailErrorStatus === 403
@@ -880,7 +878,8 @@ async function redirectIfForbidden(): Promise<void> {
 </script>
 
 <template>
-  <AppShell :eyebrow="`对话 · ${teamName}`" :title="pageTitle" fill>
+  <AppShell :eyebrow="`对话 · ${teamName}`" fill>
+    <h1 class="sr-only">{{ pageTitle }}</h1>
     <template #actions>
       <RouterLink v-if="observerMode" v-slot="{ navigate }" custom :to="{ name: 'conversation', query: { ...route.query, assistant: undefined } }">
         <BaseButton variant="secondary" size="small" @click="navigate"><Bot :size="14" />Personal Agent 对话</BaseButton>
@@ -900,26 +899,26 @@ async function redirectIfForbidden(): Promise<void> {
     </template>
 
     <TeamObserverWorkspace v-if="observerMode && observerScope" :scope="observerScope" :team-name="teamName" :online="isOnline" variant="conversation" />
-    <div v-else class="conversation-workspace" :class="workspaceClass" :style="workspaceStyle">
+    <div v-else class="conversation-workspace" :class="workspaceClass">
       <section class="panel conversation-list-panel" :class="{ collapsed: leftPaneCollapsed }" aria-label="对话列表">
         <header class="conversation-list-header">
-          <div>
-
-            <h2>{{ teamName }}</h2>
-          </div>
+          <h2>{{ teamName }}</h2>
           <div class="conversation-list-header__actions">
-            <button type="button" aria-label="新建对话" @click="openCreate"><MessageSquarePlus :size="16" aria-hidden="true" /></button>
             <button
               class="pane-collapse touch-target"
               type="button"
               :aria-label="leftPaneCollapsed ? '展开对话列表' : '折叠对话列表'"
-              @click="leftPane.toggle"
+              @click="toggleList"
             >
               <PanelLeftOpen v-if="leftPaneCollapsed" :size="16" aria-hidden="true" />
               <PanelLeftClose v-else :size="16" aria-hidden="true" />
             </button>
           </div>
         </header>
+        <button type="button" class="conversation-new" @click="openCreate">
+          <MessageSquarePlus :size="16" aria-hidden="true" />
+          <span class="conversation-new__label">新建对话</span>
+        </button>
 
         <StatePanel
           v-if="scopeStore.state.phase === 'loading' || conversationStore.state.phase === 'loading'"
@@ -996,18 +995,6 @@ async function redirectIfForbidden(): Promise<void> {
         </ul>
       </section>
 
-      <button
-        class="pane-resizer pane-resizer--left"
-        type="button"
-        role="separator"
-        aria-label="调整对话列表宽度，方向键调整，回车折叠，Home 恢复默认"
-        :aria-valuenow="leftPaneRatio"
-        aria-valuemin="240"
-        aria-valuemax="420"
-        @pointerdown="leftPane.startResize"
-        @keydown="leftPane.handleKeydown"
-      />
-
       <section class="panel conversation-detail" aria-label="对话详情">
         <button v-if="conversationStore.state.selectedConversationId" class="mobile-back" type="button" @click="clearConversation">
           <ArrowLeft :size="16" aria-hidden="true" />返回对话列表
@@ -1025,18 +1012,20 @@ async function redirectIfForbidden(): Promise<void> {
           @retry="retryDetails"
         />
         <template v-else-if="selected">
-          <header class="conversation-detail__header">
-            <div>
-              <span class="conversation-kind">
-                <UsersRound v-if="selected.visibility === 'TEAM'" :size="14" />
-                <LockKeyhole v-else :size="14" />
-                {{ selected.visibility === 'TEAM' ? 'TEAM Conversation' : 'PRIVATE Conversation' }}
-              </span>
-              <h2 ref="detailHeading" tabindex="-1">{{ selected.title }}</h2>
-              <p>创建于 {{ formatDate(selected.createdAt) }} · 当前事实版本 v{{ selected.version }}</p>
-            </div>
+          <header ref="detailHeading" tabindex="-1" class="conversation-detail__header">
             <div class="detail-header-actions">
-              <StatusBadge tone="success">活跃</StatusBadge>
+              <!-- 关联档案入口（dsh 对齐后从问答流里撤出）：有关联才出现，计数即状态；
+                   点击打开右缘浮层，与参与者浮层同一模式。 -->
+              <button
+                v-if="associationCount > 0"
+                class="associations-trigger touch-target"
+                type="button"
+                :aria-label="`查看关联，${associationCount} 项`"
+                :aria-expanded="associationsOpen"
+                @click="associationsOpen = !associationsOpen"
+              >
+                <Link2 :size="12" aria-hidden="true" />关联 {{ associationCount }}
+              </button>
               <!-- M14 B1：参与者入口=头像栈（前 3 个主体 + 溢出计数），点击打开右缘浮层。 -->
               <button
                 class="participants-trigger touch-target"
@@ -1060,6 +1049,56 @@ async function redirectIfForbidden(): Promise<void> {
               ><Maximize2 :size="14" aria-hidden="true" /></button>
             </div>
           </header>
+          <!-- 关联浮层：三块（WorkItem/任务/知识注入）沿用 details 摘要语义，M9b-Q01 的
+               默认收起与 e2e 的 summary 定位都不变；只是住址从问答流搬到了这里。 -->
+          <aside v-if="associationsOpen" class="association-panel" aria-label="对话关联">
+            <header>
+              <h2>关联</h2>
+              <span>{{ associationCount }} 项档案</span>
+              <button class="panel-close touch-target" type="button" aria-label="关闭关联面板" @click="associationsOpen = false">
+                <X :size="16" aria-hidden="true" />
+              </button>
+            </header>
+            <div class="association-panel__body">
+              <details v-if="linkStore.state.associations.length || linkStore.state.phase !== 'idle'" class="conversation-structure" :open="workItemSectionOpen" @toggle="workItemSectionOpen = ($event.target as HTMLDetailsElement).open">
+                <summary>关联 WorkItem <span>{{ linkStore.state.associations.length }} 项</span></summary>
+                <ConversationWorkItemLinks
+                  :phase="linkStore.state.phase"
+                  :associations="linkStore.state.associations"
+                  :error-message="linkStore.state.errorMessage"
+                  :can-delegate="canConfigureConfirmedCoding"
+                  direction="conversation"
+                  @open="openLinkedWorkItem"
+                  @delegate="openCodingDelegation"
+                  @retry="retryLinks"
+                />
+              </details>
+              <details v-if="taskAssociations.length || (taskAssociationResource?.phase ?? 'idle') !== 'idle'" class="conversation-structure">
+                <summary>关联任务 <span>{{ taskAssociations.length }} 项</span></summary>
+                <ConversationTaskCards
+                  :phase="taskAssociationResource?.phase ?? 'idle'"
+                  :associations="taskAssociations"
+                  :live-tasks="taskStore.state.liveTasks"
+                  :error-message="taskAssociationResource?.errorMessage ?? null"
+                  :current-principal-id="principal?.id ?? ''"
+                  :principal-names="principalNames"
+                  @open-task="openAssociatedTask"
+                  @open-work-item="openTaskWorkItem"
+                  @retry="retryTasks"
+                />
+              </details>
+              <!-- M13b-F04（R22）：注入证据入口卡——不拉新数据，直接链到各关联任务详情的锚点。 -->
+              <details v-if="taskAssociations.length" class="conversation-structure">
+                <summary>知识注入 <span>{{ taskAssociations.length }} 项任务</span></summary>
+                <p class="conversation-injection-note">每次执行送入模型的知识、技能与记忆证据，封存在对应任务详情的「注入与引用」区。</p>
+                <ul class="conversation-injection-list">
+                  <li v-for="association in taskAssociations" :key="association.task.id">
+                    <button type="button" @click="openTaskInjectionEvidence(association)">{{ association.task.objective }}</button>
+                  </li>
+                </ul>
+              </details>
+            </div>
+          </aside>
           <div
             class="message-stage"
             :aria-busy="messageStore.state.phase === 'loading' || agentBusy"
@@ -1123,46 +1162,9 @@ async function redirectIfForbidden(): Promise<void> {
                   @expand="taskIntentExpanded = true"
                 />
               </details>
-              <!-- M9b-Q01（主计划 4.5「关联卡默认摘要，参与者按需展开」）：默认收起，摘要行的
-                   计数就是状态；待确认的任务提案卡在上方保持例外突出。F03（R02）：确认提案后
-                   程序化展开一次，用户手动收起不被覆盖（toggle 回写）。 -->
-              <details v-if="linkStore.state.associations.length || linkStore.state.phase !== 'idle'" class="conversation-structure" :open="workItemSectionOpen" @toggle="workItemSectionOpen = ($event.target as HTMLDetailsElement).open">
-                <summary>关联 WorkItem <span>{{ linkStore.state.associations.length }} 项</span></summary>
-                <ConversationWorkItemLinks
-                  :phase="linkStore.state.phase"
-                  :associations="linkStore.state.associations"
-                  :error-message="linkStore.state.errorMessage"
-                  :can-delegate="canConfigureConfirmedCoding"
-                  direction="conversation"
-                  @open="openLinkedWorkItem"
-                  @delegate="openCodingDelegation"
-                  @retry="retryLinks"
-                />
-              </details>
-              <details v-if="taskAssociations.length || (taskAssociationResource?.phase ?? 'idle') !== 'idle'" class="conversation-structure">
-                <summary>关联任务 <span>{{ taskAssociations.length }} 项</span></summary>
-                <ConversationTaskCards
-                  :phase="taskAssociationResource?.phase ?? 'idle'"
-                  :associations="taskAssociations"
-                  :live-tasks="taskStore.state.liveTasks"
-                  :error-message="taskAssociationResource?.errorMessage ?? null"
-                  :current-principal-id="principal?.id ?? ''"
-                  :principal-names="principalNames"
-                  @open-task="openAssociatedTask"
-                  @open-work-item="openTaskWorkItem"
-                  @retry="retryTasks"
-                />
-              </details>
-              <!-- M13b-F04（R22）：注入证据入口卡——不拉新数据，直接链到各关联任务详情的锚点。 -->
-              <details v-if="taskAssociations.length" class="conversation-structure">
-                <summary>知识注入 <span>{{ taskAssociations.length }} 项任务</span></summary>
-                <p class="conversation-injection-note">每次执行送入模型的知识、技能与记忆证据，封存在对应任务详情的「注入与引用」区。</p>
-                <ul class="conversation-injection-list">
-                  <li v-for="association in taskAssociations" :key="association.task.id">
-                    <button type="button" @click="openTaskInjectionEvidence(association)">{{ association.task.objective }}</button>
-                  </li>
-                </ul>
-              </details>
+              <!-- M9b-Q01 起关联卡（关联 WorkItem / 关联任务 / 知识注入）住在 detail 的静态行
+                   （header 与消息区之间），不再占问答流的滚动位——对话级上下文不是聊天内容。
+                   待确认的任务提案卡留在消息流内：它是对话中的待办，不是关联档案。 -->
               </div>
               <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{ messageAnnouncement }}</p>
               <div
@@ -1255,19 +1257,18 @@ async function redirectIfForbidden(): Promise<void> {
                  in-flow (even sticky) pill pushes the whole list down the moment the follow state
                  flips, and that layout shift is invisible to the anchor compensation. -->
             <div v-if="!isFollowing || unreadCount" class="latest-jump" role="status">
-              <span v-if="unreadCount">{{ unreadCount }} 条新消息</span>
-              <button type="button" @click="jumpToLatest()">跳到最新</button>
+              <!-- 装饰圆钮承载操作；读屏文案留在容器（e2e 对齐容器文本）。 -->
+              <span v-if="unreadCount" class="sr-only">{{ unreadCount }} 条新消息</span>
+              <button
+                type="button"
+                class="latest-jump__button"
+                :aria-label="unreadCount ? `跳到最新，${unreadCount} 条新消息` : '跳到最新'"
+                @click="jumpToLatest()"
+              >
+                <ArrowDown :size="16" aria-hidden="true" />
+                <span v-if="unreadCount" class="latest-jump__badge" aria-hidden="true">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
+              </button>
             </div>
-          </div>
-          <div v-if="conversationDegraded" class="collaboration-strip collaboration-strip--degraded">
-            {{ presenceLabels.unavailable }}
-          </div>
-          <div
-            v-else-if="conversationPresence.length > 0 || conversationTypers.length > 0"
-            class="collaboration-strip"
-          >
-            <PresenceAvatarGroup :entries="conversationPresence" />
-            <TypingIndicator :typers="conversationTypers" />
           </div>
           <ConversationComposer
             ref="composer"
@@ -1327,16 +1328,22 @@ async function redirectIfForbidden(): Promise<void> {
    面板去卡片化（覆盖全局 .panel 的边框圆角），台账语言替代分离卡片语言。
    列宽 = 偏好值，但以容器 32% 封顶、240px 托底——护住窄视口的消息列可读宽
    （1024 视口 detail ≥500 是 m9b-f03 F04 的几何合同）。 */
-.conversation-workspace { display: grid; flex: 1 1 auto; min-height: min(640px, 100%); grid-template-columns: minmax(240px, min(var(--conversation-left-pane, 280px), 32%)) 8px minmax(0, 1fr); gap: 0; }
+.conversation-workspace { display: grid; flex: 1 1 auto; min-height: min(640px, 100%); grid-template-columns: minmax(220px, min(248px, 26%)) minmax(0, 1fr); gap: 0; }
+/* 折叠轨 48px 图标窄轨。:not(--focus) 低于专注模式规则的有效性——专注下列表整个退场，48px 空轨不应出现。 */
+.conversation-workspace.list-collapsed:not(.conversation-workspace--focus) { grid-template-columns: 48px minmax(0, 1fr); }
 .conversation-list-panel, .conversation-detail, .participant-panel { min-height: 0; overflow: hidden; }
 .conversation-list-panel { display: flex; flex-direction: column; border: 0; border-right: 1px solid var(--cs-border); border-radius: 0; }
 .conversation-detail { position: relative; border: 0; border-radius: 0; }
-.conversation-list-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-20); }
-.conversation-list-header h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-md); }.conversation-list-header span { color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+/* 会话列头（dsh 侧栏对齐）：团队名退成轻上标，行内只剩折叠钮（样式归 .pane-collapse）。 */
+.conversation-list-header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var(--cs-space-8); min-height: 36px; padding: var(--cs-space-8) var(--cs-space-12) var(--cs-space-4); }
+.conversation-list-header h2 { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
 .conversation-list-header__actions { display: flex; align-items: center; gap: var(--cs-space-8); }
-.conversation-list-header button { display: grid; width: var(--cs-density-control-height); height: var(--cs-density-control-height); place-items: center; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-accent); color: var(--cs-text-brand); cursor: pointer; }
-.conversation-list { display: grid; overflow-y: auto; align-content: start; padding: var(--cs-space-8); margin: 0; list-style: none; }
-.conversation-item { display: grid; width: 100%; min-height: 36px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid transparent; border-radius: var(--cs-radius-md); background: transparent; color: var(--cs-text); text-align: left; cursor: pointer; }
+/* 新建主钮（dsh newSession 对齐）：38px 卡片描边钮。 */
+.conversation-new { display: flex; flex: 0 0 auto; align-items: center; gap: var(--cs-space-8); height: 38px; margin: 0 var(--cs-space-8) var(--cs-space-4); padding: 0 var(--cs-space-12); border: 1px solid var(--cs-border-strong); border-radius: var(--cs-radius-md); background: var(--cs-surface-raised); color: var(--cs-text); font-size: var(--cs-text-sm); font-weight: var(--cs-weight-semibold); cursor: pointer; }
+.conversation-new:hover { background: var(--cs-surface-selected); }
+.conversation-new:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: 2px; }
+.conversation-list { display: grid; overflow-y: auto; align-content: start; padding: var(--cs-space-4) var(--cs-space-8); margin: 0; list-style: none; }
+.conversation-item { display: grid; width: 100%; height: 32px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--cs-space-8); padding: 0 var(--cs-space-8); border: 0; border-radius: var(--cs-radius-md); background: transparent; color: var(--cs-text); text-align: left; cursor: pointer; }
 .conversation-item:hover { background: var(--cs-surface-subtle); }.conversation-item.active { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); }
 .conversation-list__title-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--cs-text-sm); }
 /* M13b-F06（R12）：未读徽标与标题同行，标题保留收缩省略；徽标不收缩。 */
@@ -1346,9 +1353,15 @@ async function redirectIfForbidden(): Promise<void> {
 .conversation-list time { color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.conversation-item > svg { color: var(--cs-text-muted); }.load-more-item { margin-top: var(--cs-space-8); }
 /* M13f：时间列是 auto 轨道，长相对文案会挤爆 1fr 标题列（213px 栏内标题只剩 45px）；封顶 76px 语义不变。 */
 .conversation-item time { max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-detail { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }.conversation-detail__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--cs-space-16); padding: var(--cs-space-20) var(--cs-space-24) var(--cs-space-16); }.conversation-detail__header h2 { margin: var(--cs-space-8) 0 var(--cs-space-4); border-radius: 4px; font-size: var(--cs-text-lg); }.conversation-detail__header h2:focus-visible { outline: 3px solid var(--cs-ring-brand); outline-offset: 3px; }.conversation-detail__header p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
-.conversation-kind { display: inline-flex; align-items: center; gap: var(--cs-space-8); color: var(--cs-text-brand); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
-.message-stage { position: relative; min-height: 0; overflow: hidden; background: linear-gradient(180deg, var(--cs-surface-subtle) 0%, var(--cs-surface-accent) 100%); }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; overflow-anchor: none; padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-24); }.older-messages { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-12); min-height: 32px; margin-bottom: var(--cs-space-8); }.older-messages > span { color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-list { display: grid; gap: var(--cs-space-16); max-width: 900px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: var(--cs-space-8); justify-self: start; max-width: min(88%, 760px); }.message-row.own { grid-template-columns: minmax(0, 1fr) 30px; justify-self: end; }.message-row.own .message-avatar { grid-column: 2; }.message-row.own article { grid-column: 1; grid-row: 1; border-color: var(--cs-border-accent); background: var(--cs-surface-accent-strong); }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }.message-row.own .message-avatar { background: var(--cs-brand-600); color: var(--cs-text-on-dark); }.message-row article { min-width: 0; padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 5px 13px 13px; background: var(--cs-surface); font-size: var(--cs-text-sm); box-shadow: var(--cs-shadow-raised); }.message-row.own article { border-radius: 13px 5px 13px 13px; }.message-row article > header { display: flex; align-items: center; gap: var(--cs-space-8); margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row article > header strong { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.message-row article > header span { margin-left: auto; }.message-copy { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: calc(var(--cs-space-8) * -1); border: 0; border-radius: 9px; background: transparent; color: var(--cs-text-muted); cursor: pointer; }.message-copy:hover, .message-copy:focus-visible { background: var(--cs-surface-subtle); color: var(--cs-text-brand); }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row.system article > header { justify-content: center; margin-bottom: var(--cs-space-2); }.message-row.pending article { opacity: .72; }.message-row.failed article { border-color: var(--cs-danger-border); background: var(--cs-danger-soft); opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-8); color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: var(--cs-space-8); margin: var(--cs-space-64) auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid var(--cs-agent-border); border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: var(--cs-text-base); }.message-empty p { color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
+.conversation-detail { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }.conversation-detail__header { display: flex; align-items: flex-start; justify-content: flex-end; gap: var(--cs-space-16); padding: var(--cs-space-12) var(--cs-space-16) var(--cs-space-8); }.conversation-detail__header:focus-visible { outline: 3px solid var(--cs-ring-brand); outline-offset: -3px; }.conversation-detail__header p { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
+.message-stage { position: relative; min-height: 0; overflow: hidden; background: transparent; }.message-stage > :deep(.state-panel) { height: 100%; }.message-history { height: 100%; overflow-y: auto; overflow-anchor: none; padding: var(--cs-space-16) var(--cs-space-20) var(--cs-space-24); }.older-messages { display: flex; align-items: center; justify-content: center; gap: var(--cs-space-12); min-height: 32px; margin-bottom: var(--cs-space-8); }.older-messages > span { color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-list { display: grid; gap: var(--cs-space-16); max-width: 920px; padding: 0; margin: 0 auto; list-style: none; }.message-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: var(--cs-space-8); justify-self: start; max-width: min(88%, 760px); }.message-row.own { grid-template-columns: minmax(0, 1fr); justify-self: end; max-width: min(70%, 82%); }.message-row.own .message-avatar { display: none; }.message-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--cs-agent-soft); color: var(--cs-agent); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); }
+/* 消息呈现（dsh 对齐）：他人/Agent 消息无气泡直排正文，own 消息是唯一带底色的气泡
+ * （20px 圆角、10/16 内边距、列宽 70% 上限）。操作钮 hover 才显现，opacity 过渡保布局稳定。 */
+.message-row article { min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: var(--cs-text-sm); box-shadow: none; }.message-row.own article { padding: 10px 16px; border-radius: 20px; background: var(--cs-surface-accent-strong); line-height: 22px; }.message-row article > header { display: flex; align-items: center; gap: var(--cs-space-8); margin-bottom: var(--cs-space-4); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row article > header strong { color: var(--cs-text-secondary); font-size: var(--cs-text-xs); }.message-row article > header span { margin-left: auto; }.message-copy { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: calc(var(--cs-space-8) * -1); border: 0; border-radius: 9px; background: transparent; color: var(--cs-text-muted); cursor: pointer; }.message-copy { opacity: 0; transition: opacity 80ms ease; }
+.message-row:hover .message-copy, .message-copy:focus-visible { opacity: 1; }
+.message-copy:hover, .message-copy:focus-visible { background: var(--cs-surface-subtle); color: var(--cs-text-brand); }
+/* 触屏无 hover：操作钮恒显（dsh 同款例外）。 */
+@media (hover: none) { .message-copy { opacity: 1; } }.message-row.system { display: block; justify-self: stretch; max-width: none; text-align: center; }.message-row.system article { display: inline-block; padding: var(--cs-space-8) var(--cs-space-12); border: 0; border-radius: 999px; background: var(--cs-surface-subtle); box-shadow: none; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }.message-row.system article > header { justify-content: center; margin-bottom: var(--cs-space-2); }.message-row.pending article { opacity: .72; }.message-row.failed article { background: var(--cs-danger-soft); opacity: 1; }.message-row article > footer { display: flex; align-items: center; gap: var(--cs-space-8); margin-top: var(--cs-space-8); color: var(--cs-danger); font-size: var(--cs-text-xs); }.message-row article > footer button { margin-left: auto; border: 0; background: transparent; color: var(--cs-danger); font-size: var(--cs-text-xs); font-weight: var(--cs-weight-semibold); cursor: pointer; }.message-empty { display: grid; max-width: 360px; place-items: center; gap: var(--cs-space-8); margin: var(--cs-space-64) auto 0; text-align: center; }.message-empty > span, .conversation-welcome > span { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid var(--cs-agent-border); border-radius: 15px; background: var(--cs-agent-soft); color: var(--cs-agent); }.message-empty strong { font-size: var(--cs-text-base); }.message-empty p { color: var(--cs-text-muted); font-size: var(--cs-text-sm); line-height: var(--cs-leading-normal); }
 .message-row.streaming article { border-color: var(--cs-agent-border); background: var(--cs-agent-soft); transition: opacity var(--cs-motion-base) var(--cs-ease-out), transform var(--cs-motion-base) var(--cs-ease-out); }.message-row.streaming.reconnecting article { border-style: dashed; }.stream-placeholder { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
 .conversation-welcome { display: grid; max-width: 470px; place-items: center; align-self: center; justify-self: center; padding: var(--cs-space-64) var(--cs-space-24); text-align: center; }.conversation-welcome > span { margin-bottom: var(--cs-space-20); }.conversation-welcome h2 { margin-bottom: var(--cs-space-8); font: var(--cs-text-xl) var(--cs-font-display); }.conversation-welcome > p:not(.eyebrow) { margin-bottom: var(--cs-space-20); color: var(--cs-text-secondary); font-size: var(--cs-text-base); line-height: var(--cs-leading-relaxed); }
 /* 参与者面板的内部样式（header/ul/li/…）全部由 ConversationParticipantsPanel 自己的 scoped 承载：
@@ -1360,22 +1373,19 @@ async function redirectIfForbidden(): Promise<void> {
  * 不占轨道，专注模式下仍可打开。限定 ≥768 是因为 ≤767 的移动互斥布局本来就没有双栏。 */
 @media (min-width: 768px) {
   .conversation-workspace--focus { grid-template-columns: minmax(0, 1fr); }
-  .conversation-workspace--focus .conversation-list-panel,
-  .conversation-workspace--focus .pane-resizer { display: none; }
+  .conversation-workspace--focus .conversation-list-panel { display: none; }
 }
 .focus-mode-toggle { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface-subtle); color: var(--cs-text-secondary); cursor: pointer; }
 .focus-mode-toggle[aria-pressed='true'] { border-color: var(--cs-border-accent); background: var(--cs-surface-accent); color: var(--cs-text-brand); }
 .focus-mode-toggle:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: 2px; }
-.conversation-list-panel.collapsed > :not(header) { display: none; }
+.conversation-list-panel.collapsed > :not(header):not(.conversation-new) { display: none; }
 .conversation-list-panel.collapsed .conversation-list-header { flex-direction: column; align-items: center; padding: var(--cs-space-8) var(--cs-space-4); }
-.conversation-list-panel.collapsed .conversation-list-header > div:first-child { display: none; }
+.conversation-list-panel.collapsed .conversation-list-header h2 { display: none; }
+/* 折叠轨里新建钮退成 32px 图标钮（dsh 窄轨同款），文案隐藏但 accessible name 不变。 */
+.conversation-list-panel.collapsed .conversation-new { justify-content: center; width: 32px; height: 32px; margin: 0 auto var(--cs-space-8); padding: 0; }
+.conversation-list-panel.collapsed .conversation-new__label { display: none; }
 /* M14 B1：折叠轨 48px 图标窄轨——新建与展开两个图标钮纵向居中，与侧栏窄轨同一语言。 */
 .conversation-list-panel.collapsed .conversation-list-header__actions { flex-direction: column; align-items: center; width: auto; gap: var(--cs-space-8); }
-.pane-resizer { position: relative; z-index: 2; width: 8px; min-height: 100%; padding: 0; border: 0; background: transparent; cursor: col-resize; }
-/* M14 B1：拖拽线默认隐形——贴合双栏的分隔由列表右缘 hairline 承担，悬停/聚焦才显现抓取线。 */
-.pane-resizer::after { position: absolute; inset: 0 3px; content: ''; background: var(--cs-brand-400); opacity: 0; transition: opacity var(--cs-motion-fast) var(--cs-ease-out); }
-.pane-resizer:hover::after, .pane-resizer:focus-visible::after { opacity: 1; }
-.pane-resizer:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: -2px; }
 .detail-header-actions { display: flex; align-items: center; gap: var(--cs-space-8); }
 /* M14 B1：参与者头像栈入口——前 3 个主体 24px 圆 + 溢出计数，机构台账式的安静名单摘要。
    重叠量走 space-8 档的负 calc（design-tokens 门禁：负偏移也必须命名档位）。 */
@@ -1390,12 +1400,31 @@ async function redirectIfForbidden(): Promise<void> {
 /* Overlays the stage (not the scroll content) so its appearance never shifts the reading rows. It
  * sits at the stage's bottom, above the composer: "jump to latest" points down toward the new
  * messages, and the top center — where the "load older" button lives — must stay clickable. */
-.latest-jump { position: absolute; z-index: 3; bottom: 4px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; gap: var(--cs-space-8); width: fit-content; padding: var(--cs-space-4) var(--cs-space-8); border: 1px solid var(--cs-border-accent); border-radius: 999px; background: var(--cs-surface); color: var(--cs-text-brand); font-size: var(--cs-text-xs); box-shadow: var(--cs-shadow-raised); }
-.latest-jump button { border: 0; background: transparent; color: inherit; font-size: inherit; font-weight: var(--cs-weight-semibold); cursor: pointer; }
+/* 回底浮钮（dsh toBottom 对齐）：34px 圆、浮起面+发丝影；未读数做角标。 */
+.latest-jump { position: absolute; z-index: 3; bottom: 12px; left: 50%; transform: translateX(-50%); }
+.latest-jump__button { position: relative; display: grid; width: 34px; height: 34px; place-items: center; padding: 0; border: 1px solid var(--cs-border); border-radius: 999px; background: var(--cs-surface-raised); color: var(--cs-text-secondary); box-shadow: var(--cs-shadow-hairline); cursor: pointer; }
+.latest-jump__button:hover { background: var(--cs-surface-selected); color: var(--cs-text-brand); }
+.latest-jump__button:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: 2px; }
+.latest-jump__badge { position: absolute; top: -6px; right: -6px; display: grid; min-width: 17px; height: 17px; place-items: center; padding: 0 4px; border-radius: 999px; background: var(--cs-danger); color: var(--cs-text-on-semantic); font: var(--cs-weight-semibold) 10px var(--cs-font-sans); font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--cs-surface); }
 .unread-divider { grid-column: 1 / -1; padding: var(--cs-space-4) 0; border-top: 1px solid var(--cs-border-accent); color: var(--cs-text-brand); font-size: var(--cs-text-xs); text-align: center; }
 /* Spacers are grid items, so the row gap also separates a spacer from the edge rows; the padding
  * maths in useVirtualList already subtracts it — here they only occupy pure height. */
 .virtual-spacer { pointer-events: none; }
+/* 关联浮层：与参与者浮层同款右缘滑出壳，卡间距归容器（卡自身不再带底部 margin）。 */
+.association-panel { position: absolute; z-index: 5; top: 0; right: 0; bottom: 0; display: flex; flex-direction: column; width: 340px; max-width: calc(100% - 32px); overflow: hidden; border-left: 1px solid var(--cs-border); background: var(--cs-surface); box-shadow: var(--cs-shadow-raised); }
+.association-panel header { display: flex; align-items: baseline; gap: var(--cs-space-8); padding: var(--cs-space-16); border-bottom: 1px solid var(--cs-border); }
+.association-panel h2 { margin-bottom: var(--cs-space-4); font-size: var(--cs-text-md); }
+.association-panel header > span { flex: 1 1 auto; color: var(--cs-text-muted); font-size: var(--cs-text-sm); }
+.association-panel .panel-close { display: grid; flex: 0 0 auto; width: 28px; height: 28px; align-self: center; place-items: center; border: 1px solid var(--cs-border); border-radius: 7px; background: var(--cs-surface); color: var(--cs-text-secondary); cursor: pointer; }
+.association-panel .panel-close:hover { background: var(--cs-surface-subtle); color: var(--cs-text); }
+.association-panel__body { flex: 1 1 auto; overflow-y: auto; padding: var(--cs-space-8); }
+.association-panel .conversation-structure { max-width: none; margin: 0; }
+/* 340px 浮层里三列任务卡会把 nowrap 标题压成 0 宽——复用窄屏两列布局，actions 换行。 */
+.association-panel :deep(.conversation-task-card) { grid-template-columns: 32px minmax(0, 1fr); }
+.association-panel :deep(.conversation-task-card__actions) { grid-column: 2; }
+.associations-trigger { display: inline-flex; align-items: center; gap: var(--cs-space-4); min-height: 26px; padding: 0 var(--cs-space-8); border: 1px solid var(--cs-border); border-radius: 999px; background: var(--cs-surface); color: var(--cs-text-secondary); font-size: var(--cs-text-xs); cursor: pointer; }
+.associations-trigger:hover { border-color: var(--cs-border-accent); color: var(--cs-text); }
+.associations-trigger:focus-visible { outline: 2px solid var(--cs-focus); outline-offset: 2px; }
 .conversation-structure { max-width: 900px; margin: 0 auto var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface-glass); }
 .conversation-injection-note { margin: var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 .conversation-injection-list { display: grid; gap: var(--cs-space-4); margin: 0 var(--cs-space-8) var(--cs-space-8); padding: 0; list-style: none; }
@@ -1410,16 +1439,14 @@ async function redirectIfForbidden(): Promise<void> {
   .conversation-detail__header h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .conversation-detail__header p { display: none; }
 }
-@media (max-width: 767px) { .conversation-workspace { display: block; }.pane-resizer { display: none; }.conversation-list-panel.collapsed { display: none; }
+@media (max-width: 767px) { .conversation-workspace { display: block; }.conversation-list-panel.collapsed { display: none; }
   /* A stacked document, not the docked two-pane grid: the header caps the ≤1280 rules
    * added (single-line title, hidden version line) are re-opened here — this block sits after the
    * ≤1280 one, so it wins at phone widths. The participants overlay lives inside the detail pane
    * and covers it rather than occupying a grid track, so it stays available on mobile too. */
   .conversation-detail__header h2 { overflow: visible; text-overflow: clip; white-space: normal; }.conversation-detail__header p { display: block; } }
-@media (prefers-reduced-motion: reduce) { .message-row.streaming article, .pane-resizer::after { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .message-row.streaming article { transition: none; } }
 .empty-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--cs-space-12); }
 .empty-actions__secondary { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--cs-space-8); color: var(--cs-text-muted); font-size: var(--cs-text-sm); text-decoration: underline; text-underline-offset: 3px; }
 .empty-actions__secondary:hover, .empty-actions__secondary:focus-visible { color: var(--cs-text-brand); }
-.collaboration-strip { display: flex; min-height: 26px; align-items: center; justify-content: space-between; gap: var(--cs-space-12); padding: var(--cs-space-4) var(--cs-space-8) 0; }
-.collaboration-strip--degraded { justify-content: flex-start; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }
 </style>

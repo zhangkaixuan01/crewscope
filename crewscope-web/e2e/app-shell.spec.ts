@@ -1145,6 +1145,9 @@ test.beforeEach(async ({ page }) => {
         participants: [
           participant(crypto.randomUUID(), item.id, ids.principal, ids.member, 'OWNER'),
           participant(crypto.randomUUID(), item.id, ids.personalAgent, null, 'AGENT'),
+          // 林晨 rides the roster so the presence dot has a row to land on (the
+          // conversation-collaboration test's WS delta brings her online).
+          participant(crypto.randomUUID(), item.id, ids.secondPrincipal, ids.member, 'MEMBER'),
         ],
       })
       return
@@ -1493,18 +1496,20 @@ test('Conversation restores multiple visible Tasks and preserves Conversation, W
   await page.route(new RegExp(`/tasks/${completed.id}/events$`), route => fulfillSse(route, []))
 
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
-  // M9b-Q01 起关联卡默认摘要收起（待确认的任务提案卡除外）——展开后才能断言卡内事实。
+  // 关联卡住在 header 的关联浮层里（dsh 对齐后撤出问答流），M9b-Q01 摘要化不变——
+  // 先开浮层，再展开「关联任务」才能断言卡内事实。
+  await page.getByRole('button', { name: /查看关联/ }).click()
   await page.locator('summary', { hasText: '关联任务' }).click()
   const taskCards = page.getByTestId('conversation-task-cards')
   await expect(taskCards.getByText('完成 Agent Task 列表与委托入口', { exact: true })).toBeVisible()
   await expect(taskCards.getByText('验证 Conversation Task 恢复', { exact: true })).toBeVisible()
   await page.reload()
+  await page.getByRole('button', { name: /查看关联/ }).click()
   await page.locator('summary', { hasText: '关联任务' }).click()
   await expect(taskCards.getByText('验证 Conversation Task 恢复', { exact: true })).toBeVisible()
   await expect(taskCards).not.toContainText('不可见的私有 Task')
-  // The sticky conversation header and the jump-to-latest pill overlay this section, and how much of
-  // them lands inside the element screenshot depends on how far the browser restored the scroll after
-  // the reload. Pin the section to the top of its scroll container so the overlay offset is fixed.
+  // The association panel's body is the only scroller around the cards now; pin the
+  // cards to its top so the element screenshot crops identically every run.
   await taskCards.evaluate(element => element.scrollIntoView({ block: 'start', behavior: 'instant' }))
   await expect(taskCards).toHaveScreenshot(`conversation-tasks-${testInfo.project.name}.png`)
 
@@ -1517,7 +1522,8 @@ test('Conversation restores multiple visible Tasks and preserves Conversation, W
   await taskDialog.getByRole('button', { name: /规划 GitHub Provider 接入/ }).click()
   await expect(page).toHaveURL(/\/conversation\?/)
   expect(new URL(page.url()).searchParams.get('conversation')).toBe(ids.conversation)
-  // 返回对话同样是新 DOM，关联卡回到默认摘要收起。
+  // 返回对话同样是新 DOM，浮层重开，关联卡回到默认摘要收起。
+  await page.getByRole('button', { name: /查看关联/ }).click()
   await page.locator('summary', { hasText: '关联任务' }).click()
 
   await taskCards.locator(`[data-task-id="${ids.task}"]`).getByRole('button', { name: '工作项' }).click()
@@ -1552,7 +1558,8 @@ test('Conversation Task SSE invalidates durable facts and stops after the termin
   }]))
 
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
-  // 关联卡默认摘要收起（M9b-Q01）：断言卡内事实前先展开。
+  // 关联卡默认摘要收起（M9b-Q01）：先开关联浮层，再展开断言卡内事实。
+  await page.getByRole('button', { name: /查看关联/ }).click()
   await page.locator('summary', { hasText: '关联任务' }).click()
   const card = page.getByTestId('conversation-task-cards').locator(`[data-task-id="${ids.task}"]`)
   await expect(card.getByText('已完成', { exact: true })).toBeVisible()
@@ -1600,7 +1607,8 @@ test('fill 页面的固定高度 chrome 不参与内容溢出分摊', async ({ p
   // 「chrome 保持自然高度，workspace 接收剩余视口」的 L03 合同。断言高度而非截图，
   // 让这类回归在基线之前先在这里红掉。
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
-  // 关联卡默认摘要收起（M9b-Q01）：守卫断言的对象在收起内容里，先展开。
+  // 关联卡默认摘要收起（M9b-Q01）：守卫断言的对象在关联浮层的收起内容里，先开浮层再展开。
+  await page.getByRole('button', { name: /查看关联/ }).click()
   await page.locator('summary', { hasText: '关联任务' }).click()
   await expect(page.getByTestId('conversation-task-cards')).toBeVisible()
   const topbar = page.locator('.topbar')
@@ -1644,7 +1652,9 @@ test('Conversation shows the submitted owner message before the Agent stream is 
     await route.fallback()
   })
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
-  // 关联卡默认摘要收起（M9b-Q01）：卡内事实断言在消息收口验证里，先展开。
+  // 关联卡住在 header 浮层里且默认摘要收起（M9b-Q01）：消息收口验证要看卡内事实，
+  // 先开浮层再展开「关联任务」；浮层只占右缘，消息流断言不受影响。
+  await page.getByRole('button', { name: /查看关联/ }).click()
   await page.locator('summary', { hasText: '关联任务' }).click()
 
   await page.getByLabel('消息内容').fill('验证 Pending 消息收口。')
@@ -1835,8 +1845,11 @@ test('Conversation reviews the latest TaskIntent and confirms with an empty requ
   expect(confirmationBody).toBeNull()
 
   // M13b-F03（R02）：确认任务提案即自动展开「关联 WorkItem」并 toast 指路——进入
-  // 工作区的入口已就位（旧用例手动点 summary 展开现在反而会把它收起）。
+  // 工作区的入口已就位（展开态收在关联浮层里，开浮层即见）。
   await expect(page.getByText('可在「关联 WorkItem」中配置 Coding Task')).toBeVisible()
+  // The confirm toast carries its own 查看关联 action button, so the bare substring regex would
+  // strict-match both; the header trigger's aria-label reads 查看关联，N 项 — anchor on the comma.
+  await page.getByRole('button', { name: /查看关联，/ }).click()
   await page.getByRole('button', { name: '查看工作项 CRW-18' }).click()
   await expect(page).toHaveURL(/\/work\?/)
   expect(new URL(page.url()).searchParams.get('workItem')).toBe(ids.workItem)
@@ -1849,7 +1862,8 @@ test('Conversation reviews the latest TaskIntent and confirms with an empty requ
   await expect(page).toHaveURL(/\/conversation\?/)
   expect(new URL(page.url()).searchParams.get('conversation')).toBe(ids.conversation)
   await page.reload()
-  // reload 后关联 WorkItem 卡回到默认摘要收起。
+  // reload 后关联浮层重开、WorkItem 卡回到默认摘要收起。
+  await page.getByRole('button', { name: /查看关联/ }).click()
   await page.locator('summary', { hasText: '关联 WorkItem' }).click()
   await expect(page.getByRole('button', { name: '查看工作项 CRW-18' })).toBeVisible()
 })
@@ -2067,7 +2081,7 @@ test('Conversation manages detail and create-dialog focus for keyboard users', a
   const conversationButton = page.getByRole('button', { name: '打开对话 规划 GitHub Provider 接入' })
   await conversationButton.click()
 
-  const detailHeading = page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true, level: 2 })
+  const detailHeading = page.locator('.conversation-detail__header')
   await expect(detailHeading).toBeFocused()
   if (testInfo.project.name === 'narrow-chromium') {
     await page.getByRole('button', { name: '返回对话列表' }).click()
@@ -2114,7 +2128,7 @@ test('Conversation creates a server-backed Team conversation and opens it', asyn
   await dialog.getByRole('button', { name: '创建对话' }).click()
 
   await expect(dialog).toBeHidden()
-  const createdHeading = page.getByRole('heading', { name: '检查下一阶段发布边界', exact: true, level: 2 })
+  const createdHeading = page.getByRole('heading', { name: '检查下一阶段发布边界', exact: true })
   await expect(createdHeading).toBeVisible()
   // A created conversation lands focus on the composer: the next move is the first message, not
   // re-reading the title (ecb3e98's workspace rework).
@@ -2652,7 +2666,8 @@ test('CodingTarget loading indicator honors reduced motion', async ({ page }) =>
 
 test('TaskIntent WorkItem handoff creates a Conversation-linked Task and restores its card', async ({ page }) => {
   await page.goto(`/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
-  // 「已确认工作项」区在默认收起的关联 WorkItem 卡内（M9b-Q01 摘要化），先展开。
+  // 「已确认工作项」区在关联浮层内默认收起的关联 WorkItem 卡里（M9b-Q01 摘要化），先开浮层再展开。
+  await page.getByRole('button', { name: /查看关联/ }).click()
   await page.locator('summary', { hasText: '关联 WorkItem' }).click()
   await page.getByRole('region', { name: '已确认工作项' }).getByRole('button', { name: '为工作项 CRW-18 配置 Coding Task' }).click()
   await expect(page).toHaveURL(/sourceMessage=/)
@@ -2668,10 +2683,12 @@ test('TaskIntent WorkItem handoff creates a Conversation-linked Task and restore
   await expect(taskDialog).toBeVisible()
   await taskDialog.getByRole('button', { name: /规划 GitHub Provider 接入/ }).click()
   const cards = page.getByTestId('conversation-task-cards')
-  // 关联卡默认摘要收起（M9b-Q01）：返回与 reload 各展开一次再断言卡内事实。
+  // 关联卡默认摘要收起（M9b-Q01）：返回与 reload 后浮层各自重开、各展开一次再断言卡内事实。
+  await page.getByRole('button', { name: /查看关联/ }).click()
   await page.locator('summary', { hasText: '关联任务' }).click()
   await expect(cards.getByText('从 TaskIntent 上下文创建耐久 Task', { exact: true })).toBeVisible()
   await page.reload()
+  await page.getByRole('button', { name: /查看关联/ }).click()
   await page.locator('summary', { hasText: '关联任务' }).click()
   await expect(cards.getByText('从 TaskIntent 上下文创建耐久 Task', { exact: true })).toBeVisible()
 })
@@ -3586,7 +3603,6 @@ test('M11 collaboration signal states ride the surfaces without touching the sil
         ws.send(JSON.stringify({ ...payload, subscriptionId, scope }))
       if (scope.resourceType === 'conversation') {
         signal({ type: 'presence_delta', action: 'enter', principalId: `account:${ids.secondPrincipal}`, displayName: '林晨', connections: 1 })
-        signal({ type: 'typing', principalId: `account:${ids.secondPrincipal}`, displayName: '林晨', state: 'started' })
       } else if (scope.resourceType === 'work_project') {
         signal({ type: 'presence_delta', action: 'enter', principalId: `account:${ids.secondPrincipal}`, displayName: '林晨', connections: 1 })
         signal({ type: 'presence_delta', action: 'enter', principalId: `account:${ids.thirdPrincipal}`, displayName: '王睿', connections: 2 })
@@ -3606,12 +3622,15 @@ test('M11 collaboration signal states ride the surfaces without touching the sil
     return route.fallback()
   })
 
-  // Conversation: the strip above the composer carries presence and typing.
+  // Conversation: the composer-adjacent presence strip is gone (dsh chat restyle) — the
+  // participants panel's online dots are the conversation's one live presence surface.
   await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
-  await expect(page.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', '在场：林晨')
-  await expect(page.locator('.typing-indicator')).toContainText('林晨 正在输入…')
+  await page.getByRole('button', { name: /查看参与者/ }).click()
+  await expect(page.locator('.participant-panel li').filter({ hasText: '林晨' }).locator('.participant-online')).toBeVisible()
   await expect(page.locator('.collab-pill')).toContainText('实时协作在线')
+  await page.getByRole('button', { name: '关闭参与者面板' }).click()
+  await expect(page.locator('.participant-panel')).toHaveCount(0)
   await expect.poll(async () => page.evaluate(() => {
     const history = document.querySelector('.message-history')
     return history ? Math.abs(history.scrollHeight - history.clientHeight - history.scrollTop) < 4 : false
@@ -3885,6 +3904,9 @@ test('M9b-Q01 conversation association cards fold by default with the count as s
   await page.goto(`/conversation?focus=CRW-18&team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`)
   await expect(page.getByRole('heading', { name: '规划 GitHub Provider 接入', exact: true }).first()).toBeVisible()
 
+  // 关联卡住在 header 的关联浮层里（dsh 对齐后撤出问答流）：计数入口在「活跃」那一行，
+  // 摘要行与 M9b-Q01 的默认收起语义不变，只是先要开浮层。
+  await page.getByRole('button', { name: /查看关联/ }).click()
   const workItemCard = page.locator('summary', { hasText: '关联 WorkItem' }).locator('..')
   await expect(workItemCard.locator('summary')).toContainText(/关联 WorkItem \d+ 项/)
   await expect(workItemCard.getByRole('region', { name: '已确认工作项' })).toBeHidden()
@@ -4067,9 +4089,9 @@ test('M1 through M8 primary pages meet automated WCAG 2.2 AA checks', async ({ p
     { path: `/work?team=${ids.team}&project=${ids.project}`, ready: () => page.getByLabel('工作项列表') },
     { path: `/team/members?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('table', { name: '团队成员列表' }) },
     { path: `/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}`, ready: () => page.getByRole('dialog', { name: 'CRW-18 工作项详情' }) },
-    // M9b-Q01 起关联卡默认收起：扫展开态需要先点开「关联任务」（收起的内容不在可访问树，
-    // axe 本身扫不到，这里保持的是对展开内容的既有覆盖）。
-    { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, setup: async () => { await page.locator('summary', { hasText: '关联任务' }).click() }, ready: () => page.getByTestId('conversation-task-cards') },
+    // M9b-Q01 起关联卡默认收起：扫展开态需要先开关联浮层、再点开「关联任务」（收起的内容
+    // 不在可访问树，axe 本身扫不到，这里保持的是对展开内容的既有覆盖）。
+    { path: `/conversation?team=${ids.team}&project=${ids.project}&conversation=${ids.conversation}`, setup: async () => { await page.getByRole('button', { name: /查看关联/ }).click(); await page.locator('summary', { hasText: '关联任务' }).click() }, ready: () => page.getByTestId('conversation-task-cards') },
     { path: `/work?team=${ids.team}&project=${ids.project}&task=${ids.task}`, ready: () => page.getByRole('region', { name: 'Agent Tasks' }) },
     { path: `/work?team=${ids.team}&project=${ids.project}&workItem=${ids.workItem}&task=${ids.task}`, ready: () => page.getByRole('dialog', { name: /Task 详情/ }) },
     { path: `/settings/repositories?team=${ids.team}&project=${ids.project}`, ready: () => page.getByRole('heading', { name: 'CrewScope 仓库设置' }) },

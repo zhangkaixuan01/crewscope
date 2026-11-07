@@ -106,7 +106,9 @@ test('a real suspend cuts the member live, tears presence down, and holds on rec
   // Both sides live and mutually present — the state the attack starts from.
   await expect(ownerPage.locator('.collab-pill')).toContainText('实时协作在线')
   await expect(memberPage.locator('.collab-pill')).toContainText('实时协作在线')
-  await expect(ownerPage.locator('.collaboration-strip .presence-group')).toHaveAttribute('aria-label', /Marty Q01 Member/)
+  await ownerPage.getByRole('button', { name: /查看参与者/ }).click()
+  const memberDot = ownerPage.locator('.participant-panel li').filter({ hasText: 'Marty Q01' }).locator('.participant-online')
+  await expect(memberDot).toBeVisible()
 
   // The honest command shape: the member row's committed version as a strong If-Match.
   const membersPath = teamPath(ownerSession, teamId, 'members')
@@ -141,8 +143,7 @@ test('a real suspend cuts the member live, tears presence down, and holds on rec
     )
     .toBe('SUSPENDED')
   await expect(memberPage.locator('.collab-pill')).not.toContainText('实时协作在线', { timeout: 20_000 })
-  await expect(ownerPage.locator('.collaboration-strip .presence-group'))
-    .not.toHaveAttribute('aria-label', /Marty Q01 Member/, { timeout: 20_000 })
+  await expect(memberDot).toHaveCount(0, { timeout: 20_000 })
 
   // Residue check: the cut member reconnects on a fresh socket with the same session
   // and re-subscribes the swept scope — the door answers forbidden_scope again.
@@ -177,7 +178,6 @@ test('a real suspend cuts the member live, tears presence down, and holds on rec
   )
   expect(outcome.denied).toBe(true)
 
-  // And the roster does not come back: the revocation residue is zero.
-  await expect(ownerPage.locator('.collaboration-strip .presence-group'))
-    .not.toHaveAttribute('aria-label', /Marty Q01 Member/)
+  // And the dot does not come back: the revocation residue is zero.
+  await expect(memberDot).toHaveCount(0)
 })

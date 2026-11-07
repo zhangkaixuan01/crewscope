@@ -75,8 +75,9 @@ test('a redis restart under a connected page degrades quietly and self-heals', a
   // Self-healing: once Lettuce reconnects, the heartbeat refresh re-lands presence and
   // the pill returns to its live state. The connection was never punished for the outage.
   await expect(page.locator('.collab-pill')).toContainText('实时协作在线', { timeout: 30_000 })
-  await expect(page.locator('.collaboration-strip .presence-group'))
-    .toHaveAttribute('aria-label', /Rita Q01 Resilient/, { timeout: 30_000 })
+  await page.getByRole('button', { name: /查看参与者/ }).click()
+  await expect(page.locator('.participant-panel li').filter({ hasText: 'Rita Q01' }).locator('.participant-online'))
+    .toBeVisible({ timeout: 30_000 })
 
   // And the channel still carries work: a fresh REST read through the same origin answers.
   const conversationsPath = teamPath(session, teamId, 'conversations')

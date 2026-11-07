@@ -144,6 +144,13 @@ export function useVirtualList<T>(
     // not be applied to the new list — the captured anchor stays authoritative until the
     // post-flush restore consumes it. A window with no anchorable row keeps the previous anchor.
     if (!anchorLocked && moved) {
+      // Restore writes echo back as scroll events; re-deriving on that echo would hand the anchor
+      // to whatever row the intermediate flush pushed to the viewport edge. One programmatic write
+      // consumes one echo, so real member scrolling re-derives exactly as before.
+      if (skipNextRecapture) {
+        skipNextRecapture = false
+        return
+      }
       const anchor = anchorFromViewport()
       if (anchor) pendingAnchor = anchor
     }
@@ -237,12 +244,14 @@ export function useVirtualList<T>(
     // offsets, and re-deriving from that unmeasured layout would lock the estimate's error in
     // as the official reading position (the row RO pass then restores the *intent* exactly).
     pendingAnchor = anchor
+    skipNextRecapture = true
     readMetrics()
     return true
   }
 
   let pendingAnchor: VirtualAnchor | null = null
   let anchorLocked = false
+  let skipNextRecapture = false
 
   function restoreAnchor(): void {
     const anchor = pendingAnchor
@@ -260,6 +269,8 @@ export function useVirtualList<T>(
       const rect = row.getBoundingClientRect()
       if (rect.height > 0) {
         const offset = rect.top - element.getBoundingClientRect().top
+        console.log('[DBG] restoreDOM', anchor.key, 'shift', Math.round(offset - anchor.offsetWithin))
+        skipNextRecapture = true
         element.scrollTop += offset - anchor.offsetWithin
         onScroll()
         return
@@ -303,6 +314,7 @@ export function useVirtualList<T>(
     // A corrected height above the reading position would silently shift it; compensate through the anchor.
     if (changed && !isFollowing.value) restoreAnchor()
   }) : null
+  let lastContainerBox = { width: 0, height: 0 }
   const containerObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
     // A resize is not a scroll: the anchor keeps describing where the member *was*, so it is
     // restored against the reflowed layout instead of re-derived from it — re-deriving would
@@ -312,9 +324,16 @@ export function useVirtualList<T>(
     // the exact bottom instead of stranding the newest message a strip-height short until
     // the next one arrives. Shrinks larger than the follow threshold flip isFollowing in
     // readMetrics and take the anchor path, exactly like any other layout shift.
+    const element = container.value
+    if (!element) return
+    const box = { width: element.clientWidth, height: element.clientHeight }
+    // Observing fires once on attach with the current box — that is not a resize, and neither is a
+    // callback reporting no change. The load-older block collapsing changes only the height; the
+    // reprice inside the anchor path is width-guarded, so such a wave keeps every measurement.
+    if (box.width === lastContainerBox.width && box.height === lastContainerBox.height) return
+    lastContainerBox = box
     readMetrics()
     if (isFollowing.value) {
-      const element = container.value
       if (element) element.scrollTop = element.scrollHeight
     } else {
       // Pane drags resize rows exactly like window resizes do — same reprice + one-shot alignment.
@@ -407,6 +426,7 @@ export function useVirtualList<T>(
   watch(listElement, element => {
     rowMutationObserver?.disconnect()
     if (element) {
+      lastRowWidth = element.clientWidth
       rowMutationObserver?.observe(element, { childList: true })
       // Rows already in the DOM at observe time never fire the mutation observer — the host's
       // list mounts under async loading gates, long after this composable's own onMounted ran.
@@ -430,7 +450,15 @@ export function useVirtualList<T>(
    * coordinate system: drop every stale price, then synchronously re-measure the rendered rows so
    * the window carries real new-width prices and unmeasured rows fall back to the new median.
    */
+  let lastRowWidth = 0
   function repriceForResize(): void {
+    const width = listElement.value?.clientWidth ?? 0
+    // Prices go stale when the ROW WIDTH changes (wrapping changes every height). A height-only
+    // shift — the load-older block collapsing, the composer growing — leaves every measured height
+    // valid, and clearing the table would throw away hard-won measurements (the 500-line code
+    // block among them) for nothing.
+    if (width === lastRowWidth) return
+    lastRowWidth = width
     measured.clear()
     const list = listElement.value
     if (!list) return
@@ -443,14 +471,17 @@ export function useVirtualList<T>(
   }
 
   /**
-   * One-shot post-flush alignment for the resize chain. Even on a uniformly priced table the
-   * top spacer is rebuilt from estimated offsets, so after the flush shifts the anchor row its
-   * real rect can drift from the restored position by the estimate error of everything above.
-   * This corrects that residue once, from the row's real rect — and crucially does NOT schedule
-   * itself again (earlier attempts at tail re-alignment ping-ponged forever): one correction,
-   * then the chain is done. Guard: only writes when the drift exceeds half a pixel.
+   * Post-flush alignment for the resize chain. Even on a uniformly priced table the top spacer is
+   * rebuilt from estimated offsets, so after the flush shifts the anchor row its real rect can
+   * drift from the restored position by the estimate error of everything above. This corrects
+   * that residue from the row's real rect. A re-wrap keeps re-measuring rows for a few frames, so
+   * one correction can land before the row observer's last height reports — the pass re-arms
+   * itself at most once more (earlier attempts at unlimited tail re-alignment ping-ponged forever;
+   * two bounded passes absorb the trailing report without reopening that loop). Guard: only
+   * writes when the drift exceeds half a pixel.
    */
   let postFlushAlignPending = false
+  let postFlushAlignPasses = 0
   function schedulePostFlushAlignment(): void {
     if (postFlushAlignPending) return
     postFlushAlignPending = true
@@ -466,12 +497,20 @@ export function useVirtualList<T>(
       const rect = row.getBoundingClientRect()
       if (rect.height <= 0) return
       const drift = rect.top - element.getBoundingClientRect().top - anchor.offsetWithin
-      if (Math.abs(drift) <= 0.5) return
+      if (Math.abs(drift) <= 0.5) {
+        postFlushAlignPasses = 0
+        return
+      }
+      skipNextRecapture = true
       element.scrollTop += drift
       onScroll()
+      if (postFlushAlignPasses > 0) return
+      postFlushAlignPasses += 1
+      schedulePostFlushAlignment()
     })
   }
 
+  // Same rule as containerObserver: a window resize restores the reading anchor, never re-derives.
   // Same rule as containerObserver: a window resize restores the reading anchor, never re-derives.
   const onWindowResize = (): void => {
     readMetrics()
