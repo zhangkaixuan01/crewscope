@@ -88,12 +88,12 @@ test('renders the source lanes, per-currency amounts, price revisions and the un
   // The three source lanes each name themselves with tokens plus call count.
   await expect(page.getByText('1,260,000 token / 40 次调用')).toBeVisible()
   await expect(page.getByText('100,000 token / 2 次调用')).toBeVisible()
-  // Amounts keep the plain-string shape per currency — never converted, never merged.
+  // Amounts keep the plain-string shape per currency — never converted, never merged, trailing zeros trimmed on screen.
   const currencyTable = page.getByRole('table', { name: '2026-09 分币种费用' })
-  await expect(currencyTable.getByRole('row').filter({ hasText: 'USD' })).toContainText('0.528000000000')
-  await expect(currencyTable.getByRole('row').filter({ hasText: 'CNY' })).toContainText('0.050000000000')
+  await expect(currencyTable.getByRole('row').filter({ hasText: 'USD' })).toContainText('0.528')
+  await expect(currencyTable.getByRole('row').filter({ hasText: 'CNY' })).toContainText('0.05')
   // The unpriced lane is visible and is never worded as a zero cost.
-  await expect(page.getByText('存在未能解析价格的用量：按 token 计量，不计为 0 成本（300,000 token，XXX 行）')).toBeVisible()
+  await expect(page.getByText('存在未能解析价格的用量：按 token 计量，不计为 0 成本（300,000 token，计入 XXX 无币种行）')).toBeVisible()
   // The detail table pins the price revision pair and the unreported count.
   await expect(page.getByText('目录 2 · 价格 3')).toBeVisible()
   await expect(page.getByText('（未回显 2）')).toBeVisible()
@@ -110,8 +110,8 @@ test('surfaces the current-month budget card with the reminder-line wording (R21
   await expect(card.getByText('已达警戒线')).toBeVisible()
   await expect(card.getByText('警戒线 1,700,000 token（预算的 85%）；预算是提醒线，不是硬限制。')).toBeVisible()
   // 金额轨：有预算的币种先、花了但没预算的币种诚实标注。
-  await expect(card.getByText('0.050000000000 / 1000.00 CNY')).toBeVisible()
-  await expect(card.getByText('0.528000000000 USD（未设置预算）')).toBeVisible()
+  await expect(card.getByText('0.05 / 1000 CNY')).toBeVisible()
+  await expect(card.getByText('0.528 USD（未设置预算）')).toBeVisible()
   await expect(card.getByRole('link', { name: '配额设置' })).toHaveAttribute('href', /\/settings\/quota/)
 })
 

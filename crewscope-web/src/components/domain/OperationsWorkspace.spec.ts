@@ -141,7 +141,7 @@ describe('OperationsWorkspace', () => {
   it('renders initial and stale diagnostics failures, empty projections and terminal receipts', async () => {
     const initial = mountWorkspace({ phase: 'error', error: apiError('server', 'health unavailable'), health: null, diagnostics: null })
     expect(initial.text()).toContain('运行健康暂时不可用')
-    await initial.findAll('button').find(button => button.text().includes('刷新事实'))!.trigger('click')
+    await initial.findAll('button').find(button => button.text().includes('重新加载'))!.trigger('click')
     expect(initial.emitted('refresh')).toHaveLength(1)
 
     const admin = mountWorkspace({

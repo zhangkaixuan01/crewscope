@@ -95,7 +95,7 @@ describe('SearchPage', () => {
     expect(wrapper.text()).toContain('仍显示上次结果')
     expect(wrapper.text()).toContain('结果 one')
 
-    const retry = wrapper.findAll('button').find(button => button.text() === '刷新事实')
+    const retry = wrapper.findAll('button').find(button => button.text() === '重新加载')
     expect(retry).toBeTruthy()
     gateway.enqueue(page(['one', 'two']))
     await retry!.trigger('click')

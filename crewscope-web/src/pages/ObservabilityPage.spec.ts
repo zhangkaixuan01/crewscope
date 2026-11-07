@@ -33,9 +33,10 @@ describe('ObservabilityPage', () => {
     expect(workspace.text()).toContain('执行与对话')
     expect(workspace.text()).toContain('知识嵌入')
     expect(workspace.text()).toContain('1,260,000 token / 40 次调用')
-    // Per-currency rows keep the plain-string amounts.
+    // Per-currency rows keep the plain-string amounts — trailing zeros trimmed on screen.
     expect(workspace.text()).toContain('USD')
-    expect(workspace.text()).toContain('0.528000000000')
+    expect(workspace.text()).toContain('0.528')
+    expect(workspace.text()).not.toContain('0.528000000000')
     // The detail table shows the price revision and the unpriced badge side by side.
     expect(workspace.text()).toContain('目录 2 · 价格 3')
     expect(workspace.text()).toContain('未计价')
@@ -109,9 +110,10 @@ describe('ObservabilityPage', () => {
     expect(card.text()).toContain('1,260,000 / 2,000,000 token')
     expect(card.text()).toContain('警戒线 1,600,000 token（预算的 80%）')
     expect(card.text()).toContain('预算是提醒线，不是硬限制')
-    // Amount tracks: budgeted CNY and spent-but-unbudgeted USD both speak their state.
+    // Amount tracks: budgeted CNY and spent-but-unbudgeted USD both speak their state; amounts
+    // show one shape (trailing zeros trimmed — 301.50 / 500.00 renders as 301.5 / 500).
     expect(card.text()).toContain('CNY 金额预算')
-    expect(card.text()).toContain('301.50 / 500.00 CNY')
+    expect(card.text()).toContain('301.5 / 500 CNY')
     expect(card.text()).toContain('0.63 USD（未设置预算）')
     // Cross-link: the budget reminder face points at its configuration.
     expect(card.get('a.budget-link').attributes('href')).toContain('/settings/quota')

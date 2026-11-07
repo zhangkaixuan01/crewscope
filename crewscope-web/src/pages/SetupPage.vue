@@ -192,7 +192,7 @@ async function goToday(): Promise<void> {
   <SettingsShell eyebrow="配置中心 · 团队就绪度" :title="team?.name ? `${team.name} 的配置中心` : '配置中心'">
     <template #actions>
       <BaseButton variant="secondary" size="small" @click="goToday">返回 Today</BaseButton>
-      <BaseButton variant="secondary" size="small" :disabled="setupStore.state.phase === 'loading' || !online" @click="refresh"><RefreshCw :size="14" />刷新事实</BaseButton>
+      <BaseButton variant="secondary" size="small" :disabled="setupStore.state.phase === 'loading' || !online" @click="refresh"><RefreshCw :size="14" />重新加载</BaseButton>
     </template>
 
     <!-- M13b-F11（C5）：stale-while-refresh——刷新/离线/失败都不清空已加载的配置事实，整块

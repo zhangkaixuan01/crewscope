@@ -3,7 +3,7 @@ import { Bot, CircleUserRound, Clock3, ExternalLink, Radio, RefreshCw } from '@l
 import type { SemanticTone } from '../base/types'
 import type { TaskLiveState, TaskPhase } from '../../domains/task/store'
 import type { TaskAssociationSummary, TaskStatus } from '../../domains/task/types'
-import { taskExecutionWaitReasonLabels } from '../../domains/task/labels'
+import { taskExecutionStatusLabels, taskExecutionWaitReasonLabels, taskStatusLabels } from '../../domains/task/labels'
 import { enumLabel } from '../../domains/shared/labels'
 import { principalDisplayName, type PrincipalNameDirectory } from '../../domains/scope/memberDirectory'
 import BaseButton from '../base/BaseButton.vue'
@@ -25,11 +25,6 @@ defineEmits<{
   retry: []
 }>()
 
-const statusLabels: Record<TaskStatus, string> = {
-  CREATED: '已创建', ACTIVE: '执行中', WAITING: '等待中', COMPLETED: '已完成',
-  FAILED: '失败', CANCELLED: '已取消',
-}
-
 function statusTone(status: TaskStatus): SemanticTone {
   if (status === 'COMPLETED') return 'success'
   if (status === 'WAITING') return 'warning'
@@ -39,9 +34,11 @@ function statusTone(status: TaskStatus): SemanticTone {
 
 function executionLabel(association: TaskAssociationSummary): string {
   const task = association.task
-  return task.currentAttempt === null
-    ? '等待首个 Attempt'
-    : `Attempt ${task.currentAttempt} · ${task.currentExecutionStatus ?? 'UNKNOWN'}`
+  if (task.currentAttempt === null) return '等待首个 Attempt'
+  const status = task.currentExecutionStatus === null
+    ? '状态未知'
+    : enumLabel(task.currentExecutionStatus, taskExecutionStatusLabels)
+  return `Attempt ${task.currentAttempt} · ${status}`
 }
 
 function ownerName(
@@ -110,7 +107,7 @@ function displayDate(value: string): string {
         <div class="conversation-task-card__body">
           <div class="conversation-task-card__title">
             <strong>{{ association.task.objective }}</strong>
-            <StatusBadge :tone="statusTone(association.task.status)" dot>{{ statusLabels[association.task.status] }}</StatusBadge>
+            <StatusBadge :tone="statusTone(association.task.status)" dot>{{ taskStatusLabels[association.task.status] }}</StatusBadge>
           </div>
           <div class="conversation-task-card__facts">
             <span><CircleUserRound :size="12" aria-hidden="true" />{{ ownerName(association, currentPrincipalId, principalNames) }}</span>

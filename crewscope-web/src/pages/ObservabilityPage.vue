@@ -151,6 +151,12 @@ function formatTokens(value: number): string {
   return value.toLocaleString('zh-CN')
 }
 
+/** Amounts arrive as plain per-currency strings (backend BigDecimal scale kept); the screen shows
+ * one shape — trailing zeros trimmed. Never converted, never merged across currencies. */
+function formatMoney(value: string): string {
+  return value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value
+}
+
 /** Rates arrive at scale 4; the card keeps one decimal and always names its denominator. */
 function formatRate(rate: number | null): string {
   return rate == null ? '暂无样本' : `${(rate * 100).toFixed(1)}%`
@@ -202,8 +208,8 @@ function queryText(value: unknown): string | null {
             </div>
             <div v-for="track in amountTracks" :key="track.currency" class="metric">
               <dt>{{ track.currency }} 金额预算</dt>
-              <dd v-if="track.limit !== null && Number(track.limit) > 0">{{ track.used }} / {{ track.limit }} {{ track.currency }}</dd>
-              <dd v-else>{{ track.used }} {{ track.currency }}（未设置预算）</dd>
+              <dd v-if="track.limit !== null && Number(track.limit) > 0">{{ formatMoney(track.used) }} / {{ formatMoney(track.limit) }} {{ track.currency }}</dd>
+              <dd v-else>{{ formatMoney(track.used) }} {{ track.currency }}（未设置预算）</dd>
             </div>
           </dl>
           <p class="panel__note">
@@ -234,7 +240,7 @@ function queryText(value: unknown): string | null {
 
         <section class="panel" aria-labelledby="cost-heading">
           <h2 id="cost-heading" class="panel__title">{{ selectedMonth }} 成本概览</h2>
-          <p v-if="selectedSummary.unpricedTokens > 0" class="unpriced-hint">{{ OBSERVABILITY_UNPRICED_HINT }}（{{ formatTokens(selectedSummary.unpricedTokens) }} token，{{ OBSERVABILITY_UNPRICED_CURRENCY }} 行）</p>
+          <p v-if="selectedSummary.unpricedTokens > 0" class="unpriced-hint">{{ OBSERVABILITY_UNPRICED_HINT }}（{{ formatTokens(selectedSummary.unpricedTokens) }} token，计入 {{ OBSERVABILITY_UNPRICED_CURRENCY }} 无币种行）</p>
           <dl class="metric-grid">
             <template v-for="source in observabilityCostSources" :key="source">
               <div v-if="sourceTokens(source)" class="metric">
@@ -254,9 +260,9 @@ function queryText(value: unknown): string | null {
             <tbody>
               <tr v-for="currency in selectedSummary.currencies" :key="currency.currency">
                 <th scope="row">{{ currency.currency }}</th>
-                <td>{{ currency.inputCost ?? '—' }}</td>
-                <td>{{ currency.outputCost ?? '—' }}</td>
-                <td>{{ currency.cachedInputCost ?? '—' }}</td>
+                <td>{{ currency.inputCost == null ? '—' : formatMoney(currency.inputCost) }}</td>
+                <td>{{ currency.outputCost == null ? '—' : formatMoney(currency.outputCost) }}</td>
+                <td>{{ currency.cachedInputCost == null ? '—' : formatMoney(currency.cachedInputCost) }}</td>
               </tr>
             </tbody>
           </BaseTable>
@@ -295,7 +301,7 @@ function queryText(value: unknown): string | null {
                   <span><i>缓存</i>{{ formatTokens(row.cachedTokens) }}</span>
                 </td>
                 <td class="num cost-cell">
-                  <strong>{{ row.inputCost == null ? '—' : `${row.inputCost} + ${row.outputCost ?? '0'} ${row.currencyCode}` }}</strong>
+                  <strong>{{ row.inputCost == null ? '—' : `${formatMoney(row.inputCost)} + ${formatMoney(row.outputCost ?? '0')} ${row.currencyCode}` }}</strong>
                   <small>Attempt {{ row.attempt }}</small>
                 </td>
                 <td class="num">{{ row.factCount }}<span v-if="row.unreportedFactCount > 0" class="unreported">（未回显 {{ row.unreportedFactCount }}）</span></td>

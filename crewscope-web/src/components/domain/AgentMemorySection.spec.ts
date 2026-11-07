@@ -112,7 +112,7 @@ describe('AgentMemorySection', () => {
     await wrapper.setProps({ profileId: otherProfileId })
     await flushPromises()
     expect(wrapper.text()).toContain('加载失败')
-    await wrapper.findAll('button').find(item => item.text().includes('刷新事实'))!.trigger('click')
+    await wrapper.findAll('button').find(item => item.text().includes('重新加载'))!.trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('90 天')
   })

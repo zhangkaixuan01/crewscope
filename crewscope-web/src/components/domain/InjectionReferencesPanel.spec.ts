@@ -67,7 +67,7 @@ describe('InjectionReferencesPanel', () => {
     const wrapper = await mountPanel(gateway)
 
     expect(wrapper.text()).toContain('加载失败')
-    await wrapper.findAll('button').find(item => item.text().includes('刷新事实'))!.trigger('click')
+    await wrapper.findAll('button').find(item => item.text().includes('重新加载'))!.trigger('click')
     await flushPromises()
 
     expect(gateway.list).toHaveBeenCalledTimes(2)

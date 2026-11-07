@@ -14,7 +14,7 @@ describe('TaskListPanel', () => {
     const onSelect = vi.fn()
     const wrapper = mount(TaskListPanel, { props: props({ items: [task], onStatusChange, onOwnerChange, onSelect }) })
 
-    expect(wrapper.text()).toContain('Attempt 1 · WAITING')
+    expect(wrapper.text()).toContain('Attempt 1 · 等待中')
     expect(wrapper.text()).toContain('等待原因 · 等待运行时资源')
     expect(wrapper.text()).toContain('张凯旋')
     expect(wrapper.get(`[aria-label="查看 Task：${task.objective}"]`).attributes('aria-pressed')).toBe('true')

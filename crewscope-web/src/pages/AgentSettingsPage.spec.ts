@@ -104,7 +104,7 @@ describe('AgentSettingsPage', () => {
 
     const error = await mountPage('error')
     expect(error.text()).toContain('Agent 目录暂时不可用')
-    expect(error.findAll('button').some(button => button.text().includes('刷新事实'))).toBe(true)
+    expect(error.findAll('button').some(button => button.text().includes('重新加载'))).toBe(true)
   })
 
   it('preserves a safe list when a deep link points outside the visible Team scope', async () => {

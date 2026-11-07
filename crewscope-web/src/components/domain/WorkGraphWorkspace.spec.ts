@@ -157,7 +157,7 @@ describe('WorkGraphWorkspace', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('暂时无法加载阻塞关系')
-    const retry = wrapper.findAll('button').find(button => button.text() === '刷新事实')
+    const retry = wrapper.findAll('button').find(button => button.text() === '重新加载')
     expect(retry).toBeDefined()
     await retry!.trigger('click')
     await flushPromises()

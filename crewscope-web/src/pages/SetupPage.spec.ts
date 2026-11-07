@@ -174,7 +174,7 @@ describe('SetupPage', () => {
 
   it('keeps refresh as the secondary action while configuration stays primary', async () => {
     const { wrapper } = await mountPage(gatewayWith(goalFixture))
-    const refresh = wrapper.findAll('button').find(button => button.text().includes('刷新事实'))!
+    const refresh = wrapper.findAll('button').find(button => button.text().includes('重新加载'))!
     expect(refresh.classes()).toContain('base-button--secondary')
     const primary = wrapper.findAll('button').find(button => button.text().includes('配置 Agent'))!
     expect(primary.classes()).not.toContain('base-button--secondary')
@@ -203,7 +203,7 @@ describe('SetupPage', () => {
   it('refreshes readiness and health together', async () => {
     const { wrapper, gateway } = await mountPage(gatewayWith(goalFixture, [healthItem('AGENT_CONFIGURATION'), healthItem('MODEL_CONNECTION'), healthItem('CREDENTIAL'), healthItem('INTEGRATION')]))
 
-    await wrapper.findAll('button').find(button => button.text().includes('刷新事实'))!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text().includes('重新加载'))!.trigger('click')
     await flushPromises()
 
     expect(gateway.getReadiness).toHaveBeenCalledTimes(2)

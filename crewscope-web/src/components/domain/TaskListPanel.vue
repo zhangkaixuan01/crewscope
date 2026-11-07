@@ -4,7 +4,7 @@ import { Bot, CircleUserRound, Clock3, Filter, LoaderCircle, RefreshCw } from '@
 import { computed } from 'vue'
 import type { TaskPhase } from '../../domains/task/store'
 import { taskStatuses, type TaskStatus, type TaskSummary } from '../../domains/task/types'
-import { taskExecutionWaitReasonLabels } from '../../domains/task/labels'
+import { taskExecutionStatusLabels, taskExecutionWaitReasonLabels, taskStatusLabels } from '../../domains/task/labels'
 import { enumLabel } from '../../domains/shared/labels'
 import BaseButton from '../base/BaseButton.vue'
 import StatusBadge from '../base/StatusBadge.vue'
@@ -37,11 +37,6 @@ function clearFilters(): void {
   props.onOwnerChange('all')
 }
 
-const statusLabels: Record<TaskStatus, string> = {
-  CREATED: '已创建', ACTIVE: '执行中', WAITING: '等待中', COMPLETED: '已完成',
-  FAILED: '失败', CANCELLED: '已取消',
-}
-
 function statusTone(status: TaskStatus): SemanticTone {
   if (status === 'COMPLETED') return 'success'
   if (status === 'FAILED' || status === 'CANCELLED') return 'danger'
@@ -50,9 +45,11 @@ function statusTone(status: TaskStatus): SemanticTone {
 }
 
 function executionLabel(task: TaskSummary): string {
-  return task.currentAttempt === null
-    ? '尚未创建 attempt'
-    : `Attempt ${task.currentAttempt} · ${task.currentExecutionStatus ?? 'UNKNOWN'}`
+  if (task.currentAttempt === null) return '尚未创建 Attempt'
+  const status = task.currentExecutionStatus === null
+    ? '状态未知'
+    : enumLabel(task.currentExecutionStatus, taskExecutionStatusLabels)
+  return `Attempt ${task.currentAttempt} · ${status}`
 }
 
 function ownerName(task: TaskSummary, owners: Array<{ principalId: string, displayName: string }>): string {
@@ -69,7 +66,7 @@ function ownerName(task: TaskSummary, owners: Array<{ principalId: string, displ
         <h2 id="control-task-heading">Agent Tasks</h2>
       </div>
       <div class="task-filters" aria-label="Task 筛选">
-        <label><span>状态</span><BaseSelect :model-value="status" @update:model-value="onStatusChange($event as TaskStatus | 'all')"><option value="all">全部状态</option><option v-for="value in taskStatuses" :key="value" :value="value">{{ statusLabels[value] }}</option></BaseSelect></label>
+        <label><span>状态</span><BaseSelect :model-value="status" @update:model-value="onStatusChange($event as TaskStatus | 'all')"><option value="all">全部状态</option><option v-for="value in taskStatuses" :key="value" :value="value">{{ taskStatusLabels[value] }}</option></BaseSelect></label>
         <label><span>负责人</span><BaseSelect :model-value="ownerPrincipalId" @update:model-value="onOwnerChange(String($event))"><option value="all">全部负责人</option><option v-for="owner in owners" :key="owner.principalId" :value="owner.principalId">{{ owner.displayName }}</option></BaseSelect></label>
       </div>
     </header>
@@ -82,7 +79,7 @@ function ownerName(task: TaskSummary, owners: Array<{ principalId: string, displ
         <button class="task-card__main" type="button" :data-task-id="task.id" :aria-label="`查看 Task：${task.objective}`" :aria-pressed="task.id === selectedTaskId" @click="onSelect(task)">
           <span class="task-card__icon"><Bot :size="16" /></span>
           <span class="task-card__copy">
-            <span class="task-card__top"><strong>{{ task.objective }}</strong><StatusBadge :tone="statusTone(task.status)" dot>{{ statusLabels[task.status] }}</StatusBadge></span>
+            <span class="task-card__top"><strong>{{ task.objective }}</strong><StatusBadge :tone="statusTone(task.status)" dot>{{ taskStatusLabels[task.status] }}</StatusBadge></span>
             <span class="task-card__meta"><span><CircleUserRound :size="14" />{{ ownerName(task, owners) }}</span><span><Clock3 :size="14" />{{ executionLabel(task) }}</span></span>
             <span v-if="task.currentWaitingReason" class="task-card__waiting">等待原因 · {{ enumLabel(task.currentWaitingReason, taskExecutionWaitReasonLabels) }}</span>
           </span>

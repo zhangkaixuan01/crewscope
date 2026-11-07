@@ -8,7 +8,7 @@ const props = withDefaults(defineProps<{
   title?: string
   description?: string
   compact?: boolean
-  /** Names the recovery action after the business it performs (R25);「刷新事实」 is the fallback. */
+  /** Names the recovery action after the business it performs (R25);「重新加载」 is the fallback. */
   retryLabel?: string
   /**
    * M13b-F11（C2）：error 面板必须给出恢复动作或显式承认没有。显式传 false = 此面板没有可
@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<{
   title: '',
   description: '',
   compact: false,
-  retryLabel: '刷新事实',
+  retryLabel: '重新加载',
   headingLevel: 2,
 })
 
@@ -71,7 +71,7 @@ const retryWired = computed(() => {
 
 <template>
   <section class="state-panel" :class="{ compact }" :aria-busy="busy" :aria-live="assertive ? 'assertive' : 'polite'" aria-atomic="true" :role="assertive ? 'alert' : 'status'">
-    <component :is="presentation.icon" :class="{ spinning: state === 'loading' || state === 'reconnecting' || state === 'recovering' }" :size="20" aria-hidden="true" />
+    <component :is="presentation.icon" :class="{ spinning: state === 'loading' || state === 'reconnecting' || state === 'recovering', 'state-panel__alert': state === 'error' || state === 'conflict' }" :size="20" aria-hidden="true" />
     <div>
       <!-- M13b-F12（二轮 A16）：标题层级交给调用面——默认 h2（页面 h1 → 面板 h2 顺层），
            嵌套在 h2 分区里的面板传 heading-level=3 维持层级。此前固定 h3，全站 h1 直接跳 h3。 -->
@@ -92,10 +92,14 @@ const retryWired = computed(() => {
 
 <style scoped>
 .state-panel { display: grid; min-height: 180px; place-content: center; justify-items: center; gap: var(--cs-space-12); padding: var(--cs-space-32); color: var(--cs-text-muted); text-align: center; }
-.state-panel h3 { margin-bottom: var(--cs-space-4); color: var(--cs-text); font-size: var(--cs-text-md); }
+/* M14：headingLevel 默认渲染 h2（M13b-F12），旧选择器只写了 h3 —— 换代后全站标题吃 UA 默认
+   21px/700。:is() 覆盖全部三档，字号回归 --cs-text-md。 */
+.state-panel :is(h2, h3, h4) { margin-bottom: var(--cs-space-4); color: var(--cs-text); font-size: var(--cs-text-md); }
 .state-panel p { max-width: 390px; margin-bottom: 0; font-size: var(--cs-text-base); }
+/* error/conflict 是仅有的两个「事已出错」态 —— 图标着 danger 让语义可扫读，标题保持正文色（安静机构台账）。 */
+.state-panel__alert { color: var(--cs-danger); }
 .state-panel.compact { min-height: 0; grid-template-columns: auto minmax(0, 1fr) auto; place-content: initial; align-items: center; justify-items: start; gap: var(--cs-space-8); padding: var(--cs-space-8) var(--cs-space-12); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-sm); background: var(--cs-surface-subtle); text-align: left; }
-.state-panel.compact h3 { margin: 0 0 var(--cs-space-4); font-size: var(--cs-text-xs); }
+.state-panel.compact :is(h2, h3, h4) { margin: 0 0 var(--cs-space-4); font-size: var(--cs-text-xs); }
 .state-panel.compact p { margin: 0; font-size: var(--cs-text-xs); line-height: var(--cs-leading-normal); }
 .state-panel.compact > svg { width: var(--cs-space-16); height: var(--cs-space-16); }
 .state-panel__stance { margin: 0; color: var(--cs-text-muted); font-size: var(--cs-text-xs); }

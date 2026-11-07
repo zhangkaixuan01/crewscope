@@ -20,7 +20,8 @@ describe('ConversationTaskCards', () => {
     })
 
     expect(wrapper.findAll('.conversation-task-card')).toHaveLength(2)
-    expect(wrapper.text()).toContain('执行中')
+    expect(wrapper.text()).toContain('进行中')
+    expect(wrapper.text()).toContain('Attempt 1 · 执行中')
     expect(wrapper.text()).toContain('等待中')
     expect(wrapper.text()).toContain('等待原因 · 等待人工确认')
     expect(wrapper.text()).toContain('实时')

@@ -2707,7 +2707,7 @@ test('Control Mode Task list restores status, Owner and Task deep links on narro
   const panel = page.getByRole('region', { name: 'Agent Tasks' })
 
   await expect(panel.getByText('等待原因 · 等待运行时资源')).toBeVisible()
-  await expect(panel.getByText('Attempt 2 · WAITING')).toBeVisible()
+  await expect(panel.getByText('Attempt 2 · 等待中')).toBeVisible()
   await expect(panel.getByLabel('Task 筛选').getByRole('combobox').first()).toHaveValue('WAITING')
   await expect(panel.getByLabel('Task 筛选').getByRole('combobox').last()).toHaveValue(ids.principal)
   await panel.getByRole('button', { name: '查看 Task：完成 Agent Task 列表与委托入口' }).click()
@@ -2745,7 +2745,7 @@ test('Control Mode Task list exposes loading, empty, error and retry states', as
 
   await page.reload()
   await expect(panel.getByText('Task 状态服务暂时不可用')).toBeVisible()
-  await panel.getByRole('button', { name: '刷新事实' }).click()
+  await panel.getByRole('button', { name: '重新加载' }).click()
   await expect(panel.getByText('当前筛选下没有 Task')).toBeVisible()
 })
 
@@ -4034,7 +4034,7 @@ test('M10-F01c injection feedback marks in place, replays from the server, and s
   await expect(injection.getByText('Task 或执行不存在')).toBeVisible()
   await expect(injection.getByText('该执行没有注入清单')).toBeHidden()
   injectionEvidenceMode = 'empty'
-  await injection.getByRole('button', { name: '刷新事实' }).click()
+  await injection.getByRole('button', { name: '重新加载' }).click()
   await expect(injection.getByText('该执行没有注入清单')).toBeVisible()
 })
 

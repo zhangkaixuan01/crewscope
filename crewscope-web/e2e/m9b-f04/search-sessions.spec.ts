@@ -64,7 +64,7 @@ test('keeps the last committed result beside a failed refresh and retries the co
 
   // A draft never rides along with the retry: only the committed query is resubmitted.
   await page.getByLabel('搜索内容').fill('永远不提交的草稿')
-  await page.getByRole('button', { name: '刷新事实' }).click()
+  await page.getByRole('button', { name: '重新加载' }).click()
   await expect(page.getByText('已加载 1 条结果')).toBeVisible()
   expect(api.searchTexts.at(-1)).toBe('部署')
 })

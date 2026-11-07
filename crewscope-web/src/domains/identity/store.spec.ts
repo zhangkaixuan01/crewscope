@@ -12,7 +12,8 @@ describe('AuthStore', () => {
 
     expect(store.state.phase).toBe('authenticated')
     expect(store.principal).toMatchObject({
-      id: 'principal-1', accountId: 'account-1', displayName: 'Alice', organizationId: 'organization-1', role: 'Team Member',
+      // Role carries the raw platformRole fact; display wording lives in platformRoleLabels.
+      id: 'principal-1', accountId: 'account-1', displayName: 'Alice', organizationId: 'organization-1', role: 'USER',
     })
     expect([...store.principal.permissions]).toEqual(['scope:read', 'conversation:use'])
     // The scoped-namespace epoch marker is device-level metadata, not identity state.

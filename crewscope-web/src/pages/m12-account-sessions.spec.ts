@@ -104,8 +104,8 @@ describe('AccountPage session management (M12-F03)', () => {
     const identity = identityGateway({ sessionsError: apiError(503, 'authentication_unavailable', 'private') })
     const { wrapper } = await mountPage({ identity })
     expect(wrapper.text()).toContain('暂时无法读取登录会话。')
-    // StatePanel renders its recovery action with the shared「刷新事实」fallback label.
-    const retry = wrapper.findAll('button').find(button => button.text().includes('刷新事实'))
+    // StatePanel renders its recovery action with the shared「重新加载」fallback label.
+    const retry = wrapper.findAll('button').find(button => button.text().includes('重新加载'))
     expect(retry).toBeDefined()
     wrapper.unmount()
   })

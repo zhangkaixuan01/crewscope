@@ -45,7 +45,7 @@ describe('BaseListShell', () => {
   it('forwards retry from the empty hard-error state', async () => {
     const wrapper = mounted({ phase: 'error', items: [], errorMessage: '服务暂时无法完成请求' })
     expect(wrapper.text()).toContain('服务暂时无法完成请求')
-    await wrapper.findAll('button').find(button => button.text() === '刷新事实')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '重新加载')!.trigger('click')
     expect(wrapper.emitted('retry')).toHaveLength(1)
   })
 

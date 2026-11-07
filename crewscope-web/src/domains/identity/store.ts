@@ -222,7 +222,10 @@ export function createAuthStore(gateway: IdentityGateway, options: AuthStoreOpti
     principal.id = session.principal.principalId
     principal.accountId = session.account.accountId
     principal.displayName = session.account.displayName
-    principal.role = session.account.platformRole === 'OPERATOR' ? 'Operator' : 'Team Member'
+    // Role stores the raw platformRole fact (USER/OPERATOR); display wording is applied by the
+    // consuming component via platformRoleLabels — storing pre-rendered English here broke that
+    // mapping and leaked 'Team Member' past enumLabel's fallback.
+    principal.role = session.account.platformRole
     principal.organizationId = session.principal.organizationId
     // Single source is the session organization projection (M12-A01 §3.5); members without an
     // ORG_* role get no projection, so the display name stays empty rather than a placeholder.

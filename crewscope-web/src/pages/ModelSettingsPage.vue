@@ -28,7 +28,10 @@ const modelStore = useModelStore()
 const team = scopeStore.selectedTeam
 const selection = computed(() => modelSettingsSelection(route.query))
 const canManageTeam = computed(() => Boolean(principal && can(principal, permissions.providerManage)))
-const canManageOrganization = computed(() => principal?.role === 'Platform Administrator')
+// Organization-scoped connection management rides the org capability projection, not a role
+// display string — 'Platform Administrator' never existed in the session contract, so the old
+// comparison silently disabled the ORGANIZATION owner lane for everyone.
+const canManageOrganization = computed(() => Boolean(principal && can(principal, permissions.orgManageSettings)))
 const ownerTypes = computed<ModelConnectionOwnerType[]>(() => canManageOrganization.value
   ? ['USER', 'TEAM', 'ORGANIZATION'] : ['USER', 'TEAM'])
 const activeOwnerType = computed(() => ownerTypes.value.includes(selection.value.ownerType ?? 'USER')

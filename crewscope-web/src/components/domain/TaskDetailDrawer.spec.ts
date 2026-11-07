@@ -181,7 +181,7 @@ describe('TaskDetailDrawer', () => {
     }))
     expect(failed.text()).toContain('Runtime 读取失败')
     expect(failed.text()).toContain('Fleet 读取失败')
-    const retryButtons = failed.findAll('button').filter(button => button.text().includes('刷新事实'))
+    const retryButtons = failed.findAll('button').filter(button => button.text().includes('重新加载'))
     await retryButtons[0]!.trigger('click')
     await retryButtons[1]!.trigger('click')
     expect(onRetryFleet).toHaveBeenCalled()
